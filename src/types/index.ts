@@ -77,6 +77,12 @@ export interface SongAnalysis {
   tips?: string;
   youtubeUrl?: string;
   confidence?: number;
+  audioBlob?: Blob;
+  duration?: number;
+}
+
+export interface SavedSong extends SongAnalysis {
+  audioBlob: Blob;
 }
 
 export type PedalType =

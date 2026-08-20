@@ -1,16 +1,18 @@
-import { TonePreset, SavedRecording } from "../types";
+import { TonePreset, SavedRecording, SavedSong } from "../types";
 import { DEFAULT_TONE_PRESETS } from "../data/presetsDatabase";
 
 const DB_NAME = "GuitarStudio_DB";
-const DB_VERSION = 1;
+const DB_VERSION = 2; // Incremented for new store
 const STORE_RECORDINGS = "recordings";
 const STORE_PRESETS = "presets";
 const STORE_PRACTICE = "practice_logs";
+const STORE_SONGS = "songs";
 
 // Fallback in-memory cache if IndexedDB is blocked in sandboxed iframes
 const memoryPresets: TonePreset[] = [...DEFAULT_TONE_PRESETS];
 const memoryRecordings: SavedRecording[] = [];
 const memoryPracticeLogs: PracticeLog[] = [];
+const memorySongs: SavedSong[] = [];
 
 function openDB(): Promise<IDBDatabase | null> {
   return new Promise((resolve) => {
@@ -31,6 +33,9 @@ function openDB(): Promise<IDBDatabase | null> {
           }
           if (!db.objectStoreNames.contains(STORE_PRACTICE)) {
             db.createObjectStore(STORE_PRACTICE, { keyPath: "id" });
+          }
+          if (!db.objectStoreNames.contains(STORE_SONGS)) {
+            db.createObjectStore(STORE_SONGS, { keyPath: "id" });
           }
         } catch (err) {
           console.warn("IndexedDB upgrade warning:", err);
@@ -195,5 +200,60 @@ export async function loadPracticeLogs(): Promise<PracticeLog[]> {
     });
   } catch (err) {
     return memoryPracticeLogs;
+  }
+}
+
+export async function saveSongToDB(song: SavedSong): Promise<void> {
+  try {
+    const db = await openDB();
+    if (!db) {
+      const idx = memorySongs.findIndex((s) => s.id === song.id);
+      if (idx >= 0) memorySongs[idx] = song;
+      else memorySongs.push(song);
+      return;
+    }
+    const tx = db.transaction(STORE_SONGS, "readwrite");
+    const store = tx.objectStore(STORE_SONGS);
+    store.put(song);
+  } catch (err) {
+    console.warn("Failed to save song to DB:", err);
+    memorySongs.push(song);
+  }
+}
+
+export async function loadSongsFromDB(): Promise<SavedSong[]> {
+  try {
+    const db = await openDB();
+    if (!db) {
+      return memorySongs;
+    }
+    const tx = db.transaction(STORE_SONGS, "readonly");
+    const store = tx.objectStore(STORE_SONGS);
+    return new Promise((resolve) => {
+      const req = store.getAll();
+      req.onsuccess = () => {
+        resolve(req.result as SavedSong[]);
+      };
+      req.onerror = () => resolve(memorySongs);
+    });
+  } catch (err) {
+    console.warn("Failed to load songs:", err);
+    return memorySongs;
+  }
+}
+
+export async function deleteSongFromDB(id: string): Promise<void> {
+  try {
+    const db = await openDB();
+    if (!db) {
+      const idx = memorySongs.findIndex((s) => s.id === id);
+      if (idx >= 0) memorySongs.splice(idx, 1);
+      return;
+    }
+    const tx = db.transaction(STORE_SONGS, "readwrite");
+    const store = tx.objectStore(STORE_SONGS);
+    store.delete(id);
+  } catch (err) {
+    console.warn("Failed to delete song:", err);
   }
 }

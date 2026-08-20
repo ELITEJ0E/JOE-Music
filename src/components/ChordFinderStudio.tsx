@@ -13,14 +13,16 @@ import {
   Sparkles,
   Music,
   Check,
+  Trash2,
 } from "lucide-react";
 import { SAMPLE_SONGS } from "../data/sampleSongs";
 import { findChordByName } from "../data/chordDatabase";
 import { guitarSynth } from "../audio/guitarSynth";
 import { analyzeAudioFile } from "../audio/audioAnalyzer";
 import { audioEngine } from "../audio/audioContext";
-import { SongAnalysis } from "../types";
+import { SongAnalysis, SavedSong } from "../types";
 import { ChordDiagram } from "./ChordDiagram";
+import { saveSongToDB, loadSongsFromDB, deleteSongFromDB } from "../utils/storage";
 
 export const ChordFinderStudio: React.FC = () => {
   const [activeSong, setActiveSong] = useState<SongAnalysis>({
@@ -45,12 +47,13 @@ export const ChordFinderStudio: React.FC = () => {
     ],
   });
 
+  const [savedSongs, setSavedSongs] = useState<SavedSong[]>([]);
   const [youtubeUrl, setYoutubeUrl] = useState("");
   const [songName, setSongName] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isLiveMic, setIsLiveMic] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [currentBarIndex, setCurrentBarIndex] = useState(2); // Active is Em7 at Bar 3 (index 2)
+  const [currentTime, setCurrentTime] = useState(0);
   const [transpose, setTranspose] = useState(0);
   const [capo, setCapo] = useState(0);
   const [simplifyChords, setSimplifyChords] = useState(false);
@@ -59,46 +62,69 @@ export const ChordFinderStudio: React.FC = () => {
   const [voicingIndex, setVoicingIndex] = useState(1);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const playTimerRef = useRef<number | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    loadSongsFromDB().then(setSavedSongs);
+  }, []);
+
+  useEffect(() => {
+    if (activeSong.audioBlob && audioRef.current) {
+      const url = URL.createObjectURL(activeSong.audioBlob);
+      audioRef.current.src = url;
+      audioRef.current.load();
+      return () => URL.revokeObjectURL(url);
+    }
+  }, [activeSong.audioBlob]);
+
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.playbackRate = slowDown ? 0.75 : 1.0;
+    }
+  }, [slowDown]);
+
+  useEffect(() => {
+    if (isPlaying) {
+      audioRef.current?.play().catch(() => setIsPlaying(false));
+    } else {
+      audioRef.current?.pause();
+    }
+  }, [isPlaying]);
+
+  useEffect(() => {
+    let interval: number;
+    if (isPlaying) {
+      interval = window.setInterval(() => {
+        if (audioRef.current) {
+          setCurrentTime(audioRef.current.currentTime);
+        }
+      }, 100);
+    }
+    return () => clearInterval(interval);
+  }, [isPlaying]);
+
+  const duration = activeSong.duration || 1;
+  const barSeconds = Math.max(1.5, Math.min(4.0, (60 / (activeSong.tempo || 120)) * 4));
+  const currentBarIndex = Math.floor(currentTime / barSeconds);
+
+  const formatTime = (time: number) => {
+    const mins = Math.floor(time / 60);
+    const secs = Math.floor(time % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
 
   const derivedProgression = activeSong.sections.flatMap((section) =>
     section.chords.map((chord, idx) => ({
       chord,
       bar: `Bar ${idx + 1}`,
-      time: `0:0${idx * 2}`, // Fake time for now, or calculate properly
+      time: `0:0${idx * 2}`, // Placeholder, but functional for UI list
       sectionName: section.name,
     }))
   );
 
-  const prevChord = derivedProgression[(currentBarIndex - 1 + derivedProgression.length) % derivedProgression.length];
-  const activeChord = derivedProgression[currentBarIndex % derivedProgression.length];
-  const nextChord = derivedProgression[(currentBarIndex + 1) % derivedProgression.length];
-
-  // Playback timer loop
-  useEffect(() => {
-    if (!isPlaying) {
-      if (playTimerRef.current) clearInterval(playTimerRef.current);
-      return;
-    }
-
-    const intervalTime = slowDown ? 2600 : 2000;
-    playTimerRef.current = window.setInterval(() => {
-      setCurrentBarIndex((prev) => {
-        const next = (prev + 1) % derivedProgression.length;
-        const targetChord = derivedProgression[next].chord;
-        // Synthesize chord strum
-        const voicing = findChordByName(targetChord);
-        if (voicing) {
-          guitarSynth.strumChord(voicing.frets, "down", 30, capo + transpose, 0.8);
-        }
-        return next;
-      });
-    }, intervalTime);
-
-    return () => {
-      if (playTimerRef.current) clearInterval(playTimerRef.current);
-    };
-  }, [isPlaying, slowDown, capo, transpose]);
+  const prevChord = derivedProgression[(currentBarIndex - 1 + derivedProgression.length) % derivedProgression.length] || { chord: "-", bar: "-" };
+  const activeChord = derivedProgression[currentBarIndex % derivedProgression.length] || { chord: "-", bar: "-" };
+  const nextChord = derivedProgression[(currentBarIndex + 1) % derivedProgression.length] || { chord: "-", bar: "-" };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -108,7 +134,12 @@ export const ChordFinderStudio: React.FC = () => {
     try {
       const result = await analyzeAudioFile(file);
       setActiveSong(result);
-      setCurrentBarIndex(0);
+      if (result.audioBlob) {
+        await saveSongToDB(result as SavedSong);
+        loadSongsFromDB().then(setSavedSongs);
+      }
+      setCurrentTime(0);
+      setIsPlaying(false);
       setIsAnalyzing(false);
     } catch (err) {
       setIsAnalyzing(false);
@@ -133,11 +164,12 @@ export const ChordFinderStudio: React.FC = () => {
       if (!response.ok) {
         alert(data.error || "Failed to analyze song.");
       } else {
-        // Mark it as AI estimated
         data.title = data.title + " (AI-Estimated Chords)";
         data.id = `yt-analyzed-${Date.now()}`;
         setActiveSong(data);
-        setCurrentBarIndex(0);
+        setCurrentTime(0);
+        setIsPlaying(false);
+        // We don't save YouTube estimated songs to IndexedDB as they lack audioBlobs
       }
     } catch (err) {
       console.error(err);
@@ -157,15 +189,24 @@ export const ChordFinderStudio: React.FC = () => {
     }
   };
 
-  // Get active chord fingering for the fretboard diagram
-  const activeVoicing = findChordByName(activeChord.chord) || {
-    name: "Em7",
-    frets: [0, 2, 2, 0, 3, 0],
-    fingers: [0, 1, 2, 0, 3, 0],
+  const handleDeleteSong = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    await deleteSongFromDB(id);
+    loadSongsFromDB().then(setSavedSongs);
   };
+
+  const loadSavedSong = (song: SavedSong) => {
+    setActiveSong(song);
+    setCurrentTime(0);
+    setIsPlaying(false);
+  };
+
+  // Get active chord fingering for the fretboard diagram
+  const activeVoicing = findChordByName(activeChord.chord);
 
   return (
     <div id="panel-chord-finder" className="max-w-6xl mx-auto space-y-6 pb-12 animate-in fade-in duration-200">
+      <audio ref={audioRef} className="hidden" />
       {/* Centered Page Header */}
       <div className="text-center space-y-1.5">
         <h1 className="text-3xl font-extrabold text-white tracking-tight">
@@ -256,6 +297,36 @@ export const ChordFinderStudio: React.FC = () => {
         </div>
       </div>
 
+      {/* My Songs List */}
+      {savedSongs.length > 0 && (
+        <div className="frosted-card rounded-3xl p-4 flex gap-3 overflow-x-auto pb-4">
+          <div className="flex items-center gap-2 pr-4 border-r border-white/10 shrink-0">
+            <Music className="w-4 h-4 text-zinc-400" />
+            <h3 className="text-xs font-bold font-mono text-zinc-300 uppercase tracking-wider">
+              My Songs
+            </h3>
+          </div>
+          {savedSongs.map((song) => (
+            <div
+              key={song.id}
+              onClick={() => loadSavedSong(song)}
+              className="shrink-0 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl px-4 py-2 flex items-center gap-3 cursor-pointer transition-colors"
+            >
+              <div className="flex flex-col">
+                <span className="text-xs font-bold text-white">{song.title}</span>
+                <span className="text-[10px] font-mono text-zinc-400">{song.key} • {song.tempo} BPM</span>
+              </div>
+              <button
+                onClick={(e) => handleDeleteSong(song.id, e)}
+                className="w-6 h-6 rounded-md hover:bg-white/10 flex items-center justify-center text-zinc-500 hover:text-red-400 transition-colors"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Song Track Info Bar */}
       <div className="frosted-card rounded-3xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center space-x-3.5">
@@ -302,36 +373,57 @@ export const ChordFinderStudio: React.FC = () => {
             </div>
           </div>
 
-          {/* Large Chord Triad Display (Previous, Active Glowing, Next) */}
-          <div className="flex items-center justify-around py-6 border-y border-white/5">
-            {/* Previous Chord */}
-            <div className="text-center opacity-40">
-              <div className="text-3xl font-bold font-mono text-zinc-300">
-                {prevChord.chord}
+          {/* Large Chord Triad Display & Diagram */}
+          <div className="flex flex-col items-center justify-center py-6 border-y border-white/5 space-y-8">
+            <div className="flex items-center justify-around w-full">
+              {/* Previous Chord */}
+              <div className="text-center opacity-40">
+                <div className="text-3xl font-bold font-mono text-zinc-300">
+                  {prevChord.chord}
+                </div>
+                <div className="text-[11px] font-mono text-zinc-500 mt-1">
+                  {prevChord.bar}
+                </div>
               </div>
-              <div className="text-[11px] font-mono text-zinc-500 mt-1">
-                {prevChord.bar}
+
+              {/* Active Chord - GIANT glowing neon green text */}
+              <div className="text-center transform scale-110">
+                <div className="text-7xl font-black font-mono text-[#a3ff12] drop-shadow-[0_0_30px_rgba(163,255,18,0.8)] tracking-tight">
+                  {activeChord.chord}
+                </div>
+                <div className="text-xs font-mono font-bold text-[#a3ff12] mt-2 tracking-wider">
+                  {activeChord.bar}
+                </div>
+              </div>
+
+              {/* Next Chord */}
+              <div className="text-center opacity-40">
+                <div className="text-3xl font-bold font-mono text-zinc-300">
+                  {nextChord.chord}
+                </div>
+                <div className="text-[11px] font-mono text-zinc-500 mt-1">
+                  {nextChord.bar}
+                </div>
               </div>
             </div>
 
-            {/* Active Chord - GIANT glowing neon green text */}
-            <div className="text-center transform scale-110">
-              <div className="text-7xl font-black font-mono text-[#a3ff12] drop-shadow-[0_0_30px_rgba(163,255,18,0.8)] tracking-tight">
-                {activeChord.chord}
-              </div>
-              <div className="text-xs font-mono font-bold text-[#a3ff12] mt-2 tracking-wider">
-                {activeChord.bar}
-              </div>
-            </div>
-
-            {/* Next Chord */}
-            <div className="text-center opacity-40">
-              <div className="text-3xl font-bold font-mono text-zinc-300">
-                {nextChord.chord}
-              </div>
-              <div className="text-[11px] font-mono text-zinc-500 mt-1">
-                {nextChord.bar}
-              </div>
+            {/* Active Chord Diagram */}
+            <div className="flex justify-center w-full">
+              {activeVoicing ? (
+                <div className="bg-[#13161a] rounded-xl p-6 border border-white/5 shadow-inner">
+                  <ChordDiagram frets={activeVoicing.frets} fingers={activeVoicing.fingers} size="lg" />
+                </div>
+              ) : (
+                <div className="bg-[#13161a] rounded-xl p-6 border border-white/5 shadow-inner flex flex-col items-center justify-center h-48 w-64 opacity-50">
+                  <span className="text-zinc-400 text-xs font-mono text-center mb-4">No diagram available for<br/><strong className="text-zinc-200 text-sm mt-1 block">{activeChord.chord}</strong></span>
+                  {/* Muted placeholder representation */}
+                  <div className="w-full h-16 border-t-4 border-zinc-600 flex justify-between pt-2">
+                    {[0, 1, 2, 3, 4, 5].map(i => (
+                      <div key={i} className="h-full w-px bg-zinc-700/50" />
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -340,7 +432,8 @@ export const ChordFinderStudio: React.FC = () => {
             <div className="h-14 bg-white/5 rounded-xl p-2 relative flex items-center justify-between border border-white/5 overflow-hidden">
               {/* Waveform vertical bars */}
               {Array.from({ length: 48 }).map((_, wIdx) => {
-                const isPassed = wIdx <= currentBarIndex * 12 + 6;
+                const progress = duration > 0 ? (currentTime / duration) : 0;
+                const isPassed = wIdx / 48 <= progress;
                 const h = 20 + ((wIdx * 19) % 70);
                 return (
                   <div
@@ -364,32 +457,48 @@ export const ChordFinderStudio: React.FC = () => {
             </div>
 
             {/* Transport controls: |<<, ▶, >>| */}
-            <div className="flex items-center justify-center gap-4 pt-1">
-              <button
-                onClick={() => setCurrentBarIndex((prev) => (prev - 1 + derivedProgression.length) % derivedProgression.length)}
-                className="w-10 h-10 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 flex items-center justify-center text-zinc-300 hover:text-white transition-colors cursor-pointer"
-              >
-                <SkipBack className="w-4 h-4" />
-              </button>
+            <div className="flex items-center justify-center gap-6 pt-1">
+              <span className="text-xs font-mono text-zinc-400 w-12 text-right">
+                {formatTime(currentTime)}
+              </span>
 
-              <button
-                onClick={() => setIsPlaying(!isPlaying)}
-                className="w-12 h-12 rounded-xl bg-[#a3ff12] hover:bg-[#92eb10] text-black flex items-center justify-center shadow-[0_0_20px_rgba(163,255,18,0.4)] transition-all cursor-pointer"
-              >
-                {isPlaying ? <Pause className="w-5 h-5 fill-black" /> : <Play className="w-5 h-5 fill-black ml-0.5" />}
-              </button>
+              <div className="flex items-center gap-4">
+                <button
+                  onClick={() => {
+                    if (audioRef.current) audioRef.current.currentTime = Math.max(0, audioRef.current.currentTime - barSeconds);
+                    setCurrentTime((prev) => Math.max(0, prev - barSeconds));
+                  }}
+                  className="w-10 h-10 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 flex items-center justify-center text-zinc-300 hover:text-white transition-colors cursor-pointer"
+                >
+                  <SkipBack className="w-4 h-4" />
+                </button>
 
-              <button
-                onClick={() => setCurrentBarIndex((prev) => (prev + 1) % derivedProgression.length)}
-                className="w-10 h-10 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 flex items-center justify-center text-zinc-300 hover:text-white transition-colors cursor-pointer"
-              >
-                <SkipForward className="w-4 h-4" />
-              </button>
+                <button
+                  onClick={() => setIsPlaying(!isPlaying)}
+                  className="w-12 h-12 rounded-xl bg-[#a3ff12] hover:bg-[#92eb10] text-black flex items-center justify-center shadow-[0_0_20px_rgba(163,255,18,0.4)] transition-all cursor-pointer"
+                >
+                  {isPlaying ? <Pause className="w-5 h-5 fill-black" /> : <Play className="w-5 h-5 fill-black ml-0.5" />}
+                </button>
+
+                <button
+                  onClick={() => {
+                    if (audioRef.current) audioRef.current.currentTime = Math.min(duration, audioRef.current.currentTime + barSeconds);
+                    setCurrentTime((prev) => Math.min(duration, prev + barSeconds));
+                  }}
+                  className="w-10 h-10 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 flex items-center justify-center text-zinc-300 hover:text-white transition-colors cursor-pointer"
+                >
+                  <SkipForward className="w-4 h-4" />
+                </button>
+              </div>
+
+              <span className="text-xs font-mono text-zinc-400 w-12">
+                {formatTime(duration)}
+              </span>
             </div>
           </div>
         </div>
 
-        {/* Right Controls & Fretboard Diagram (4 cols) */}
+        {/* Right Controls (4 cols) */}
         <div className="lg:col-span-4 frosted-card rounded-3xl p-5 space-y-4">
           {/* Transpose & Capo */}
           <div className="grid grid-cols-2 gap-3">
@@ -487,19 +596,6 @@ export const ChordFinderStudio: React.FC = () => {
                   {v}
                 </button>
               ))}
-            </div>
-          </div>
-
-          {/* Interactive Fretboard Diagram for Active Chord */}
-          <div className="bg-white/5 rounded-xl p-4 border border-white/5 space-y-3">
-            <div className="flex items-center justify-between text-xs font-mono font-bold text-zinc-300">
-              <span>{activeChord.chord} DIAGRAM</span>
-              <span className="text-[10px] text-zinc-400">NUT / FRET 1-4</span>
-            </div>
-
-            {/* Fretboard SVG / Grid */}
-            <div className="w-full bg-[#13161a] rounded-lg p-3 border border-white/5 flex flex-col items-center justify-center">
-              <ChordDiagram frets={activeVoicing.frets} fingers={activeVoicing.fingers} size="md" />
             </div>
           </div>
         </div>

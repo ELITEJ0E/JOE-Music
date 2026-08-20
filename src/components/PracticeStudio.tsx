@@ -108,8 +108,10 @@ export const PracticeStudio: React.FC = () => {
         // Switch chord prompt every 2 beats
         const currentChord = selectedRoutine.chords[drillChordIndex % selectedRoutine.chords.length];
         const voicing = findChordByName(currentChord);
-        if (voicing && prev % 2 === 0) {
-          guitarSynth.strumChord(voicing.frets, "down", 30, 0, 0.75);
+        if (prev % 2 === 0) {
+          if (voicing) {
+            guitarSynth.strumChord(voicing.frets, "down", 30, 0, 0.75);
+          }
           setDrillChordIndex((c) => c + 1);
         }
 

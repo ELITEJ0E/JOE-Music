@@ -109,6 +109,16 @@ export const CHORD_DATABASE: ChordVoicing[] = [
     difficulty: "Beginner",
   },
   {
+    id: "d-min7-open",
+    name: "D Minor 7th (Dm7)",
+    root: "D",
+    quality: "min7",
+    frets: ["x", "x", 0, 2, 1, 1],
+    fingers: [0, 0, 0, 2, 1, 1],
+    notes: ["D", "A", "C", "F"],
+    difficulty: "Beginner",
+  },
+  {
     id: "d-dom7-open",
     name: "D Dominant 7th (D7)",
     root: "D",
@@ -469,12 +479,61 @@ export const CHORD_DATABASE: ChordVoicing[] = [
   },
 ];
 
+let shorthandMap: Record<string, ChordVoicing> | null = null;
+
 export function findChordByName(name: string): ChordVoicing | undefined {
+  if (!shorthandMap) {
+    shorthandMap = {};
+    for (const c of CHORD_DATABASE) {
+      const match = c.name.match(/\(([^)]+)\)/);
+      if (match) {
+        shorthandMap[match[1].toLowerCase()] = c;
+      }
+    }
+  }
+
   const clean = name.trim();
-  return (
-    CHORD_DATABASE.find((c) => c.name.toLowerCase() === clean.toLowerCase()) ||
-    CHORD_DATABASE.find((c) => `${c.root}${c.quality}`.toLowerCase() === clean.toLowerCase()) ||
-    CHORD_DATABASE.find((c) => c.root.toLowerCase() === clean.toLowerCase())
+  if (!clean) return undefined;
+
+  const lowerClean = clean.toLowerCase();
+
+  if (shorthandMap[lowerClean]) {
+    return shorthandMap[lowerClean];
+  }
+
+  const exact = CHORD_DATABASE.find((c) => c.name.toLowerCase() === lowerClean);
+  if (exact) return exact;
+
+  const regex = /^([A-G])([#b]?)([^\/]*)(?:\/(.*))?$/i;
+  const match = clean.match(regex);
+  if (!match) return undefined;
+
+  const rootStr = (match[1] + match[2]).toUpperCase();
+  const rawQuality = match[3].trim();
+  const lowerQuality = rawQuality.toLowerCase();
+
+  let normalizedQuality = lowerQuality;
+
+  if (lowerQuality === "m" || lowerQuality === "min" || lowerQuality === "-") {
+    normalizedQuality = "minor";
+  } else if (lowerQuality === "m7" || lowerQuality === "min7" || lowerQuality === "-7") {
+    normalizedQuality = "min7";
+  } else if (lowerQuality === "maj7" || rawQuality === "M7" || lowerQuality === "Δ7") {
+    normalizedQuality = "maj7";
+  } else if (lowerQuality === "") {
+    normalizedQuality = "major";
+  } else if (lowerQuality === "7") {
+    normalizedQuality = "7";
+  } else if (lowerQuality === "dim" || lowerQuality === "dim7") {
+    normalizedQuality = "dim7";
+  } else if (lowerQuality === "aug" || lowerQuality === "+") {
+    normalizedQuality = "aug";
+  }
+
+  return CHORD_DATABASE.find(
+    (c) =>
+      c.root.toUpperCase() === rootStr &&
+      c.quality.toLowerCase() === normalizedQuality
   );
 }
 
