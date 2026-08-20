@@ -1,6 +1,8 @@
 // Guitariz-inspired MIR Engine for JOE-Music
 // Features: Tuning Estimation, CQT-like Chroma, HPSS, HMM Viterbi Decoding, Bass Estimation
 
+import { normalizeChord } from "./chordNormalizer";
+
 const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
 // Define Chord Qualities
@@ -104,7 +106,7 @@ self.onmessage = function (e) {
     
     // We use a high resolution FFT to emulate CQT for chroma extraction
     const fftSize = 8192;
-    const hopSize = 4096;
+    const hopSize = 2048; // Updated for ~21.5 frames/sec temporal resolution
     const numFrames = Math.floor((channelData.length - fftSize) / hopSize);
     
     const hannWindow = new Float32Array(fftSize);
@@ -122,7 +124,7 @@ self.onmessage = function (e) {
 
     // STFT Loop
     for (let f = 0; f < numFrames; f++) {
-      if (f % 100 === 0) reportProgress("Extracting CQT/HPCP Features...", 15 + (f/numFrames)*35);
+      if (f % 200 === 0) reportProgress("Extracting CQT/HPCP Features...", 15 + (f/numFrames)*35);
       
       const frameStart = f * hopSize;
       const real = new Float32Array(fftSize);
@@ -208,23 +210,48 @@ self.onmessage = function (e) {
     }
 
     reportProgress("Beat Tracking...", 65);
-    // Peak picking for beats
+    // Dynamic peak picking for beat grid
+    let onsetSum = 0;
+    for (let i = 0; i < onsetEnvelope.length; i++) onsetSum += onsetEnvelope[i];
+    const onsetMean = onsetSum / (onsetEnvelope.length || 1);
+    let onsetVar = 0;
+    for (let i = 0; i < onsetEnvelope.length; i++) {
+      const d = onsetEnvelope[i] - onsetMean;
+      onsetVar += d * d;
+    }
+    const onsetStd = Math.sqrt(onsetVar / (onsetEnvelope.length || 1));
+    const onsetThreshold = Math.max(1.2, onsetMean + 0.8 * onsetStd);
+
     const beats = [];
     for (let i = 1; i < onsetEnvelope.length - 1; i++) {
-      if (onsetEnvelope[i] > onsetEnvelope[i-1] && onsetEnvelope[i] > onsetEnvelope[i+1] && onsetEnvelope[i] > 2.0) {
-        beats.push(i * hopSize / sampleRate);
+      if (onsetEnvelope[i] > onsetEnvelope[i-1] && onsetEnvelope[i] > onsetEnvelope[i+1] && onsetEnvelope[i] > onsetThreshold) {
+        beats.push((i * hopSize) / sampleRate);
       }
     }
+    beats.sort((a, b) => a - b);
     
+    // Helper: Distance to nearest beat
+    function getDistanceToNearestBeat(timeSec) {
+      if (beats.length === 0) return 999;
+      let minDiff = Infinity;
+      for (let i = 0; i < beats.length; i++) {
+        const diff = Math.abs(timeSec - beats[i]);
+        if (diff < minDiff) {
+          minDiff = diff;
+        } else if (diff > minDiff) {
+          break;
+        }
+      }
+      return minDiff;
+    }
+
     // Estimate BPM
     const minutes = duration / 60;
     let estimatedBpm = Math.round((beats.length / (minutes || 1)) / 4);
     if (estimatedBpm < 60) estimatedBpm *= 2;
     if (estimatedBpm > 200) estimatedBpm = Math.round(estimatedBpm / 2);
 
-    reportProgress("HMM Viterbi Decoding...", 75);
-    // Viterbi Decoding
-    // Transitions: self=0.9, others=0.1 / (N-1)
+    reportProgress("Beat-Aware Adaptive HMM Viterbi Decoding...", 75);
     if (numFrames < 4) {
       throw new Error(`Audio buffer is too short (${numFrames} frames calculated, minimum of 4 required). Please provide longer audio.`);
     }
@@ -245,38 +272,74 @@ self.onmessage = function (e) {
       if (hasNaNOrInf) break;
     }
 
-    // Init
+    // Beat-Aware Adaptive HMM Configuration
+    const EMISSION_SCALE = 2.5; // Scaled emission log-likelihood
+    const pSelfBase = 0.88;    // Normal self-transition probability between beats
+    const pSelfBeat = 0.68;    // Lower self-transition probability on/near beat boundaries
+
+    // Init Frame t = 0
     const initCol = new Float32Array(nStates);
     for (let s = 0; s < nStates; s++) {
-      initCol[s] = Math.log(cosineSimilarity(chromagram[0], CHORD_STATES[s].profile) + 1e-6);
+      const sim = cosineSimilarity(chromagram[0], CHORD_STATES[s].profile);
+      initCol[s] = EMISSION_SCALE * Math.log(sim + 1e-6);
     }
     viterbi.push(initCol);
     
     for (let t = 1; t < numFrames; t++) {
-      if (t % 200 === 0) reportProgress("HMM Viterbi Decoding...", 75 + (t/numFrames)*15);
+      if (t % 400 === 0) reportProgress("Beat-Aware Adaptive HMM Viterbi Decoding...", 75 + (t/numFrames)*15);
       
+      const frameTime = (t * hopSize) / sampleRate;
+      const distToBeat = getDistanceToNearestBeat(frameTime);
+      // Gaussian weighting around beat boundaries (sigma = 80ms)
+      const beatFactor = Math.exp(-Math.pow(distToBeat / 0.08, 2));
+      
+      // Adaptive self-transition: lowers to ~0.68 at beats, stays ~0.88 between beats
+      const pSelf = pSelfBase - (pSelfBase - pSelfBeat) * beatFactor;
+      const logSelf = Math.log(pSelf);
+      const logOther = Math.log((1 - pSelf) / (nStates - 1));
+      
+      const obs = chromagram[t];
+      const emProbs = new Float32Array(nStates);
+      for (let s = 0; s < nStates; s++) {
+        const sim = cosineSimilarity(obs, CHORD_STATES[s].profile);
+        emProbs[s] = EMISSION_SCALE * Math.log(sim + 1e-6);
+      }
+
+      // Find top 2 max values in viterbi[t-1] for O(N) transition optimization
+      const prevCol = viterbi[t-1];
+      let max1Val = -Infinity, max1State = 0;
+      let max2Val = -Infinity, max2State = 0;
+      for (let s = 0; s < nStates; s++) {
+        const val = prevCol[s];
+        if (val > max1Val) {
+          max2Val = max1Val;
+          max2State = max1State;
+          max1Val = val;
+          max1State = s;
+        } else if (val > max2Val) {
+          max2Val = val;
+          max2State = s;
+        }
+      }
+
       const vCol = new Float32Array(nStates);
       const bpCol = new Int32Array(nStates);
-      const obs = chromagram[t];
-      
+
       for (let curr = 0; curr < nStates; curr++) {
-        let maxVal = -Infinity;
-        let maxPrev = 0;
-        
-        const emProb = Math.log(cosineSimilarity(obs, CHORD_STATES[curr].profile) + 1e-6);
-        
-        for (let prev = 0; prev < nStates; prev++) {
-          const transProb = (curr === prev) ? Math.log(0.9) : Math.log(0.1 / (nStates - 1));
-          const val = viterbi[t-1][prev] + transProb;
-          if (val > maxVal) {
-            maxVal = val;
-            maxPrev = prev;
-          }
+        const valSelf = prevCol[curr] + logSelf;
+        const bestOtherVal = (curr === max1State) ? max2Val : max1Val;
+        const bestOtherState = (curr === max1State) ? max2State : max1State;
+        const valOther = bestOtherVal + logOther;
+
+        if (valSelf >= valOther) {
+          vCol[curr] = valSelf + emProbs[curr];
+          bpCol[curr] = curr;
+        } else {
+          vCol[curr] = valOther + emProbs[curr];
+          bpCol[curr] = bestOtherState;
         }
-        
-        vCol[curr] = maxVal + emProb;
-        bpCol[curr] = maxPrev;
       }
+
       viterbi.push(vCol);
       backpointers.push(bpCol);
     }
@@ -295,82 +358,138 @@ self.onmessage = function (e) {
       statePath[t-1] = backpointers[t-1][statePath[t]];
     }
     
-    // Segment grouping and bass estimation
-    const segments = [];
-    let currentSegment = {
+    // Segment grouping
+    const rawSegments = [];
+    let currentSeg = {
       stateId: statePath[0],
       startFrame: 0,
       endFrame: 0,
     };
     
     for (let t = 1; t < numFrames; t++) {
-      if (statePath[t] !== currentSegment.stateId) {
-        currentSegment.endFrame = t;
-        segments.push(currentSegment);
-        currentSegment = { stateId: statePath[t], startFrame: t, endFrame: t };
+      if (statePath[t] !== currentSeg.stateId) {
+        currentSeg.endFrame = t;
+        rawSegments.push(currentSeg);
+        currentSeg = { stateId: statePath[t], startFrame: t, endFrame: t };
       }
     }
-    currentSegment.endFrame = numFrames - 1;
-    segments.push(currentSegment);
+    currentSeg.endFrame = numFrames - 1;
+    rawSegments.push(currentSeg);
     
-    // Build final ChordSegment output
+    // Merge short noise glitches (< 0.25 seconds safety floor)
+    const MIN_SEGMENT_DURATION = 0.25; // seconds
+    const minFrames = Math.max(2, Math.round((MIN_SEGMENT_DURATION * sampleRate) / hopSize));
+
+    const mergedSegments = [];
+    for (let i = 0; i < rawSegments.length; i++) {
+      const seg = rawSegments[i];
+      const durFrames = seg.endFrame - seg.startFrame;
+      if (durFrames < minFrames && mergedSegments.length > 0) {
+        mergedSegments[mergedSegments.length - 1].endFrame = seg.endFrame;
+      } else {
+        mergedSegments.push({ ...seg });
+      }
+    }
+
+    // Build final ChordSegment output with Beat-Snap alignment
     const finalSegments = [];
-    let segId = 0;
-    
-    segments.forEach(seg => {
+    let transitionsNearBeats = 0;
+    let transitionsAwayFromBeats = 0;
+    let currentStartTime = 0;
+
+    for (let i = 0; i < mergedSegments.length; i++) {
+      const seg = mergedSegments[i];
       const state = CHORD_STATES[seg.stateId];
-      const startTime = (seg.startFrame * hopSize) / sampleRate;
-      const endTime = (seg.endFrame * hopSize) / sampleRate;
       
-      if (endTime - startTime < 0.25) return; // Ignore very short glitches
+      const rawStartTime = (seg.startFrame * hopSize) / sampleRate;
+      const rawEndTime = ((seg.endFrame + 1) * hopSize) / sampleRate;
       
+      // Beat-snap transition alignment within 0.20s threshold
+      let snappedEndTime = rawEndTime;
+      if (i < mergedSegments.length - 1) {
+        const dist = getDistanceToNearestBeat(rawEndTime);
+        if (dist <= 0.20) {
+          transitionsNearBeats++;
+          let nearestB = rawEndTime;
+          let minDist = Infinity;
+          for (let b of beats) {
+            if (Math.abs(b - rawEndTime) < minDist) {
+              minDist = Math.abs(b - rawEndTime);
+              nearestB = b;
+            }
+          }
+          snappedEndTime = nearestB;
+        } else {
+          transitionsAwayFromBeats++;
+        }
+      } else {
+        snappedEndTime = duration;
+      }
+      
+      const startTime = (i === 0) ? 0 : currentStartTime;
+      const endTime = Math.max(startTime + 0.15, snappedEndTime);
+      currentStartTime = endTime;
+
       // Estimate Bass for this segment
       const sumBassChroma = new Float32Array(12);
       for (let f = seg.startFrame; f <= seg.endFrame; f++) {
-        for(let i=0; i<12; i++) sumBassChroma[i] += bassChromagram[f][i];
+        for (let k = 0; k < 12; k++) sumBassChroma[k] += bassChromagram[f][k];
       }
       let bestBass = state.rootIdx;
       let maxB = 0;
-      for(let i=0; i<12; i++) {
-        if(sumBassChroma[i] > maxB) { maxB = sumBassChroma[i]; bestBass = i; }
+      for (let k = 0; k < 12; k++) {
+        if (sumBassChroma[k] > maxB) { maxB = sumBassChroma[k]; bestBass = k; }
       }
       
-      let finalLabel = state.label;
-      const bassNote = NOTE_NAMES[bestBass];
-      if (bassNote !== state.root && (sumBassChroma[bestBass] / (sumBassChroma[state.rootIdx] + 1e-6)) > 1.2) {
-        finalLabel = `${state.label}/${bassNote}`;
-      }
-      
-      // Map to beats
-      const beatStart = beats.find(b => Math.abs(b - startTime) < 0.2) || startTime;
-      const beatEnd = beats.find(b => Math.abs(b - endTime) < 0.2) || endTime;
+      const rawBassNote = NOTE_NAMES[bestBass];
+      const hasSignificantSlashBass = (rawBassNote !== state.root && (sumBassChroma[bestBass] / (sumBassChroma[state.rootIdx] + 1e-6)) > 1.2);
 
-      // Confidence
-      const sim = cosineSimilarity(chromagram[Math.floor((seg.startFrame+seg.endFrame)/2)], state.profile);
+      // Use structured normalization
+      const norm = normalizeChord({
+        root: state.root,
+        quality: state.quality,
+        bass: hasSignificantSlashBass ? rawBassNote : undefined
+      }, estimatedKey);
+
+      const midFrame = Math.floor((seg.startFrame + seg.endFrame) / 2);
+      const sim = cosineSimilarity(chromagram[midFrame], state.profile);
+      const confidence = Math.min(99, Math.round(sim * 100));
 
       finalSegments.push({
-        id: `seg-${segId++}`,
-        chord: finalLabel,
-        root: state.root,
-        bass: bassNote,
-        quality: state.quality,
-        extensions: [],
-        startTime: startTime,
-        endTime: endTime,
-        confidence: Math.round(sim * 100),
-        stability: 95,
-        beatStart,
-        beatEnd
+        id: `seg-${i}`,
+        chord: norm.canonicalLabel,
+        root: norm.root,
+        bass: norm.bass || norm.root,
+        quality: norm.qualitySymbol,
+        extensions: norm.extensions,
+        startTime: Number(startTime.toFixed(3)),
+        endTime: Number(endTime.toFixed(3)),
+        rawStartTime: Number(rawStartTime.toFixed(3)),
+        rawEndTime: Number(rawEndTime.toFixed(3)),
+        confidence: confidence,
+        stability: Math.min(99, Math.round(sim * 95 + 5)),
+        beatStart: beats.find(b => Math.abs(b - startTime) < 0.2),
+        beatEnd: beats.find(b => Math.abs(b - endTime) < 0.2)
       });
-    });
-    
-    // Group into logical UI sections based on time
+    }
+
+    // Diagnostics calculations
+    const segDurations = finalSegments.map(s => s.endTime - s.startTime);
+    const avgSegmentDuration = Number((segDurations.reduce((a, b) => a + b, 0) / (segDurations.length || 1)).toFixed(2));
+    const sortedDurs = [...segDurations].sort((a, b) => a - b);
+    const medianSegmentDuration = Number((sortedDurs[Math.floor(sortedDurs.length / 2)] || 0).toFixed(2));
+    const minSegmentDuration = Number((sortedDurs[0] || 0).toFixed(2));
+    const maxSegmentDuration = Number((sortedDurs[sortedDurs.length - 1] || 0).toFixed(2));
+
+    const numChordChanges = Math.max(0, finalSegments.length - 1);
+    const changesPerMinute = Number((numChordChanges / ((duration / 60) || 1)).toFixed(1));
+    const averageChordConfidence = Math.round(finalSegments.reduce((a, b) => a + b.confidence, 0) / (finalSegments.length || 1));
+    const averageTransitionConfidence = Math.round(finalSegments.reduce((a, b) => a + b.stability, 0) / (finalSegments.length || 1));
+
+    // Group into logical UI sections
     const sections = [];
-    let accumulatedTime = 0;
     const sectionNames = ["Intro", "Verse 1", "Chorus", "Verse 2", "Bridge", "Outro"];
     let secIdx = 0;
-    
-    // Split into ~16 second blocks for UI display
     let currentSecChords = [];
     let currentSecStart = 0;
     
@@ -420,8 +539,18 @@ self.onmessage = function (e) {
           hasNaNOrInf,
           viterbiInputDims: `${numFrames}x${nStates}`,
           viterbiOutputLen: statePath.length,
-          rawChordSegmentCount: segments.length,
-          finalChordSegmentCount: finalSegments.length
+          rawChordSegmentCount: rawSegments.length,
+          finalChordSegmentCount: finalSegments.length,
+          avgSegmentDuration,
+          medianSegmentDuration,
+          minSegmentDuration,
+          maxSegmentDuration,
+          numChordChanges,
+          changesPerMinute,
+          averageChordConfidence,
+          averageTransitionConfidence,
+          transitionsNearBeats,
+          transitionsAwayFromBeats
         }
       }
     });

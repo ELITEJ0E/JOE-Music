@@ -17,6 +17,8 @@ import {
 } from "lucide-react";
 import { SAMPLE_SONGS } from "../data/sampleSongs";
 import { findChordByName } from "../data/chordDatabase";
+import { resolveGuitarChord } from "../audio/guitarChordResolver";
+import { parseChordLabel } from "../audio/chordNormalizer";
 import { guitarSynth } from "../audio/guitarSynth";
 import { analyzeAudioFile } from "../audio/audioAnalyzer";
 import { audioEngine } from "../audio/audioContext";
@@ -253,8 +255,12 @@ export const ChordFinderStudio: React.FC = () => {
     setIsPlaying(false);
   };
 
-  // Get active chord fingering for the fretboard diagram
-  const activeVoicing = findChordByName(activeChord.chord);
+  // Resolve active guitar voicing with separation of detection & playability
+  const activeSegment = segments[activeIdx];
+  const activeVoicingResult = resolveGuitarChord(activeChord.chord, {
+    keyContext: activeSong.key,
+    detectionConfidence: activeSegment?.confidence || 90
+  });
 
   return (
     <div id="panel-chord-finder" className="max-w-6xl mx-auto space-y-6 pb-12 animate-in fade-in duration-200">
@@ -493,22 +499,65 @@ export const ChordFinderStudio: React.FC = () => {
             </div>
 
             {/* Active Chord Diagram */}
-            <div className="flex justify-center w-full">
-              {activeVoicing ? (
-                <div className="bg-[#13161a] rounded-xl p-6 border border-white/5 shadow-inner">
-                  <ChordDiagram frets={activeVoicing.frets} fingers={activeVoicing.fingers} size="lg" />
+            <div className="flex flex-col items-center justify-center w-full space-y-4">
+              {activeVoicingResult.voicing ? (
+                <div className="bg-[#13161a] rounded-2xl p-6 border border-white/10 shadow-xl flex flex-col items-center min-w-[280px]">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-xs font-mono font-bold text-white uppercase tracking-wider">
+                      {activeVoicingResult.displayChord} Shape
+                    </span>
+                    {activeVoicingResult.voicingType === "exact" && (
+                      <span className="px-2.5 py-0.5 bg-[#a3ff12]/20 border border-[#a3ff12]/40 text-[#a3ff12] text-[10px] font-bold font-mono rounded-full">
+                        Exact Voicing
+                      </span>
+                    )}
+                    {activeVoicingResult.voicingType === "simplified" && (
+                      <span className="px-2.5 py-0.5 bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[10px] font-bold font-mono rounded-full">
+                        Simplified Voicing
+                      </span>
+                    )}
+                  </div>
+
+                  <ChordDiagram
+                    frets={activeVoicingResult.voicing.frets}
+                    fingers={activeVoicingResult.voicing.fingers}
+                    size="lg"
+                  />
+
+                  {activeVoicingResult.bassNote && activeVoicingResult.voicingType === "simplified" && (
+                    <span className="text-[11px] font-mono text-zinc-300 mt-3 bg-white/5 px-3 py-1 rounded-lg border border-white/5">
+                      Detected bass: <strong className="text-[#a3ff12]">{activeVoicingResult.bassNote}</strong>
+                    </span>
+                  )}
+
+                  {activeVoicingResult.simplificationReason && (
+                    <span className="text-[10px] font-mono text-zinc-400 mt-2 text-center max-w-[240px]">
+                      {activeVoicingResult.simplificationReason}
+                    </span>
+                  )}
                 </div>
               ) : (
-                <div className="bg-[#13161a] rounded-xl p-6 border border-white/5 shadow-inner flex flex-col items-center justify-center h-48 w-64 opacity-50">
-                  <span className="text-zinc-400 text-xs font-mono text-center mb-4">No diagram available for<br/><strong className="text-zinc-200 text-sm mt-1 block">{activeChord.chord}</strong></span>
-                  {/* Muted placeholder representation */}
-                  <div className="w-full h-16 border-t-4 border-zinc-600 flex justify-between pt-2">
-                    {[0, 1, 2, 3, 4, 5].map(i => (
-                      <div key={i} className="h-full w-px bg-zinc-700/50" />
-                    ))}
-                  </div>
+                <div className="bg-[#13161a] rounded-2xl p-6 border border-white/10 shadow-xl flex flex-col items-center justify-center h-52 w-72 text-center space-y-2">
+                  <span className="text-xs font-mono font-bold text-zinc-300">
+                    No guitar voicing available
+                  </span>
+                  <span className="text-[11px] font-mono text-zinc-500 max-w-[220px]">
+                    {activeVoicingResult.simplificationReason || `No safe diagram for ${activeChord.chord}`}
+                  </span>
                 </div>
               )}
+
+              {/* Confidence Telemetry */}
+              <div className="flex items-center gap-4 text-[11px] font-mono pt-1">
+                <div className="flex items-center gap-1.5 bg-white/5 px-3 py-1.5 rounded-xl border border-white/5">
+                  <span className="text-zinc-400">Detection Confidence:</span>
+                  <span className="text-[#a3ff12] font-bold">{activeVoicingResult.detectionConfidence}%</span>
+                </div>
+                <div className="flex items-center gap-1.5 bg-white/5 px-3 py-1.5 rounded-xl border border-white/5">
+                  <span className="text-zinc-400">Voicing Confidence:</span>
+                  <span className="text-white font-bold">{activeVoicingResult.voicingConfidence}%</span>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -740,27 +789,49 @@ export const ChordFinderStudio: React.FC = () => {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-mono pt-2">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs font-mono pt-2">
             <div className="bg-white/5 p-4 rounded-xl border border-white/5 space-y-2">
-              <span className="text-zinc-400 block text-[10px] uppercase font-bold">Viterbi Backtracking</span>
-              <div className="grid grid-cols-2 gap-2">
+              <span className="text-zinc-400 block text-[10px] uppercase font-bold">Viterbi & Beat Alignment</span>
+              <div className="space-y-1 text-[11px]">
+                <div className="flex justify-between"><span>Frame Hop:</span> <span className="text-white font-bold">2048 (~21.5 fps)</span></div>
                 <div className="flex justify-between"><span>Obs Dims:</span> <span className="text-white">{activeSong.diagnostics.observationMatrixDims}</span></div>
-                <div className="flex justify-between"><span>Input Dims:</span> <span className="text-white">{activeSong.diagnostics.viterbiInputDims}</span></div>
-                <div className="flex justify-between"><span>Output Len:</span> <span className="text-white">{activeSong.diagnostics.viterbiOutputLen}</span></div>
                 <div className="flex justify-between"><span>Raw Segments:</span> <span className="text-white">{activeSong.diagnostics.rawChordSegmentCount}</span></div>
+                <div className="flex justify-between"><span>Transitions Near Beats:</span> <span className="text-[#a3ff12] font-bold">{activeSong.diagnostics.transitionsNearBeats ?? 0}</span></div>
+                <div className="flex justify-between"><span>Transitions Off Beat:</span> <span className="text-zinc-400">{activeSong.diagnostics.transitionsAwayFromBeats ?? 0}</span></div>
+              </div>
+            </div>
+
+            <div className="bg-white/5 p-4 rounded-xl border border-white/5 space-y-2">
+              <span className="text-zinc-400 block text-[10px] uppercase font-bold">Segment Durations & Pace</span>
+              <div className="space-y-1 text-[11px]">
+                <div className="flex justify-between"><span>Avg Duration:</span> <span className="text-white font-bold">{activeSong.diagnostics.avgSegmentDuration ?? 0}s</span></div>
+                <div className="flex justify-between"><span>Median Duration:</span> <span className="text-white font-bold">{activeSong.diagnostics.medianSegmentDuration ?? 0}s</span></div>
+                <div className="flex justify-between"><span>Min / Max Dur:</span> <span className="text-white">{activeSong.diagnostics.minSegmentDuration ?? 0}s / {activeSong.diagnostics.maxSegmentDuration ?? 0}s</span></div>
+                <div className="flex justify-between"><span>Chord Changes:</span> <span className="text-[#a3ff12] font-bold">{activeSong.diagnostics.numChordChanges ?? 0}</span></div>
+                <div className="flex justify-between"><span>Changes / Min:</span> <span className="text-[#a3ff12] font-bold">{activeSong.diagnostics.changesPerMinute ?? 0}</span></div>
               </div>
             </div>
 
             <div className="bg-white/5 p-4 rounded-xl border border-white/5 flex flex-col justify-between">
               <div>
-                <span className="text-zinc-400 block text-[10px] uppercase font-bold">Timeline Generation</span>
-                <div className="flex justify-between mt-2">
-                  <span>Final Segment Count:</span>
-                  <span className="text-white font-bold text-sm text-[#a3ff12]">{activeSong.diagnostics.finalChordSegmentCount}</span>
+                <span className="text-zinc-400 block text-[10px] uppercase font-bold">Timeline & Confidence</span>
+                <div className="space-y-1 text-[11px] mt-2">
+                  <div className="flex justify-between">
+                    <span>Final Segments:</span>
+                    <span className="text-white font-bold text-[#a3ff12]">{activeSong.diagnostics.finalChordSegmentCount}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Avg Chord Confidence:</span>
+                    <span className="text-white font-bold">{activeSong.diagnostics.averageChordConfidence ?? 0}%</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Transition Stability:</span>
+                    <span className="text-white font-bold">{activeSong.diagnostics.averageTransitionConfidence ?? 0}%</span>
+                  </div>
                 </div>
               </div>
               <p className="text-[10px] text-zinc-500 mt-2">
-                Guitariz Engine Status: All modules OK. Realtime tracking synchronization is active.
+                Guitariz Engine: Beat-Aware Adaptive HMM active. High-resolution temporal tracking online.
               </p>
             </div>
           </div>

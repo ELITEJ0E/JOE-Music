@@ -481,7 +481,133 @@ export const CHORD_DATABASE: ChordVoicing[] = [
 
 let shorthandMap: Record<string, ChordVoicing> | null = null;
 
+import { parseChordLabel, pitchClassOfNote, normalizeNoteSpelling } from "../audio/chordNormalizer";
+
+// Helper for dynamic barre chord transposition if explicit entry is not in database
+function generateBarreVoicing(root: string, quality: string): ChordVoicing | undefined {
+  const pc = pitchClassOfNote(root);
+  if (pc === -1) return undefined;
+
+  const normRoot = normalizeNoteSpelling(root);
+
+  // A-shape (5th string root): root pc = 9 (A)
+  const aFret = (pc - 9 + 12) % 12;
+  // E-shape (6th string root): root pc = 4 (E)
+  const eFret = (pc - 4 + 12) % 12;
+
+  // Prefer 5th string root for C, Db, D, Eb; 6th string for F, F#, G, Ab, A, Bb, B
+  const preferE = [5, 6, 7, 8, 9, 10, 11].includes(pc);
+
+  if (quality === "maj" || quality === "major") {
+    if (preferE) {
+      return {
+        id: `gen-${normRoot.toLowerCase()}-maj-barre-e`,
+        name: `${normRoot} Major`,
+        root: normRoot,
+        quality: "Major",
+        frets: [eFret, eFret + 2, eFret + 2, eFret + 1, eFret, eFret],
+        barre: eFret > 0 ? { fret: eFret, fromString: 0, toString: 5 } : undefined,
+        notes: [normRoot],
+        cagedShape: "E",
+        difficulty: "Intermediate",
+      };
+    } else {
+      return {
+        id: `gen-${normRoot.toLowerCase()}-maj-barre-a`,
+        name: `${normRoot} Major`,
+        root: normRoot,
+        quality: "Major",
+        frets: ["x", aFret, aFret + 2, aFret + 2, aFret + 2, aFret],
+        barre: aFret > 0 ? { fret: aFret, fromString: 1, toString: 5 } : undefined,
+        notes: [normRoot],
+        cagedShape: "A",
+        difficulty: "Intermediate",
+      };
+    }
+  }
+
+  if (quality === "min" || quality === "minor") {
+    if (preferE) {
+      return {
+        id: `gen-${normRoot.toLowerCase()}-min-barre-e`,
+        name: `${normRoot} Minor`,
+        root: normRoot,
+        quality: "Minor",
+        frets: [eFret, eFret + 2, eFret + 2, eFret, eFret, eFret],
+        barre: eFret > 0 ? { fret: eFret, fromString: 0, toString: 5 } : undefined,
+        notes: [normRoot],
+        cagedShape: "E",
+        difficulty: "Intermediate",
+      };
+    } else {
+      return {
+        id: `gen-${normRoot.toLowerCase()}-min-barre-a`,
+        name: `${normRoot} Minor`,
+        root: normRoot,
+        quality: "Minor",
+        frets: ["x", aFret, aFret + 2, aFret + 2, aFret + 1, aFret],
+        barre: aFret > 0 ? { fret: aFret, fromString: 1, toString: 5 } : undefined,
+        notes: [normRoot],
+        cagedShape: "A",
+        difficulty: "Intermediate",
+      };
+    }
+  }
+
+  if (quality === "m7" || quality === "min7") {
+    return {
+      id: `gen-${normRoot.toLowerCase()}-min7`,
+      name: `${normRoot} Minor 7th`,
+      root: normRoot,
+      quality: "min7",
+      frets: ["x", aFret, aFret + 2, aFret, aFret + 1, aFret],
+      barre: aFret > 0 ? { fret: aFret, fromString: 1, toString: 5 } : undefined,
+      notes: [normRoot],
+      difficulty: "Intermediate",
+    };
+  }
+
+  if (quality === "7") {
+    return {
+      id: `gen-${normRoot.toLowerCase()}-7`,
+      name: `${normRoot} Dominant 7th`,
+      root: normRoot,
+      quality: "7",
+      frets: [eFret, eFret + 2, eFret, eFret + 1, eFret, eFret],
+      barre: eFret > 0 ? { fret: eFret, fromString: 0, toString: 5 } : undefined,
+      notes: [normRoot],
+      difficulty: "Intermediate",
+    };
+  }
+
+  if (quality === "maj7") {
+    return {
+      id: `gen-${normRoot.toLowerCase()}-maj7`,
+      name: `${normRoot} Major 7th`,
+      root: normRoot,
+      quality: "maj7",
+      frets: ["x", aFret, aFret + 2, aFret + 1, aFret + 2, aFret],
+      barre: aFret > 0 ? { fret: aFret, fromString: 1, toString: 5 } : undefined,
+      notes: [normRoot],
+      difficulty: "Intermediate",
+    };
+  }
+
+  return undefined;
+}
+
 export function findChordByName(name: string): ChordVoicing | undefined {
+  if (!name || typeof name !== "string") return undefined;
+  const clean = name.trim();
+  if (!clean) return undefined;
+
+  // 1. Parse via chordNormalizer
+  const norm = parseChordLabel(clean);
+  if (!norm.isValid) return undefined;
+
+  const targetRootPc = pitchClassOfNote(norm.root);
+
+  // 2. Exact name or shorthand map lookup
   if (!shorthandMap) {
     shorthandMap = {};
     for (const c of CHORD_DATABASE) {
@@ -492,51 +618,43 @@ export function findChordByName(name: string): ChordVoicing | undefined {
     }
   }
 
-  const clean = name.trim();
-  if (!clean) return undefined;
-
   const lowerClean = clean.toLowerCase();
-
-  if (shorthandMap[lowerClean]) {
-    return shorthandMap[lowerClean];
-  }
+  if (shorthandMap[lowerClean]) return shorthandMap[lowerClean];
 
   const exact = CHORD_DATABASE.find((c) => c.name.toLowerCase() === lowerClean);
   if (exact) return exact;
 
-  const regex = /^([A-G])([#b]?)([^\/]*)(?:\/(.*))?$/i;
-  const match = clean.match(regex);
-  if (!match) return undefined;
+  // 3. Match by root pitch class and quality
+  const targetQuality = norm.quality;
+  const targetQualitySymbol = norm.qualitySymbol;
 
-  const rootStr = (match[1] + match[2]).toUpperCase();
-  const rawQuality = match[3].trim();
-  const lowerQuality = rawQuality.toLowerCase();
+  // Search database for pitch class match + quality match
+  const dbMatch = CHORD_DATABASE.find((c) => {
+    const cRootPc = pitchClassOfNote(c.root);
+    if (cRootPc !== targetRootPc) return false;
 
-  let normalizedQuality = lowerQuality;
+    const cQual = c.quality.toLowerCase();
+    if (targetQuality === "maj" && (cQual === "major" || cQual === "maj" || cQual === "")) return true;
+    if (targetQuality === "min" && (cQual === "minor" || cQual === "min" || cQual === "m")) return true;
+    if (targetQuality === "m7" && (cQual === "min7" || cQual === "m7")) return true;
+    if (targetQuality === "maj7" && (cQual === "maj7" || cQual === "m7_maj")) return true;
+    if (targetQuality === "7" && cQual === "7") return true;
+    if (targetQuality === "sus2" && cQual === "sus2") return true;
+    if (targetQuality === "sus4" && cQual === "sus4") return true;
+    if (targetQuality === "add9" && cQual === "add9") return true;
+    if (targetQuality === "5" && (cQual === "5" || cQual === "power")) return true;
 
-  if (lowerQuality === "m" || lowerQuality === "min" || lowerQuality === "-") {
-    normalizedQuality = "minor";
-  } else if (lowerQuality === "m7" || lowerQuality === "min7" || lowerQuality === "-7") {
-    normalizedQuality = "min7";
-  } else if (lowerQuality === "maj7" || rawQuality === "M7" || lowerQuality === "Δ7") {
-    normalizedQuality = "maj7";
-  } else if (lowerQuality === "") {
-    normalizedQuality = "major";
-  } else if (lowerQuality === "7") {
-    normalizedQuality = "7";
-  } else if (lowerQuality === "dim" || lowerQuality === "dim7") {
-    normalizedQuality = "dim7";
-  } else if (lowerQuality === "aug" || lowerQuality === "+") {
-    normalizedQuality = "aug";
-  }
+    return cQual === targetQualitySymbol;
+  });
 
-  return CHORD_DATABASE.find(
-    (c) =>
-      c.root.toUpperCase() === rootStr &&
-      c.quality.toLowerCase() === normalizedQuality
-  );
+  if (dbMatch) return dbMatch;
+
+  // 4. Generate barre chord if not explicitly in CHORD_DATABASE
+  return generateBarreVoicing(norm.root, norm.quality);
 }
 
 export function getChordsByRoot(root: string): ChordVoicing[] {
-  return CHORD_DATABASE.filter((c) => c.root.toUpperCase() === root.toUpperCase());
+  const pc = pitchClassOfNote(root);
+  if (pc === -1) return [];
+  return CHORD_DATABASE.filter((c) => pitchClassOfNote(c.root) === pc);
 }

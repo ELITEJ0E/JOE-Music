@@ -71,10 +71,18 @@ export interface ChordSegment {
   extensions: string[];
   startTime: number;
   endTime: number;
+  rawStartTime?: number;
+  rawEndTime?: number;
   confidence: number;
   stability: number;
   beatStart?: number;
   beatEnd?: number;
+  detectionConfidence?: number;
+  voicingConfidence?: number;
+  displayChord?: string;
+  voicingType?: "exact" | "simplified" | "none";
+  simplificationReason?: string;
+  voicing?: ChordVoicing | null;
 }
 
 export interface SongAnalysis {
@@ -119,6 +127,16 @@ export interface SongAnalysis {
     viterbiOutputLen: number;
     rawChordSegmentCount: number;
     finalChordSegmentCount: number;
+    avgSegmentDuration?: number;
+    medianSegmentDuration?: number;
+    minSegmentDuration?: number;
+    maxSegmentDuration?: number;
+    numChordChanges?: number;
+    changesPerMinute?: number;
+    averageChordConfidence?: number;
+    averageTransitionConfidence?: number;
+    transitionsNearBeats?: number;
+    transitionsAwayFromBeats?: number;
   };
 }
 
