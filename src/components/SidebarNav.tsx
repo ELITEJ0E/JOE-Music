@@ -50,7 +50,7 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({
   onOpenDevices,
 }) => {
   return (
-    <aside className="w-60 bg-[#0d0f12] border-r border-[#191d24] flex flex-col justify-between p-4 shrink-0 select-none min-h-screen">
+    <aside className="w-60 bg-[#0d0f12]/80 backdrop-blur-md border-r border-white/10 flex flex-col justify-between p-4 shrink-0 select-none min-h-screen">
       {/* Brand Top Header */}
       <div>
         <div className="px-3 py-2">
@@ -77,13 +77,13 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({
                 onClick={() => onSelectMode(item.id)}
                 className={`w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl text-xs font-medium transition-all text-left cursor-pointer ${
                   isActive
-                    ? "bg-[#182a1d] text-white border border-[#00FF66]/60 shadow-[0_0_15px_rgba(0,255,102,0.15)] font-bold ring-1 ring-[#00FF66]/20"
-                    : "text-zinc-400 hover:text-white hover:bg-[#14171c] border border-transparent"
+                    ? "bg-[#a3ff12]/15 backdrop-blur-md text-white border border-[#a3ff12]/40 shadow-[0_0_15px_rgba(163,255,18,0.15)] font-bold ring-1 ring-[#a3ff12]/20"
+                    : "text-zinc-400 hover:text-white hover:bg-white/5 border border-transparent"
                 }`}
               >
                 <Icon
                   className={`w-4 h-4 shrink-0 transition-colors ${
-                    isActive ? "text-[#00FF66]" : "text-zinc-400 group-hover:text-white"
+                    isActive ? "text-[#a3ff12]" : "text-zinc-400 group-hover:text-white"
                   }`}
                 />
                 <span className="truncate">{item.label}</span>
@@ -94,13 +94,13 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({
       </div>
 
       {/* Bottom Controls & Device Connect */}
-      <div className="pt-4 border-t border-[#191d24] space-y-2.5">
+      <div className="pt-4 border-t border-white/10 space-y-2.5">
         {/* Connect Device Pill Button */}
         <button
           onClick={onOpenDevices}
-          className="w-full py-2.5 px-3 rounded-xl bg-[#14171c] hover:bg-[#1a1f26] border border-[#222832] text-xs font-mono font-bold text-zinc-300 hover:text-white flex items-center justify-center gap-2 transition-colors cursor-pointer"
+          className="w-full py-2.5 px-3 rounded-xl bg-white/5 backdrop-blur-md border border-white/10 text-xs font-mono font-bold text-zinc-300 hover:text-white flex items-center justify-center gap-2 transition-all hover:border-[#a3ff12]/40 cursor-pointer"
         >
-          <Radio className="w-3.5 h-3.5 text-[#00FF66]" />
+          <Radio className="w-3.5 h-3.5 text-[#a3ff12]" />
           <span>Connect Device</span>
         </button>
 

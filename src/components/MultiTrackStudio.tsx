@@ -27,7 +27,7 @@ export const MultiTrackStudio: React.FC = () => {
     {
       id: "trk-1",
       name: "Guitar 1",
-      color: "#00FF66",
+      color: "#a3ff12",
       volume: 0.85,
       pan: 0,
       muted: false,
@@ -192,7 +192,7 @@ export const MultiTrackStudio: React.FC = () => {
     const newTrk: DAWTrack = {
       id: `trk-${Date.now()}`,
       name: `Guitar ${newIdx}`,
-      color: newIdx % 2 === 1 ? "#00FF66" : "#f59e0b",
+      color: newIdx % 2 === 1 ? "#a3ff12" : "#f59e0b",
       volume: 0.8,
       pan: 0,
       muted: false,
@@ -210,11 +210,11 @@ export const MultiTrackStudio: React.FC = () => {
   return (
     <div id="panel-studio-session" className="max-w-6xl mx-auto space-y-5 pb-12 animate-in fade-in duration-200">
       {/* Top Header & Transport Bar */}
-      <div className="bg-[#13161a] border border-[#1f242b] rounded-2xl p-4 flex flex-col md:flex-row items-center justify-between gap-4">
+      <div className="frosted-card rounded-3xl p-4 flex flex-col md:flex-row items-center justify-between gap-4">
         {/* Left: Studio Session & Tuning Pill */}
         <div className="flex items-center space-x-3">
           <h2 className="text-xl font-bold text-white tracking-tight">Studio Session</h2>
-          <span className="px-3 py-1 bg-[#181c22] border border-white/5 rounded-full text-xs font-mono text-zinc-300">
+          <span className="px-3 py-1 bg-white/5 border border-white/5 rounded-full text-xs font-mono text-zinc-300 font-bold">
             E-Standard Tuning
           </span>
         </div>
@@ -224,7 +224,7 @@ export const MultiTrackStudio: React.FC = () => {
           {/* Rewind */}
           <button
             onClick={handleStop}
-            className="p-2.5 rounded-xl bg-[#181c22] hover:bg-[#202630] text-zinc-300 hover:text-white border border-white/5 transition-colors"
+            className="p-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white border border-white/5 transition-colors cursor-pointer"
             title="Rewind"
           >
             <SkipBack className="w-4 h-4" />
@@ -233,7 +233,7 @@ export const MultiTrackStudio: React.FC = () => {
           {/* Stop */}
           <button
             onClick={handleStop}
-            className="p-2.5 rounded-xl bg-[#181c22] hover:bg-[#202630] text-zinc-300 hover:text-white border border-white/5 transition-colors"
+            className="p-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white border border-white/5 transition-colors cursor-pointer"
             title="Stop"
           >
             <Square className="w-4 h-4" />
@@ -242,7 +242,7 @@ export const MultiTrackStudio: React.FC = () => {
           {/* Master Play / Pause */}
           <button
             onClick={handleTogglePlay}
-            className="px-5 py-2.5 rounded-xl bg-[#00FF66] hover:bg-[#00e65c] text-black font-extrabold text-xs flex items-center gap-2 shadow-[0_0_20px_rgba(0,255,102,0.4)] transition-all cursor-pointer"
+            className="px-5 py-2.5 rounded-xl bg-[#a3ff12] hover:bg-[#92eb10] text-black font-extrabold text-xs flex items-center gap-2 shadow-[0_0_20px_rgba(163,255,18,0.4)] transition-all cursor-pointer"
           >
             {isPlaying ? <Pause className="w-4 h-4 fill-black" /> : <Play className="w-4 h-4 fill-black ml-0.5" />}
           </button>
@@ -250,10 +250,10 @@ export const MultiTrackStudio: React.FC = () => {
           {/* Master Record */}
           <button
             onClick={handleToggleRecord}
-            className={`p-2.5 rounded-xl transition-all ${
+            className={`p-2.5 rounded-xl transition-all cursor-pointer ${
               isRecording
                 ? "bg-rose-500 text-white shadow-[0_0_20px_rgba(244,63,94,0.6)] animate-pulse"
-                : "bg-[#181c22] hover:bg-rose-500/20 text-rose-400 border border-white/5"
+                : "bg-white/5 hover:bg-rose-500/20 text-rose-400 border border-white/5"
             }`}
             title="Record"
           >
@@ -263,10 +263,10 @@ export const MultiTrackStudio: React.FC = () => {
           {/* Loop Toggle */}
           <button
             onClick={() => setIsLooping(!isLooping)}
-            className={`p-2.5 rounded-xl border transition-colors ${
+            className={`p-2.5 rounded-xl border transition-colors cursor-pointer ${
               isLooping
-                ? "bg-[#182a1d] text-[#00FF66] border-[#00FF66]/40"
-                : "bg-[#181c22] text-zinc-400 border-white/5 hover:text-white"
+                ? "bg-[#a3ff12]/15 text-[#a3ff12] border-[#a3ff12]/40"
+                : "bg-white/5 text-zinc-400 border-white/5 hover:text-white"
             }`}
             title="Loop"
           >
@@ -275,13 +275,13 @@ export const MultiTrackStudio: React.FC = () => {
 
           {/* BPM, KEY, SIG */}
           <div className="flex items-center gap-2 pl-2">
-            <span className="px-3 py-1 bg-[#181c22] border border-white/5 rounded-full text-xs font-mono text-white font-bold">
+            <span className="px-3 py-1 bg-white/5 border border-white/5 rounded-full text-xs font-mono text-white font-bold">
               {bpm} BPM
             </span>
-            <span className="px-3 py-1 bg-[#181c22] border border-white/5 rounded-full text-xs font-mono text-zinc-300">
+            <span className="px-3 py-1 bg-white/5 border border-white/5 rounded-full text-xs font-mono text-zinc-300">
               KEY {keySig}
             </span>
-            <span className="px-3 py-1 bg-[#181c22] border border-white/5 rounded-full text-xs font-mono text-zinc-300">
+            <span className="px-3 py-1 bg-white/5 border border-white/5 rounded-full text-xs font-mono text-zinc-300">
               SIG {timeSig}
             </span>
           </div>
@@ -291,16 +291,16 @@ export const MultiTrackStudio: React.FC = () => {
         <div className="flex items-center gap-2">
           <button
             onClick={handleAddTrack}
-            className="px-3 py-2 bg-[#181c22] hover:bg-[#202630] text-zinc-200 border border-white/5 rounded-xl text-xs font-mono flex items-center gap-1.5"
+            className="px-3 py-2 bg-white/5 hover:bg-white/10 text-zinc-200 border border-white/5 rounded-xl text-xs font-mono flex items-center gap-1.5 cursor-pointer"
           >
-            <Plus className="w-3.5 h-3.5 text-[#00FF66]" />
+            <Plus className="w-3.5 h-3.5 text-[#a3ff12]" />
             <span>ADD TRACK</span>
           </button>
         </div>
       </div>
 
       {/* Main Multi-Track DAW Workspace */}
-      <div className="bg-[#13161a] border border-[#1f242b] rounded-2xl p-5 space-y-4">
+      <div className="frosted-card rounded-3xl p-5 space-y-4">
         {/* Timeline Bar Numbers Ruler */}
         <div className="flex items-center pl-60 pr-4 pb-2 border-b border-white/5 text-[11px] font-mono text-zinc-500 justify-between">
           <span>1</span>
@@ -325,8 +325,8 @@ export const MultiTrackStudio: React.FC = () => {
                 onClick={() => setSelectedTrackId(track.id)}
                 className={`p-3.5 rounded-2xl flex items-center gap-4 transition-all cursor-pointer ${
                   isSelected
-                    ? "bg-[#181c22] border border-[#00FF66]/50 shadow-[0_0_20px_rgba(0,255,102,0.08)]"
-                    : "bg-[#16191f] border border-white/5 hover:border-white/10"
+                    ? "bg-white/5 border border-[#a3ff12]/50 shadow-[0_0_20px_rgba(163,255,18,0.08)]"
+                    : "bg-[#16191f]/40 border border-white/5 hover:border-white/10"
                 }`}
               >
                 {/* Left Track Controls (w-56) */}
@@ -354,7 +354,7 @@ export const MultiTrackStudio: React.FC = () => {
                         e.stopPropagation();
                         setArmedTrackId(track.id);
                       }}
-                      className={`w-6 h-6 rounded text-[10px] font-mono font-bold flex items-center justify-center transition-colors ${
+                      className={`w-6 h-6 rounded text-[10px] font-mono font-bold flex items-center justify-center transition-colors cursor-pointer ${
                         isArmed
                           ? "bg-rose-500 text-white shadow-[0_0_8px_rgba(244,63,94,0.6)]"
                           : "bg-[#202630] text-zinc-400 hover:text-white"
@@ -370,7 +370,7 @@ export const MultiTrackStudio: React.FC = () => {
                           prev.map((t) => (t.id === track.id ? { ...t, muted: !t.muted } : t))
                         );
                       }}
-                      className={`w-6 h-6 rounded text-[10px] font-mono font-bold flex items-center justify-center transition-colors ${
+                      className={`w-6 h-6 rounded text-[10px] font-mono font-bold flex items-center justify-center transition-colors cursor-pointer ${
                         track.muted
                           ? "bg-rose-500/20 text-rose-400 border border-rose-500"
                           : "bg-[#202630] text-zinc-400 hover:text-white"
@@ -386,9 +386,9 @@ export const MultiTrackStudio: React.FC = () => {
                           prev.map((t) => (t.id === track.id ? { ...t, soloed: !t.soloed } : t))
                         );
                       }}
-                      className={`w-6 h-6 rounded text-[10px] font-mono font-bold flex items-center justify-center transition-colors ${
+                      className={`w-6 h-6 rounded text-[10px] font-mono font-bold flex items-center justify-center transition-colors cursor-pointer ${
                         track.soloed
-                          ? "bg-[#00FF66] text-black"
+                          ? "bg-[#a3ff12] text-black"
                           : "bg-[#202630] text-zinc-400 hover:text-white"
                       }`}
                     >
@@ -408,18 +408,18 @@ export const MultiTrackStudio: React.FC = () => {
                           prev.map((t) => (t.id === track.id ? { ...t, volume: val } : t))
                         );
                       }}
-                      className="w-20 h-1 bg-[#202630] rounded-lg accent-[#00FF66] ml-2"
+                      className="w-20 h-1 bg-[#202630] rounded-lg accent-[#a3ff12] ml-2 cursor-pointer"
                     />
                   </div>
                 </div>
 
                 {/* Right Timeline Waveform Clip Area */}
-                <div className="flex-1 h-16 bg-[#111317] rounded-xl border border-white/5 p-2 relative overflow-hidden flex items-center">
+                <div className="flex-1 h-16 bg-[#111317]/80 rounded-xl border border-white/5 p-2 relative overflow-hidden flex items-center">
                   {/* Clip Block */}
                   <div
                     className={`h-full rounded-lg px-3 flex items-center justify-between gap-1 overflow-hidden transition-all ${
                       idx === 0
-                        ? "w-[85%] bg-[#00FF66]/15 border border-[#00FF66]/40 text-[#00FF66]"
+                        ? "w-[85%] bg-[#a3ff12]/15 border border-[#a3ff12]/40 text-[#a3ff12]"
                         : "w-[65%] bg-sky-500/15 border border-sky-500/30 text-sky-400 ml-12"
                     }`}
                   >
@@ -435,7 +435,7 @@ export const MultiTrackStudio: React.FC = () => {
                           className="w-1 rounded-full opacity-80"
                           style={{
                             height: `${25 + ((w * 13 + idx * 7) % 65)}%`,
-                            backgroundColor: idx === 0 ? "#00FF66" : "#38bdf8",
+                            backgroundColor: idx === 0 ? "#a3ff12" : "#38bdf8",
                           }}
                         />
                       ))}
@@ -456,7 +456,7 @@ export const MultiTrackStudio: React.FC = () => {
         </div>
 
         {/* Bottom Track Inspector (Guitar 1, Interface 1, FX chain) */}
-        <div className="bg-[#181c22] rounded-xl p-4 border border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 mt-4">
+        <div className="bg-white/5 rounded-xl p-4 border border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 mt-4">
           <div className="flex items-center space-x-4">
             <span className="text-xs font-mono font-bold text-white">
               {activeSelectedTrack.name}
@@ -473,13 +473,13 @@ export const MultiTrackStudio: React.FC = () => {
           <div className="flex items-center gap-2">
             <span className="text-[10px] font-mono text-zinc-400 uppercase font-bold">FX CHAIN:</span>
             <div className="px-3 py-1.5 bg-[#202630] rounded-lg text-xs font-mono text-white flex items-center gap-2 border border-white/5">
-              <div className="w-1.5 h-1.5 rounded-full bg-[#00FF66] shadow-[0_0_6px_#00FF66]" />
+              <div className="w-1.5 h-1.5 rounded-full bg-[#a3ff12] shadow-[0_0_6px_#a3ff12]" />
               <span>Amp Sim</span>
             </div>
             <div className="px-3 py-1.5 bg-[#202630] rounded-lg text-xs font-mono text-zinc-300 flex items-center gap-2 border border-white/5">
               <span>Reverb</span>
             </div>
-            <button className="w-7 h-7 rounded-lg bg-[#202630] hover:bg-[#28303d] text-zinc-400 hover:text-white flex items-center justify-center text-xs font-bold">
+            <button className="w-7 h-7 rounded-lg bg-[#202630] hover:bg-[#28303d] text-zinc-400 hover:text-white flex items-center justify-center text-xs font-bold cursor-pointer">
               +
             </button>
           </div>

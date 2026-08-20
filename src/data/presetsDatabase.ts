@@ -12,7 +12,7 @@ export const DEFAULT_TONE_PRESETS: TonePreset[] = [
         type: "noiseGate",
         name: "Noise Suppressor",
         enabled: true,
-        color: "#2ae500",
+        color: "#a3ff12",
         params: { threshold: -50 },
       },
       {
@@ -76,7 +76,7 @@ export const DEFAULT_TONE_PRESETS: TonePreset[] = [
         type: "noiseGate",
         name: "Noise Suppressor",
         enabled: true,
-        color: "#2ae500",
+        color: "#a3ff12",
         params: { threshold: -45 },
       },
       {
@@ -140,7 +140,7 @@ export const DEFAULT_TONE_PRESETS: TonePreset[] = [
         type: "noiseGate",
         name: "Noise Suppressor",
         enabled: true,
-        color: "#2ae500",
+        color: "#a3ff12",
         params: { threshold: -40 },
       },
       {
@@ -204,7 +204,7 @@ export const DEFAULT_TONE_PRESETS: TonePreset[] = [
         type: "noiseGate",
         name: "Noise Suppressor",
         enabled: true,
-        color: "#2ae500",
+        color: "#a3ff12",
         params: { threshold: -38 },
       },
       {
@@ -268,7 +268,7 @@ export const DEFAULT_TONE_PRESETS: TonePreset[] = [
         type: "noiseGate",
         name: "Noise Clamp Gate",
         enabled: true,
-        color: "#2ae500",
+        color: "#a3ff12",
         params: { threshold: -32 },
       },
       {

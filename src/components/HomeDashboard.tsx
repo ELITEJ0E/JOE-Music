@@ -79,7 +79,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onSelectMode }) =>
           <button
             id="home-action-tune"
             onClick={() => onSelectMode("tuner")}
-            className="h-36 bg-[#13161a] hover:bg-[#181c22] border border-[#1f242b] hover:border-[#2f3742] rounded-2xl flex flex-col items-center justify-center gap-3 transition-all cursor-pointer group"
+            className="h-36 frosted-card-hover rounded-3xl flex flex-col items-center justify-center gap-3 transition-all cursor-pointer group"
           >
             <div className="w-12 h-12 rounded-full bg-[#1c2026] flex items-center justify-center group-hover:scale-105 transition-transform border border-white/5">
               <SlidersHorizontal className="w-5 h-5 text-zinc-300 group-hover:text-white" />
@@ -93,7 +93,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onSelectMode }) =>
           <button
             id="home-action-find-chords"
             onClick={() => onSelectMode("chords-ai")}
-            className="h-36 bg-[#13161a] hover:bg-[#181c22] border border-[#1f242b] hover:border-[#2f3742] rounded-2xl flex flex-col items-center justify-center gap-3 transition-all cursor-pointer group"
+            className="h-36 frosted-card-hover rounded-3xl flex flex-col items-center justify-center gap-3 transition-all cursor-pointer group"
           >
             <div className="w-12 h-12 rounded-full bg-[#1c2026] flex items-center justify-center group-hover:scale-105 transition-transform border border-white/5">
               <LayoutGrid className="w-5 h-5 text-zinc-300 group-hover:text-white" />
@@ -107,7 +107,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onSelectMode }) =>
           <button
             id="home-action-play-song"
             onClick={() => onSelectMode("songs")}
-            className="h-36 bg-[#13161a] hover:bg-[#181c22] border border-[#1f242b] hover:border-[#2f3742] rounded-2xl flex flex-col items-center justify-center gap-3 transition-all cursor-pointer group"
+            className="h-36 frosted-card-hover rounded-3xl flex flex-col items-center justify-center gap-3 transition-all cursor-pointer group"
           >
             <div className="w-12 h-12 rounded-full bg-[#1c2026] flex items-center justify-center group-hover:scale-105 transition-transform border border-white/5">
               <Play className="w-5 h-5 text-zinc-300 group-hover:text-white fill-current ml-0.5" />
@@ -121,7 +121,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onSelectMode }) =>
           <button
             id="home-action-record"
             onClick={() => onSelectMode("recordings")}
-            className="h-36 bg-[#13161a] hover:bg-[#181c22] border border-[#1f242b] hover:border-[#2f3742] rounded-2xl flex flex-col items-center justify-center gap-3 transition-all cursor-pointer group"
+            className="h-36 frosted-card-hover rounded-3xl flex flex-col items-center justify-center gap-3 transition-all cursor-pointer group"
           >
             <div className="w-12 h-12 rounded-full bg-[#1c2026] flex items-center justify-center group-hover:scale-105 transition-transform border border-white/5">
               <Circle className="w-5 h-5 text-rose-400 group-hover:text-rose-300 stroke-[2.5]" />
@@ -135,7 +135,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onSelectMode }) =>
           <button
             id="home-action-looper"
             onClick={() => onSelectMode("looper")}
-            className="h-36 bg-[#13161a] hover:bg-[#181c22] border border-[#1f242b] hover:border-[#2f3742] rounded-2xl flex flex-col items-center justify-center gap-3 transition-all cursor-pointer group"
+            className="h-36 frosted-card-hover rounded-3xl flex flex-col items-center justify-center gap-3 transition-all cursor-pointer group"
           >
             <div className="w-12 h-12 rounded-full bg-[#1c2026] flex items-center justify-center group-hover:scale-105 transition-transform border border-white/5">
               <Repeat className="w-5 h-5 text-zinc-300 group-hover:text-white" />
@@ -147,10 +147,10 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onSelectMode }) =>
         </div>
 
         {/* Continue Playing Featured Card (Right Column) */}
-        <div className="lg:col-span-5 bg-[#13161a] border border-[#1f242b] rounded-2xl p-6 flex flex-col justify-between relative overflow-hidden group">
+        <div className="lg:col-span-5 frosted-card rounded-3xl p-6 flex flex-col justify-between relative overflow-hidden group">
           {/* Subtle Mixing/Waveform Graphic Background */}
           <div className="absolute inset-0 opacity-15 pointer-events-none flex items-end justify-center pb-20">
-            <svg viewBox="0 0 400 120" className="w-full h-28 stroke-[#00FF66] fill-none stroke-[1.5]">
+            <svg viewBox="0 0 400 120" className="w-full h-28 stroke-[#a3ff12] fill-none stroke-[1.5]">
               <path d="M 0 60 Q 40 10 80 60 T 160 60 T 240 60 T 320 60 T 400 60" />
               <path d="M 0 70 Q 50 110 100 70 T 200 70 T 300 70 T 400 70" opacity="0.6" />
             </svg>
@@ -159,7 +159,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onSelectMode }) =>
           <div>
             {/* Top Bar: CONTINUE PLAYING pill & menu dots */}
             <div className="flex items-center justify-between">
-              <span className="text-[11px] font-bold font-mono text-[#00FF66] tracking-wider uppercase">
+              <span className="text-[11px] font-bold font-mono text-[#a3ff12] tracking-wider uppercase">
                 CONTINUE PLAYING
               </span>
               <button className="text-zinc-500 hover:text-zinc-300 p-1">
@@ -179,13 +179,13 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onSelectMode }) =>
           {/* Bottom Area: BPM / Key / Meter Badges & Big Continue Button */}
           <div className="space-y-5 pt-12 z-10">
             <div className="flex items-center gap-2">
-              <span className="px-3 py-1 bg-[#1d2229] border border-white/5 rounded-full text-xs font-mono text-zinc-200">
+              <span className="px-3 py-1 bg-white/5 border border-white/5 rounded-full text-xs font-mono text-zinc-200">
                 104 BPM
               </span>
-              <span className="px-3 py-1 bg-[#1d2229] border border-white/5 rounded-full text-xs font-mono text-zinc-200">
+              <span className="px-3 py-1 bg-white/5 border border-white/5 rounded-full text-xs font-mono text-zinc-200">
                 A Major
               </span>
-              <span className="px-3 py-1 bg-[#1d2229] border border-white/5 rounded-full text-xs font-mono text-zinc-200">
+              <span className="px-3 py-1 bg-white/5 border border-white/5 rounded-full text-xs font-mono text-zinc-200">
                 4/4
               </span>
             </div>
@@ -193,7 +193,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onSelectMode }) =>
             <button
               id="btn-home-continue-playing"
               onClick={handleTogglePlayFeatured}
-              className="w-full py-3.5 bg-[#00FF66] hover:bg-[#00e65c] text-black font-extrabold text-sm rounded-xl flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(0,255,102,0.3)] transition-all cursor-pointer active:scale-[0.99]"
+              className="w-full py-3.5 frosted-button-primary rounded-xl text-black font-extrabold text-sm flex items-center justify-center gap-2 transition-all cursor-pointer active:scale-[0.99]"
             >
               {isPlayingFeatured ? (
                 <>
@@ -214,7 +214,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onSelectMode }) =>
       {/* Bottom 3 Cards Row: Recent Songs, Recent Recordings, Favorite Tones */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
         {/* Recent Songs */}
-        <div className="bg-[#13161a] border border-[#1f242b] rounded-2xl p-5 flex flex-col justify-between">
+        <div className="frosted-card rounded-3xl p-5 flex flex-col justify-between">
           <div className="flex items-center justify-between pb-3 border-b border-white/5">
             <h3 className="text-sm font-bold text-white tracking-wide">Recent Songs</h3>
             <button
@@ -228,7 +228,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onSelectMode }) =>
           <div className="space-y-2 mt-3">
             <div
               onClick={() => onSelectMode("songs")}
-              className="p-3 bg-[#181c22] hover:bg-[#1e232b] rounded-xl flex items-center justify-between cursor-pointer transition-all border border-transparent hover:border-white/5"
+              className="p-3 bg-white/5 hover:bg-white/10 rounded-xl flex items-center justify-between cursor-pointer transition-all border border-transparent hover:border-white/5"
             >
               <div className="flex items-center space-x-3">
                 <Music className="w-4 h-4 text-zinc-400" />
@@ -242,7 +242,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onSelectMode }) =>
 
             <div
               onClick={() => onSelectMode("songs")}
-              className="p-3 bg-[#181c22] hover:bg-[#1e232b] rounded-xl flex items-center justify-between cursor-pointer transition-all border border-transparent hover:border-white/5"
+              className="p-3 bg-white/5 hover:bg-white/10 rounded-xl flex items-center justify-between cursor-pointer transition-all border border-transparent hover:border-white/5"
             >
               <div className="flex items-center space-x-3">
                 <Music className="w-4 h-4 text-zinc-400" />
@@ -257,7 +257,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onSelectMode }) =>
         </div>
 
         {/* Recent Recordings */}
-        <div className="bg-[#13161a] border border-[#1f242b] rounded-2xl p-5 flex flex-col justify-between">
+        <div className="frosted-card rounded-3xl p-5 flex flex-col justify-between">
           <div className="flex items-center justify-between pb-3 border-b border-white/5">
             <h3 className="text-sm font-bold text-white tracking-wide">Recent Recordings</h3>
             <button
@@ -269,7 +269,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onSelectMode }) =>
           </div>
 
           <div className="space-y-2 mt-3">
-            <div className="p-3 bg-[#181c22] hover:bg-[#1e232b] rounded-xl flex items-center justify-between border border-transparent hover:border-white/5">
+            <div className="p-3 bg-white/5 hover:bg-white/10 rounded-xl flex items-center justify-between border border-transparent hover:border-white/5">
               <div className="flex items-center space-x-3">
                 <div className="w-7 h-7 rounded-lg bg-zinc-800 flex items-center justify-center text-zinc-400">
                   <Mic className="w-3.5 h-3.5" />
@@ -281,13 +281,13 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onSelectMode }) =>
               </div>
               <button
                 onClick={() => handlePlayRecordingSample("rec-1", "Idea_04_Amaj.wav")}
-                className="w-7 h-7 rounded-full bg-zinc-800 hover:bg-[#00FF66] hover:text-black text-zinc-300 flex items-center justify-center transition-colors"
+                className="w-7 h-7 rounded-full bg-zinc-800 hover:bg-[#a3ff12] hover:text-black text-zinc-300 flex items-center justify-center transition-colors"
               >
                 {playingRec === "rec-1" ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3 fill-current ml-0.5" />}
               </button>
             </div>
 
-            <div className="p-3 bg-[#181c22] hover:bg-[#1e232b] rounded-xl flex items-center justify-between border border-transparent hover:border-white/5">
+            <div className="p-3 bg-white/5 hover:bg-white/10 rounded-xl flex items-center justify-between border border-transparent hover:border-white/5">
               <div className="flex items-center space-x-3">
                 <div className="w-7 h-7 rounded-lg bg-zinc-800 flex items-center justify-center text-zinc-400">
                   <Mic className="w-3.5 h-3.5" />
@@ -299,7 +299,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onSelectMode }) =>
               </div>
               <button
                 onClick={() => handlePlayRecordingSample("rec-2", "Riff_Heavy_DropD.wav")}
-                className="w-7 h-7 rounded-full bg-zinc-800 hover:bg-[#00FF66] hover:text-black text-zinc-300 flex items-center justify-center transition-colors"
+                className="w-7 h-7 rounded-full bg-zinc-800 hover:bg-[#a3ff12] hover:text-black text-zinc-300 flex items-center justify-center transition-colors"
               >
                 {playingRec === "rec-2" ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3 fill-current ml-0.5" />}
               </button>
@@ -308,7 +308,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onSelectMode }) =>
         </div>
 
         {/* Favorite Tones */}
-        <div className="bg-[#13161a] border border-[#1f242b] rounded-2xl p-5 flex flex-col justify-between">
+        <div className="frosted-card rounded-3xl p-5 flex flex-col justify-between">
           <div className="flex items-center justify-between pb-3 border-b border-white/5">
             <h3 className="text-sm font-bold text-white tracking-wide">Favorite Tones</h3>
             <button
@@ -322,30 +322,30 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onSelectMode }) =>
           <div className="space-y-2 mt-3">
             <div
               onClick={() => onSelectMode("tone-studio")}
-              className="p-3 bg-[#181c22] hover:bg-[#1e232b] rounded-xl flex items-center justify-between cursor-pointer transition-all border border-transparent hover:border-white/5"
+              className="p-3 bg-white/5 hover:bg-white/10 rounded-xl flex items-center justify-between cursor-pointer transition-all border border-transparent hover:border-white/5"
             >
               <div className="flex items-center space-x-3">
-                <AudioWaveform className="w-4 h-4 text-[#00FF66]" />
+                <AudioWaveform className="w-4 h-4 text-[#a3ff12]" />
                 <span className="text-xs font-bold text-white">Crystal Clean Delay</span>
               </div>
             </div>
 
             <div
               onClick={() => onSelectMode("tone-studio")}
-              className="p-3 bg-[#181c22] hover:bg-[#1e232b] rounded-xl flex items-center justify-between cursor-pointer transition-all border border-transparent hover:border-white/5"
+              className="p-3 bg-white/5 hover:bg-white/10 rounded-xl flex items-center justify-between cursor-pointer transition-all border border-transparent hover:border-white/5"
             >
               <div className="flex items-center space-x-3">
-                <AudioWaveform className="w-4 h-4 text-[#00FF66]" />
+                <AudioWaveform className="w-4 h-4 text-[#a3ff12]" />
                 <span className="text-xs font-bold text-white">Modern High Gain</span>
               </div>
             </div>
 
             <div
               onClick={() => onSelectMode("tone-studio")}
-              className="p-3 bg-[#181c22] hover:bg-[#1e232b] rounded-xl flex items-center justify-between cursor-pointer transition-all border border-transparent hover:border-white/5"
+              className="p-3 bg-white/5 hover:bg-white/10 rounded-xl flex items-center justify-between cursor-pointer transition-all border border-transparent hover:border-white/5"
             >
               <div className="flex items-center space-x-3">
-                <AudioWaveform className="w-4 h-4 text-[#00FF66]" />
+                <AudioWaveform className="w-4 h-4 text-[#a3ff12]" />
                 <span className="text-xs font-bold text-white">Vintage Fuzz Box</span>
               </div>
             </div>

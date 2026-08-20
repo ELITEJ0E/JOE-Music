@@ -143,7 +143,7 @@ export const PresetsLibraryView: React.FC<PresetsLibraryViewProps> = ({
           onClick={() => {
             if (onOpenToneStudio) onOpenToneStudio();
           }}
-          className="px-5 py-2.5 bg-[#00FF66] hover:bg-[#00e65c] text-black font-extrabold text-xs rounded-xl flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(0,255,102,0.3)] transition-all cursor-pointer w-fit"
+          className="px-5 py-2.5 bg-[#a3ff12] hover:bg-[#92eb10] text-black font-extrabold text-xs rounded-xl flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(163,255,18,0.3)] transition-all cursor-pointer w-fit"
         >
           <Plus className="w-4 h-4 stroke-[3]" />
           <span>Create New Preset</span>
@@ -151,7 +151,7 @@ export const PresetsLibraryView: React.FC<PresetsLibraryViewProps> = ({
       </div>
 
       {/* Filter / Search Bar */}
-      <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 bg-[#13161a] border border-[#1f242b] p-3 rounded-2xl">
+      <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 frosted-card p-3 rounded-3xl">
         <div className="flex-1 relative">
           <Search className="w-4 h-4 text-zinc-400 absolute left-3.5 top-3" />
           <input
@@ -159,7 +159,7 @@ export const PresetsLibraryView: React.FC<PresetsLibraryViewProps> = ({
             placeholder="Search presets..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-[#181c22] text-xs font-mono text-white rounded-xl pl-10 pr-4 py-2.5 border border-transparent focus:border-[#00FF66]/50 focus:outline-none placeholder:text-zinc-500"
+            className="w-full bg-white/5 text-xs font-mono text-white rounded-xl pl-10 pr-4 py-2.5 border border-white/5 focus:border-[#a3ff12]/50 focus:outline-none placeholder:text-zinc-500"
           />
         </div>
 
@@ -171,10 +171,10 @@ export const PresetsLibraryView: React.FC<PresetsLibraryViewProps> = ({
               <button
                 key={cat}
                 onClick={() => setActiveCategory(cat)}
-                className={`px-3.5 py-1.5 rounded-full text-xs font-mono font-medium transition-all whitespace-nowrap ${
+                className={`px-3.5 py-1.5 rounded-full text-xs font-mono font-medium transition-all whitespace-nowrap cursor-pointer ${
                   isActive
-                    ? "bg-[#182a1d] text-[#00FF66] border border-[#00FF66]/40 font-bold"
-                    : "bg-[#1c2128] text-zinc-400 hover:text-white border border-transparent hover:border-white/5"
+                    ? "bg-[#a3ff12]/15 text-[#a3ff12] border border-[#a3ff12]/40 font-bold"
+                    : "bg-white/5 text-zinc-400 hover:text-white border border-transparent hover:border-white/5"
                 }`}
               >
                 {cat}
@@ -189,7 +189,7 @@ export const PresetsLibraryView: React.FC<PresetsLibraryViewProps> = ({
           <select
             value={selectedGenre}
             onChange={(e) => setSelectedGenre(e.target.value)}
-            className="bg-[#1c2128] border border-white/10 rounded-xl px-3 py-1.5 text-xs font-mono text-zinc-200 focus:outline-none focus:border-[#00FF66]"
+            className="bg-white/5 border border-white/10 rounded-xl px-3 py-1.5 text-xs font-mono text-zinc-200 focus:outline-none focus:border-[#a3ff12]"
           >
             <option value="All Genres">All Genres</option>
             <option value="Ambient">Ambient</option>
@@ -211,26 +211,26 @@ export const PresetsLibraryView: React.FC<PresetsLibraryViewProps> = ({
           return (
             <div
               key={item.id}
-              className={`rounded-2xl p-5 flex flex-col justify-between transition-all relative ${
+              className={`rounded-3xl p-5 flex flex-col justify-between transition-all relative ${
                 isLoaded
-                  ? "bg-[#13161a] border border-[#00FF66] shadow-[0_0_25px_rgba(0,255,102,0.15)] ring-1 ring-[#00FF66]/30"
-                  : "bg-[#13161a] border border-[#1f242b] hover:border-[#2f3844]"
+                  ? "bg-[#a3ff12]/15 border border-[#a3ff12] shadow-[0_0_25px_rgba(163,255,18,0.15)] ring-1 ring-[#a3ff12]/30"
+                  : "frosted-card-hover"
               }`}
             >
               <div>
                 {/* Header: Genre tag + Actions */}
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-mono font-bold text-[#00FF66] tracking-wider uppercase">
+                  <span className="text-[10px] font-mono font-bold text-[#a3ff12] tracking-wider uppercase">
                     {item.genre}
                   </span>
                   <div className="flex items-center gap-1.5">
                     <button
                       onClick={(e) => toggleFavorite(item.id, e)}
-                      className={`p-1 rounded-lg transition-colors ${
-                        isFav ? "text-[#00FF66]" : "text-zinc-500 hover:text-white"
+                      className={`p-1 rounded-lg transition-colors cursor-pointer ${
+                        isFav ? "text-[#a3ff12]" : "text-zinc-500 hover:text-white"
                       }`}
                     >
-                      <Heart className={`w-4 h-4 ${isFav ? "fill-[#00FF66]" : ""}`} />
+                      <Heart className={`w-4 h-4 ${isFav ? "fill-[#a3ff12]" : ""}`} />
                     </button>
                     <button className="text-zinc-500 hover:text-white p-1">
                       <MoreVertical className="w-4 h-4" />
@@ -248,7 +248,7 @@ export const PresetsLibraryView: React.FC<PresetsLibraryViewProps> = ({
 
                 {/* Tone / Effects Slot */}
                 <div className="space-y-2 mt-4">
-                  <div className="p-2.5 bg-[#181c22] rounded-xl flex items-center justify-between border border-white/5">
+                  <div className="p-2.5 bg-white/5 rounded-xl flex items-center justify-between border border-white/5">
                     <div className="flex items-center space-x-2.5 overflow-hidden">
                       <AudioWaveform className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
                       <span className="text-xs font-mono text-zinc-300 truncate">
@@ -256,13 +256,13 @@ export const PresetsLibraryView: React.FC<PresetsLibraryViewProps> = ({
                       </span>
                     </div>
                     {item.toneActive && (
-                      <div className="w-2 h-2 rounded-full bg-[#00FF66] shadow-[0_0_8px_#00FF66] shrink-0" />
+                      <div className="w-2 h-2 rounded-full bg-[#a3ff12] shadow-[0_0_8px_#a3ff12] shrink-0" />
                     )}
                   </div>
 
                   {/* Looper / Track Slot */}
                   {item.looperStatus && (
-                    <div className="p-2.5 bg-[#181c22] rounded-xl flex items-center space-x-2.5 border border-white/5">
+                    <div className="p-2.5 bg-white/5 rounded-xl flex items-center space-x-2.5 border border-white/5">
                       {item.looperStatus === "Off" ? (
                         <Ban className="w-3.5 h-3.5 text-zinc-500" />
                       ) : (
@@ -275,7 +275,7 @@ export const PresetsLibraryView: React.FC<PresetsLibraryViewProps> = ({
                   )}
 
                   {item.trackStatus && (
-                    <div className="p-2.5 bg-[#181c22] rounded-xl flex items-center space-x-2.5 border border-white/5">
+                    <div className="p-2.5 bg-white/5 rounded-xl flex items-center space-x-2.5 border border-white/5">
                       <Music className="w-3.5 h-3.5 text-zinc-400" />
                       <span className="text-xs font-mono text-zinc-300">
                         Track: {item.trackStatus}
@@ -290,7 +290,7 @@ export const PresetsLibraryView: React.FC<PresetsLibraryViewProps> = ({
                 {isLoaded ? (
                   <button
                     disabled
-                    className="w-full py-2.5 rounded-xl border border-[#00FF66]/60 bg-[#00FF66]/10 text-[#00FF66] font-mono font-bold text-xs flex items-center justify-center gap-2 shadow-[0_0_12px_rgba(0,255,102,0.15)]"
+                    className="w-full py-2.5 rounded-xl border border-[#a3ff12]/60 bg-[#a3ff12]/10 text-[#a3ff12] font-mono font-bold text-xs flex items-center justify-center gap-2 shadow-[0_0_12px_rgba(163,255,18,0.15)]"
                   >
                     <Check className="w-4 h-4 stroke-[3]" />
                     <span>Loaded</span>
@@ -298,7 +298,7 @@ export const PresetsLibraryView: React.FC<PresetsLibraryViewProps> = ({
                 ) : (
                   <button
                     onClick={() => handleLoadRig(item)}
-                    className="w-full py-2.5 rounded-xl bg-[#222730] hover:bg-[#2c3340] text-zinc-200 hover:text-white font-mono font-bold text-xs transition-colors cursor-pointer"
+                    className="w-full py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-zinc-200 hover:text-white font-mono font-bold text-xs transition-colors cursor-pointer border border-white/5"
                   >
                     Load Rig
                   </button>

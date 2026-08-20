@@ -203,15 +203,15 @@ export const PracticeStudio: React.FC = () => {
     selectedRoutine.chords[drillChordIndex % selectedRoutine.chords.length];
 
   return (
-    <div id="panel-practice-studio" className="max-w-6xl mx-auto p-4 sm:p-6 space-y-6">
+    <div id="panel-practice-studio" className="max-w-6xl mx-auto space-y-6 pb-12 animate-in fade-in duration-200">
       {/* Navigation sub-tabs */}
-      <div className="flex items-center space-x-2 border-b border-[#20202c] pb-3">
+      <div className="flex items-center space-x-2 border-b border-white/5 pb-3">
         <button
           onClick={() => setActiveTab("drills")}
-          className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-mono font-bold transition-all ${
+          className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-mono font-bold transition-all cursor-pointer ${
             activeTab === "drills"
-              ? "bg-[#2ae500] text-black shadow-md shadow-[#2ae500]/20"
-              : "bg-[#14141c] text-gray-400 hover:text-white"
+              ? "bg-[#a3ff12] text-black shadow-[0_0_12px_rgba(163,255,18,0.3)]"
+              : "bg-white/5 text-zinc-400 hover:text-white border border-white/5"
           }`}
         >
           <Target className="w-4 h-4" />
@@ -223,10 +223,10 @@ export const PracticeStudio: React.FC = () => {
             setActiveTab("ear");
             playQuizInterval();
           }}
-          className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-mono font-bold transition-all ${
+          className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-mono font-bold transition-all cursor-pointer ${
             activeTab === "ear"
-              ? "bg-[#2ae500] text-black shadow-md shadow-[#2ae500]/20"
-              : "bg-[#14141c] text-gray-400 hover:text-white"
+              ? "bg-[#a3ff12] text-black shadow-[0_0_12px_rgba(163,255,18,0.3)]"
+              : "bg-white/5 text-zinc-400 hover:text-white border border-white/5"
           }`}
         >
           <Award className="w-4 h-4" />
@@ -235,10 +235,10 @@ export const PracticeStudio: React.FC = () => {
 
         <button
           onClick={() => setActiveTab("ai-coach")}
-          className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-mono font-bold transition-all ${
+          className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-mono font-bold transition-all cursor-pointer ${
             activeTab === "ai-coach"
-              ? "bg-[#2ae500] text-black shadow-md shadow-[#2ae500]/20"
-              : "bg-[#14141c] text-gray-400 hover:text-white"
+              ? "bg-[#a3ff12] text-black shadow-[0_0_12px_rgba(163,255,18,0.3)]"
+              : "bg-white/5 text-zinc-400 hover:text-white border border-white/5"
           }`}
         >
           <Sparkles className="w-4 h-4" />
@@ -251,22 +251,22 @@ export const PracticeStudio: React.FC = () => {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left 2 Cols: Active Drill Machine */}
           <div className="lg:col-span-2 space-y-6">
-            <div className="metal-chassis p-6 rounded-2xl flex flex-col items-center justify-center space-y-6 text-center">
+            <div className="frosted-card rounded-3xl p-6 flex flex-col items-center justify-center space-y-6 text-center dot-matrix-bg">
               <div>
-                <span className="text-[11px] font-mono text-gray-400 uppercase tracking-wider">
+                <span className="text-[11px] font-mono text-zinc-400 uppercase tracking-wider">
                   Active Routine
                 </span>
-                <h3 className="text-xl font-bold font-mono text-white mt-1">
+                <h3 className="text-xl font-extrabold font-mono text-white mt-1">
                   {selectedRoutine.title}
                 </h3>
               </div>
 
               {/* Big Chord Flash Card */}
-              <div className="w-48 h-48 rounded-3xl bg-[#0a0a0f] border-2 border-[#2ae500] flex flex-col items-center justify-center shadow-[0_0_30px_rgba(42,229,0,0.15)]">
-                <span className="text-[11px] font-mono text-gray-400 mb-1">
+              <div className="w-48 h-48 rounded-3xl bg-[#0a0c0e]/80 border-2 border-[#a3ff12] flex flex-col items-center justify-center shadow-[0_0_30px_rgba(163,255,18,0.15)]">
+                <span className="text-[11px] font-mono text-zinc-400 mb-1">
                   SWITCH TO
                 </span>
-                <span className="text-6xl font-black font-mono text-[#2ae500] tracking-tighter">
+                <span className="text-6xl font-black font-mono text-[#a3ff12] tracking-tighter">
                   {currentChordPrompt}
                 </span>
               </div>
@@ -274,17 +274,17 @@ export const PracticeStudio: React.FC = () => {
               {/* Countdown Clock & Changes Counter */}
               <div className="flex items-center space-x-8">
                 <div>
-                  <div className="text-[10px] font-mono text-gray-400">TIME REMAINING</div>
+                  <div className="text-[10px] font-mono text-zinc-400">TIME REMAINING</div>
                   <div className="text-3xl font-extrabold font-mono text-white">
                     {drillTimeLeft}s
                   </div>
                 </div>
 
-                <div className="h-8 w-[1px] bg-[#2a2a3c]" />
+                <div className="h-8 w-[1px] bg-white/5" />
 
                 <div>
-                  <div className="text-[10px] font-mono text-gray-400">TARGET BPM</div>
-                  <div className="text-3xl font-extrabold font-mono text-[#2ae500]">
+                  <div className="text-[10px] font-mono text-zinc-400">TARGET BPM</div>
+                  <div className="text-3xl font-extrabold font-mono text-[#a3ff12]">
                     {selectedRoutine.bpm}
                   </div>
                 </div>
@@ -294,10 +294,10 @@ export const PracticeStudio: React.FC = () => {
               <button
                 id="btn-drill-toggle"
                 onClick={isDrillRunning ? handleStopDrill : handleStartDrill}
-                className={`flex items-center space-x-2 px-8 py-3 rounded-xl font-mono font-bold text-sm transition-all shadow-lg ${
+                className={`flex items-center space-x-2 px-8 py-3 rounded-xl font-mono font-bold text-sm transition-all shadow-lg cursor-pointer ${
                   isDrillRunning
-                    ? "bg-red-500 text-white shadow-red-500/30"
-                    : "bg-[#2ae500] text-black shadow-[#2ae500]/30 hover:bg-[#25ca00]"
+                    ? "bg-red-500 hover:bg-red-600 text-white shadow-red-500/30"
+                    : "bg-[#a3ff12] hover:bg-[#92eb10] text-black shadow-[0_0_15px_rgba(163,255,18,0.3)]"
                 }`}
               >
                 {isDrillRunning ? <RotateCcw className="w-4 h-4" /> : <Play className="w-4 h-4" />}
@@ -307,7 +307,7 @@ export const PracticeStudio: React.FC = () => {
           </div>
 
           {/* Right Col: Routine Selection Menu */}
-          <div className="glass-panel p-5 rounded-2xl space-y-4">
+          <div className="frosted-card rounded-3xl p-5 space-y-4">
             <h3 className="font-mono font-bold text-sm text-white">
               SELECT WORKOUT ROUTINE
             </h3>
@@ -325,17 +325,17 @@ export const PracticeStudio: React.FC = () => {
                     }}
                     className={`p-4 rounded-xl border cursor-pointer transition-all ${
                       isSelected
-                        ? "metal-chassis border-[#2ae500]/50 shadow-[0_0_12px_rgba(42,229,0,0.15)]"
-                        : "bg-[#121218] border-[#20202c] hover:border-[#38384e]"
+                        ? "bg-[#a3ff12]/15 border-[#a3ff12]/50 shadow-[0_0_12px_rgba(163,255,18,0.15)]"
+                        : "bg-white/5 border border-white/5 hover:border-white/10"
                     }`}
                   >
                     <h4 className="font-mono font-bold text-sm text-white">
                       {routine.title}
                     </h4>
-                    <p className="text-[11px] font-mono text-gray-400 mt-1">
+                    <p className="text-[11px] font-mono text-zinc-400 mt-1">
                       {routine.description}
                     </p>
-                    <div className="flex items-center space-x-2 mt-3 text-[10px] font-mono text-[#2ae500]">
+                    <div className="flex items-center space-x-2 mt-3 text-[10px] font-mono text-[#a3ff12]">
                       <span>{routine.durationSec}s Drill</span>
                       <span>•</span>
                       <span>{routine.bpm} BPM</span>
@@ -350,12 +350,12 @@ export const PracticeStudio: React.FC = () => {
 
       {/* Tab 2: Ear Training Quiz */}
       {activeTab === "ear" && (
-        <div className="max-w-3xl mx-auto glass-panel p-6 sm:p-8 rounded-2xl space-y-6">
+        <div className="max-w-3xl mx-auto frosted-card rounded-3xl p-6 sm:p-8 space-y-6">
           <div className="text-center space-y-2">
-            <h3 className="text-2xl font-bold font-mono text-white">
+            <h3 className="text-2xl font-extrabold font-mono text-white tracking-tight">
               GUITAR INTERVAL EAR TRAINING
             </h3>
-            <p className="text-xs font-mono text-gray-400">
+            <p className="text-xs font-mono text-zinc-400">
               Listen to the two notes and identify the musical interval
             </p>
           </div>
@@ -364,7 +364,7 @@ export const PracticeStudio: React.FC = () => {
           <div className="flex justify-center my-4">
             <button
               onClick={() => playQuizInterval()}
-              className="flex items-center space-x-2 px-6 py-3.5 rounded-2xl bg-[#2ae500] text-black font-mono font-bold text-sm hover:bg-[#25ca00] shadow-lg shadow-[#2ae500]/25 transition-transform hover:scale-105"
+              className="flex items-center space-x-2 px-6 py-3.5 rounded-xl bg-[#a3ff12] hover:bg-[#92eb10] text-black font-mono text-sm shadow-lg cursor-pointer transition-transform hover:scale-105"
             >
               <Volume2 className="w-5 h-5" />
               <span>REPLAY INTERVAL SOUND</span>
@@ -373,7 +373,7 @@ export const PracticeStudio: React.FC = () => {
 
           {/* Feedback message */}
           {quizFeedback && (
-            <div className="p-3 rounded-xl bg-[#141420] border border-[#2ae500]/40 text-center font-mono font-bold text-sm text-[#2ae500] animate-bounce">
+            <div className="p-3 rounded-xl bg-[#a3ff12]/15 border border-[#a3ff12]/40 text-center font-mono font-bold text-sm text-[#a3ff12] animate-bounce">
               {quizFeedback}
             </div>
           )}
@@ -384,18 +384,18 @@ export const PracticeStudio: React.FC = () => {
               <button
                 key={idx}
                 onClick={() => handleAnswerInterval(idx)}
-                className="p-3.5 rounded-xl bg-[#12121a] hover:bg-[#1c1c28] border border-[#242436] hover:border-[#2ae500] text-left font-mono transition-all text-xs text-white flex justify-between items-center"
+                className="p-3.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 hover:border-[#a3ff12]/40 text-left font-mono transition-all text-xs text-white flex justify-between items-center cursor-pointer"
               >
                 <span>{interval.name}</span>
-                <span className="text-[10px] text-gray-500">+{interval.semitones} st</span>
+                <span className="text-[10px] text-zinc-500">+{interval.semitones} st</span>
               </button>
             ))}
           </div>
 
           {/* Score Counter */}
-          <div className="flex justify-between items-center text-xs font-mono text-gray-400 border-t border-[#20202c] pt-4">
+          <div className="flex justify-between items-center text-xs font-mono text-zinc-400 border-t border-white/5 pt-4">
             <span>
-              Score: <strong className="text-[#2ae500]">{quizScore.correct}</strong> / {quizScore.total}
+              Score: <strong className="text-[#a3ff12]">{quizScore.correct}</strong> / {quizScore.total}
             </span>
             <span>
               Accuracy: {quizScore.total > 0 ? Math.round((quizScore.correct / quizScore.total) * 100) : 0}%
@@ -406,26 +406,26 @@ export const PracticeStudio: React.FC = () => {
 
       {/* Tab 3: AI Guitar Mentor */}
       {activeTab === "ai-coach" && (
-        <div className="max-w-4xl mx-auto glass-panel p-6 rounded-2xl space-y-4">
-          <div className="flex items-center space-x-2">
-            <Sparkles className="w-5 h-5 text-[#2ae500]" />
-            <h3 className="font-mono font-bold text-base text-white">
+        <div className="max-w-4xl mx-auto frosted-card rounded-3xl p-6 space-y-4">
+          <div className="flex items-center space-x-2.5">
+            <Sparkles className="w-5 h-5 text-[#a3ff12]" />
+            <h3 className="font-mono font-bold text-base text-white tracking-tight">
               AI GUITAR MASTER MENTOR
             </h3>
           </div>
 
           {/* Messages list */}
-          <div className="space-y-3 max-h-[380px] overflow-y-auto p-3 bg-[#0a0a0f] rounded-xl border border-[#20202c]">
+          <div className="space-y-3 max-h-[380px] overflow-y-auto p-3 bg-[#0a0c0e]/80 rounded-xl border border-white/5">
             {messages.map((m, idx) => (
               <div
                 key={idx}
                 className={`p-3.5 rounded-xl text-xs font-mono leading-relaxed ${
                   m.role === "assistant"
-                    ? "bg-[#141420] text-gray-200 border border-[#28283c]"
-                    : "bg-[#2ae500]/15 text-[#2ae500] border border-[#2ae500]/30 ml-8"
+                    ? "bg-white/5 text-zinc-200 border border-white/5"
+                    : "bg-[#a3ff12]/15 text-[#a3ff12] border border-[#a3ff12]/30 ml-8"
                 }`}
               >
-                <div className="font-bold mb-1 text-[10px] uppercase text-gray-400">
+                <div className="font-bold mb-1 text-[10px] uppercase text-zinc-400">
                   {m.role === "assistant" ? "AI Coach" : "You"}
                 </div>
                 {m.text}
@@ -440,12 +440,12 @@ export const PracticeStudio: React.FC = () => {
               placeholder="Ask your guitar coach anything..."
               value={chatInput}
               onChange={(e) => setChatInput(e.target.value)}
-              className="flex-1 bg-[#101018] text-white text-xs font-mono border border-[#2e2e42] rounded-xl px-4 py-2.5 focus:outline-none focus:border-[#2ae500]"
+              className="flex-1 bg-[#0a0c0e]/85 text-white text-xs font-mono border border-white/10 rounded-xl px-4 py-2.5 focus:outline-none focus:border-[#a3ff12]/50"
             />
             <button
               type="submit"
               disabled={isAskingAI}
-              className="px-5 py-2.5 rounded-xl bg-[#2ae500] text-black font-mono font-bold text-xs hover:bg-[#25ca00] disabled:opacity-50 flex items-center space-x-1.5"
+              className="px-5 py-2.5 rounded-xl bg-[#a3ff12] hover:bg-[#92eb10] text-black font-extrabold text-xs flex items-center space-x-1.5 cursor-pointer disabled:opacity-50"
             >
               <Send className="w-3.5 h-3.5" />
               <span>ASK</span>

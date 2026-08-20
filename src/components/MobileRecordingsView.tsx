@@ -82,7 +82,7 @@ export const MobileRecordingsView: React.FC<MobileRecordingsViewProps> = ({ onSe
           </p>
         </div>
 
-        <button className="w-10 h-10 rounded-xl bg-[#181c22] border border-[#1f242b] flex items-center justify-center text-zinc-300 hover:text-white">
+        <button className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 hover:border-[#a3ff12]/30 flex items-center justify-center text-zinc-300 hover:text-white cursor-pointer">
           <Filter className="w-4 h-4" />
         </button>
       </div>
@@ -95,10 +95,10 @@ export const MobileRecordingsView: React.FC<MobileRecordingsViewProps> = ({ onSe
           return (
             <div
               key={track.id}
-              className={`p-5 rounded-2xl flex items-center justify-between transition-all ${
+              className={`p-5 rounded-3xl flex items-center justify-between transition-all ${
                 isPlaying
-                  ? "bg-[#13161a] border border-[#00FF66] shadow-[0_0_25px_rgba(0,255,102,0.15)] ring-1 ring-[#00FF66]/30"
-                  : "bg-[#13161a] border border-[#1f242b] hover:border-[#2f3844]"
+                  ? "bg-[#a3ff12]/15 border border-[#a3ff12] shadow-[0_0_25px_rgba(163,255,18,0.15)] ring-1 ring-[#a3ff12]/30"
+                  : "frosted-card-hover"
               }`}
             >
               <div className="space-y-2.5">
@@ -116,7 +116,7 @@ export const MobileRecordingsView: React.FC<MobileRecordingsViewProps> = ({ onSe
                   {track.tags.map((tag) => (
                     <span
                       key={tag}
-                      className="px-3 py-1 bg-[#1c2128] border border-white/5 rounded-full text-[11px] font-mono text-zinc-300"
+                      className="px-3 py-1 bg-white/5 border border-white/5 rounded-full text-[11px] font-mono text-zinc-300"
                     >
                       {tag}
                     </span>
@@ -129,8 +129,8 @@ export const MobileRecordingsView: React.FC<MobileRecordingsViewProps> = ({ onSe
                 onClick={() => handleTogglePlay(track.id)}
                 className={`w-12 h-12 rounded-full flex items-center justify-center transition-all cursor-pointer ${
                   isPlaying
-                    ? "bg-[#00FF66] text-black shadow-[0_0_20px_rgba(0,255,102,0.5)]"
-                    : "bg-[#1c2128] hover:bg-[#252b34] text-white border border-white/5"
+                    ? "bg-[#a3ff12] text-black shadow-[0_0_20px_rgba(163,255,18,0.5)]"
+                    : "bg-white/5 hover:bg-white/10 text-white border border-white/5"
                 }`}
               >
                 {isPlaying ? (

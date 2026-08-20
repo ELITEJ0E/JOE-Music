@@ -117,7 +117,7 @@ export const TunerPanel: React.FC = () => {
             const percent = val / 255;
             const barH = percent * canvas.height;
 
-            sCtx.fillStyle = i === 2 || i === 3 ? "#00FF66" : "rgba(0, 255, 102, 0.4)";
+            sCtx.fillStyle = i === 2 || i === 3 ? "#a3ff12" : "rgba(163, 255, 18, 0.4)";
             sCtx.fillRect(i * barWidth + 1.5, canvas.height - barH, barWidth - 3, barH);
           }
         }
@@ -188,13 +188,13 @@ export const TunerPanel: React.FC = () => {
         <div className="flex items-center gap-3">
           <button
             onClick={toggleListening}
-            className={`px-4 py-2 rounded-full text-xs font-mono font-bold flex items-center gap-2 border transition-all ${
+            className={`px-4 py-2 rounded-full text-xs font-mono font-bold flex items-center gap-2 border transition-all cursor-pointer ${
               isListening
-                ? "bg-[#182a1d] text-[#00FF66] border-[#00FF66]/50 shadow-[0_0_15px_rgba(0,255,102,0.25)]"
-                : "bg-[#1c2128] text-zinc-400 border-white/10 hover:text-white"
+                ? "bg-[#a3ff12]/10 text-[#a3ff12] border-[#a3ff12]/50 shadow-[0_0_15px_rgba(163,255,18,0.25)]"
+                : "bg-white/5 text-zinc-400 border-white/10 hover:text-white"
             }`}
           >
-            <div className={`w-2 h-2 rounded-full ${isListening ? "bg-[#00FF66] animate-pulse" : "bg-zinc-500"}`} />
+            <div className={`w-2 h-2 rounded-full ${isListening ? "bg-[#a3ff12] animate-pulse" : "bg-zinc-500"}`} />
             <span>{isListening ? "ACTIVE" : "STANDBY (CLICK TO START)"}</span>
           </button>
         </div>
@@ -205,7 +205,7 @@ export const TunerPanel: React.FC = () => {
         {/* Left Column: Instrument & Tuning Presets */}
         <div className="lg:col-span-3 space-y-5">
           {/* INSTRUMENT Selector */}
-          <div className="bg-[#13161a] border border-[#1f242b] rounded-2xl p-5 space-y-3">
+          <div className="frosted-card rounded-3xl p-5 space-y-3">
             <h3 className="text-xs font-mono font-bold text-zinc-400 uppercase tracking-wider">
               INSTRUMENT
             </h3>
@@ -216,10 +216,10 @@ export const TunerPanel: React.FC = () => {
                   <button
                     key={inst}
                     onClick={() => setSelectedInstrument(inst)}
-                    className={`py-3 px-3 rounded-xl text-xs font-bold transition-all text-center ${
+                    className={`py-3 px-3 rounded-xl text-xs font-bold transition-all text-center cursor-pointer ${
                       isSelected
-                        ? "bg-[#182a1d] text-white border border-[#00FF66]/60 shadow-[0_0_15px_rgba(0,255,102,0.15)]"
-                        : "bg-[#181c22] text-zinc-400 hover:text-white border border-transparent hover:border-white/5"
+                        ? "bg-[#a3ff12]/15 text-white border border-[#a3ff12]/60 shadow-[0_0_15px_rgba(163,255,18,0.15)]"
+                        : "bg-white/5 text-zinc-400 hover:text-white border border-transparent hover:border-white/5"
                     }`}
                   >
                     {inst}
@@ -230,7 +230,7 @@ export const TunerPanel: React.FC = () => {
           </div>
 
           {/* TUNING PRESETS */}
-          <div className="bg-[#13161a] border border-[#1f242b] rounded-2xl p-5 space-y-3">
+          <div className="frosted-card rounded-3xl p-5 space-y-3">
             <h3 className="text-xs font-mono font-bold text-zinc-400 uppercase tracking-wider">
               TUNING PRESETS
             </h3>
@@ -245,10 +245,10 @@ export const TunerPanel: React.FC = () => {
                       setSelectedTuning(tuning);
                       setLockedStringIdx(null);
                     }}
-                    className={`w-full p-3 rounded-xl flex items-center justify-between text-left transition-all ${
+                    className={`w-full p-3 rounded-xl flex items-center justify-between text-left transition-all cursor-pointer ${
                       isSelected
-                        ? "bg-[#182a1d] border border-[#00FF66]/40 text-white font-bold"
-                        : "bg-[#181c22] hover:bg-[#1e232b] text-zinc-400 hover:text-white border border-transparent"
+                        ? "bg-[#a3ff12]/15 border border-[#a3ff12]/40 text-white font-bold"
+                        : "bg-white/5 hover:bg-white/10 text-zinc-400 hover:text-white border border-transparent"
                     }`}
                   >
                     <span className="text-xs font-bold">{tuning.name}</span>
@@ -263,14 +263,14 @@ export const TunerPanel: React.FC = () => {
         </div>
 
         {/* Center Column: Radial Tuner Arc Gauge */}
-        <div className="lg:col-span-6 bg-[#13161a] border border-[#1f242b] rounded-2xl p-6 flex flex-col items-center justify-between min-h-[440px] relative overflow-hidden">
+        <div className="lg:col-span-6 frosted-card rounded-3xl p-6 flex flex-col items-center justify-between min-h-[440px] relative overflow-hidden">
           {/* Top Info Tag */}
           <div className="w-full flex items-center justify-between">
             <span className="text-xs font-mono text-zinc-400">
               {selectedTuning.name}
             </span>
             <div className="flex items-center space-x-1.5">
-              <span className={`text-xs font-mono font-bold ${isInTune ? "text-[#00FF66]" : "text-zinc-300"}`}>
+              <span className={`text-xs font-mono font-bold ${isInTune ? "text-[#a3ff12]" : "text-zinc-300"}`}>
                 {tunerData ? (isInTune ? "IN TUNE" : `${displayCents > 0 ? "+" : ""}${displayCents.toFixed(1)}¢`) : "WAITING FOR SIGNAL"}
               </span>
             </div>
@@ -298,7 +298,7 @@ export const TunerPanel: React.FC = () => {
                     y1={y1}
                     x2={x2}
                     y2={y2}
-                    stroke={isCenter ? "#00FF66" : "rgba(255, 255, 255, 0.15)"}
+                    stroke={isCenter ? "#a3ff12" : "rgba(255, 255, 255, 0.15)"}
                     strokeWidth={isCenter ? 3 : 1.5}
                   />
                 );
@@ -317,12 +317,12 @@ export const TunerPanel: React.FC = () => {
                   y1="160"
                   x2="150"
                   y2="30"
-                  stroke={isInTune ? "#00FF66" : "#00FF66"}
+                  stroke={isInTune ? "#a3ff12" : "#a3ff12"}
                   strokeWidth="3.5"
                   strokeLinecap="round"
-                  filter="drop-shadow(0px 0px 8px rgba(0,255,102,0.8))"
+                  filter="drop-shadow(0px 0px 8px rgba(163,255,18,0.8))"
                 />
-                <circle cx="150" cy="160" r="7" fill="#00FF66" />
+                <circle cx="150" cy="160" r="7" fill="#a3ff12" />
               </g>
             </svg>
 
@@ -330,7 +330,7 @@ export const TunerPanel: React.FC = () => {
             <div className="absolute inset-x-0 bottom-2 flex flex-col items-center justify-center">
               <span
                 className={`text-6xl font-black tracking-tighter ${
-                  isInTune ? "text-[#00FF66] drop-shadow-[0_0_25px_rgba(0,255,102,0.8)]" : "text-white"
+                  isInTune ? "text-[#a3ff12] drop-shadow-[0_0_25px_rgba(163,255,18,0.8)]" : "text-white"
                 }`}
               >
                 {displayNote}
@@ -352,10 +352,10 @@ export const TunerPanel: React.FC = () => {
                     setLockedStringIdx(idx);
                     handlePlayStringTone(note, idx < 3 ? 2 : idx < 5 ? 3 : 4, idx);
                   }}
-                  className={`w-11 h-11 rounded-xl text-xs font-mono font-bold flex flex-col items-center justify-center transition-all ${
+                  className={`w-11 h-11 rounded-xl text-xs font-mono font-bold flex flex-col items-center justify-center transition-all cursor-pointer ${
                     isActive
-                      ? "bg-[#00FF66] text-black shadow-[0_0_18px_rgba(0,255,102,0.4)]"
-                      : "bg-[#181c22] text-zinc-400 hover:text-white border border-white/5"
+                      ? "bg-[#a3ff12] text-black shadow-[0_0_18px_rgba(163,255,18,0.4)]"
+                      : "bg-white/5 text-zinc-400 hover:text-white border border-white/5"
                   }`}
                 >
                   <span>{note}</span>
@@ -369,26 +369,26 @@ export const TunerPanel: React.FC = () => {
         {/* Right Column: Accuracy & Frequency Analysis */}
         <div className="lg:col-span-3 space-y-5">
           {/* RECENT ACCURACY GRAPH */}
-          <div className="bg-[#13161a] border border-[#1f242b] rounded-2xl p-5 space-y-3">
+          <div className="frosted-card rounded-3xl p-5 space-y-3">
             <div className="flex items-center justify-between">
               <h3 className="text-xs font-mono font-bold text-zinc-400 uppercase tracking-wider">
                 RECENT ACCURACY
               </h3>
-              <span className="text-[10px] font-mono text-[#00FF66]">±1.2¢ AVG</span>
+              <span className="text-[10px] font-mono text-[#a3ff12]">±1.2¢ AVG</span>
             </div>
 
             {/* Line chart */}
-            <div className="h-28 bg-[#181c22] rounded-xl p-3 relative flex items-center">
+            <div className="h-28 bg-white/5 rounded-xl p-3 relative flex items-center">
               {/* Zero reference line */}
               <div className="absolute inset-x-3 h-[1px] bg-white/20 top-1/2" />
               <span className="absolute right-2 top-2 text-[9px] font-mono text-zinc-500">+5¢</span>
-              <span className="absolute right-2 top-[44%] text-[9px] font-mono text-[#00FF66]">0¢</span>
+              <span className="absolute right-2 top-[44%] text-[9px] font-mono text-[#a3ff12]">0¢</span>
               <span className="absolute right-2 bottom-2 text-[9px] font-mono text-zinc-500">-5¢</span>
 
               <svg className="w-full h-full overflow-visible">
                 <polyline
                   fill="none"
-                  stroke="#00FF66"
+                  stroke="#a3ff12"
                   strokeWidth="2"
                   points={recentAccuracy
                     .map((val, i) => {
@@ -403,18 +403,18 @@ export const TunerPanel: React.FC = () => {
           </div>
 
           {/* FREQ ANALYSIS */}
-          <div className="bg-[#13161a] border border-[#1f242b] rounded-2xl p-5 space-y-3">
+          <div className="frosted-card rounded-3xl p-5 space-y-3">
             <div className="flex items-center justify-between">
               <h3 className="text-xs font-mono font-bold text-zinc-400 uppercase tracking-wider">
                 FREQ ANALYSIS
               </h3>
               <div className="flex items-center gap-2 text-[9px] font-mono text-zinc-400">
-                <span className="text-[#00FF66]">FUND.</span>
+                <span className="text-[#a3ff12]">FUND.</span>
                 <span>HARMONICS</span>
               </div>
             </div>
 
-            <div className="h-24 bg-[#181c22] rounded-xl p-2 flex items-center justify-center">
+            <div className="h-24 bg-white/5 rounded-xl p-2 flex items-center justify-center">
               <canvas ref={spectrumCanvasRef} width={200} height={70} className="w-full h-full" />
             </div>
           </div>

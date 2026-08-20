@@ -41,13 +41,13 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-      <div className="h-screen w-screen bg-[#0a0c0e] text-[#e5e7eb] flex flex-col selection:bg-[#00FF66] selection:text-black overflow-hidden font-sans">
+      <div className="h-screen w-screen bg-[#0a0c0e] text-[#e5e7eb] flex flex-col selection:bg-[#a3ff12] selection:text-black overflow-hidden font-sans">
         {/* Mobile Top Header */}
-        <div className="md:hidden h-14 bg-[#0d0f12] border-b border-[#191d24] px-4 flex items-center justify-between shrink-0 z-30">
+        <div className="md:hidden h-14 bg-[#0d0f12]/80 backdrop-blur-md border-b border-white/5 px-4 flex items-center justify-between shrink-0 z-30">
           <div className="flex items-center space-x-2">
-            <div className="w-2.5 h-2.5 rounded-full bg-[#00FF66] shadow-[0_0_8px_#00FF66]" />
-            <span className="font-extrabold text-sm tracking-tight text-[#00FF66]">
-              Obsidian Sonic
+            <div className="w-2.5 h-2.5 rounded-full bg-[#a3ff12] shadow-[0_0_8px_#a3ff12]" />
+            <span className="font-extrabold text-sm tracking-tight text-[#a3ff12]">
+              Guitar Studio
             </span>
           </div>
 
@@ -100,8 +100,8 @@ export default function App() {
               {activeMode === "chords-ai" && <ChordFinderStudio />}
               {activeMode === "tuner" && <TunerPanel />}
               {activeMode === "chord-dictionary" && <ChordDictionary />}
-              {activeMode === "fretboard" && <FretboardViewer />}
-              {activeMode === "scales" && <FretboardViewer />}
+              {activeMode === "fretboard" && <FretboardViewer mode="fretboard" />}
+              {activeMode === "scales" && <FretboardViewer mode="scales" />}
               {activeMode === "tone-studio" && <ToneStudio />}
               {activeMode === "looper" && <LooperStation />}
               {activeMode === "multi-track" && <MultiTrackStudio />}
