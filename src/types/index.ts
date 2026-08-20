@@ -62,6 +62,21 @@ export interface SongSection {
   confidence?: number;
 }
 
+export interface ChordSegment {
+  id: string;
+  chord: string;
+  root: string;
+  bass: string;
+  quality: string;
+  extensions: string[];
+  startTime: number;
+  endTime: number;
+  confidence: number;
+  stability: number;
+  beatStart?: number;
+  beatEnd?: number;
+}
+
 export interface SongAnalysis {
   id: string;
   title: string;
@@ -71,14 +86,18 @@ export interface SongAnalysis {
   timeSignature: string;
   suggestedCapo: number;
   difficulty: "Beginner" | "Intermediate" | "Advanced";
-  chords: string[];
+  chords: string[]; // List of unique chords used
+  chordSegments: ChordSegment[]; // Timeline of chords
   tuning: string;
+  tuningDeviation?: number; // Estimated cents deviation from A=440
   sections: SongSection[];
+  beats?: number[]; // Timestamps of detected beats
   tips?: string;
   youtubeUrl?: string;
   confidence?: number;
   audioBlob?: Blob;
   duration?: number;
+  analysisVersion?: string;
 }
 
 export interface SavedSong extends SongAnalysis {

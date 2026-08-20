@@ -5,9 +5,15 @@ import AnalyzerWorker from "./analyzerWorker?worker";
 /**
  * Analyzes decoded audio buffer and generates real SongAnalysis with synchronized sections and chord timestamps
  */
-export async function analyzeAudioFile(file: File): Promise<SongAnalysis> {
+export async function analyzeAudioFile(
+  file: File,
+  onProgress?: (msg: string, pct: number) => void,
+  abortSignal?: AbortSignal
+): Promise<SongAnalysis> {
   const ctx = audioEngine.getContext();
   const arrayBuffer = await file.arrayBuffer();
+  
+  if (onProgress) onProgress("Decoding audio data...", 2);
   const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
 
   const duration = audioBuffer.duration;
@@ -17,28 +23,45 @@ export async function analyzeAudioFile(file: File): Promise<SongAnalysis> {
   return new Promise((resolve, reject) => {
     const worker = new AnalyzerWorker();
 
-    worker.onmessage = (e) => {
-      const { estimatedBpm, detectedChordSequence, sections, overallConfidence } = e.data;
-      const distinctChords = Array.from(new Set(detectedChordSequence)) as string[];
-
-      resolve({
-        id: `song-${Date.now()}`,
-        title: file.name.replace(/\.[^/.]+$/, ""),
-        artist: "Uploaded Audio Analysis",
-        key: `${detectedChordSequence[0] || "G"} Major`,
-        tempo: estimatedBpm,
-        timeSignature: "4/4",
-        suggestedCapo: 0,
-        difficulty: distinctChords.length > 5 ? "Intermediate" : "Beginner",
-        chords: distinctChords,
-        tuning: "E A D G B E (Standard)",
-        sections,
-        confidence: overallConfidence,
-        tips: "Extracted using true Windowed FFT Chroma analysis.",
-        audioBlob: file,
-        duration: duration
+    if (abortSignal) {
+      abortSignal.addEventListener('abort', () => {
+        worker.terminate();
+        reject(new Error("Analysis cancelled by user."));
       });
-      worker.terminate();
+    }
+
+    worker.onmessage = (e) => {
+      if (e.data.type === "progress") {
+        if (onProgress) onProgress(e.data.message, e.data.percent);
+      } else if (e.data.type === "result") {
+        const { analysis } = e.data;
+        
+        resolve({
+          id: `song-${Date.now()}`,
+          title: file.name.replace(/\.[^/.]+$/, ""),
+          artist: "Uploaded Audio Analysis",
+          key: analysis.key,
+          tempo: analysis.estimatedBpm,
+          timeSignature: "4/4",
+          suggestedCapo: 0,
+          difficulty: analysis.uniqueChords.length > 5 ? "Intermediate" : "Beginner",
+          chords: analysis.uniqueChords,
+          chordSegments: analysis.chordSegments,
+          tuning: "E A D G B E (Standard)",
+          tuningDeviation: analysis.tuningDeviationCents,
+          sections: analysis.sections,
+          beats: analysis.beats,
+          confidence: analysis.overallConfidence,
+          tips: "Extracted using Guitariz-inspired MIR (CQT + HPSS + Viterbi HMM).",
+          audioBlob: file,
+          duration: duration,
+          analysisVersion: "1.0.0"
+        });
+        worker.terminate();
+      } else if (e.data.type === "error") {
+        reject(new Error(e.data.error));
+        worker.terminate();
+      }
     };
 
     worker.onerror = (err) => {
@@ -46,7 +69,6 @@ export async function analyzeAudioFile(file: File): Promise<SongAnalysis> {
       worker.terminate();
     };
 
-    // Transfer the ArrayBuffer of the Float32Array to avoid copying
     worker.postMessage(
       { channelData, sampleRate, duration },
       [channelData.buffer]

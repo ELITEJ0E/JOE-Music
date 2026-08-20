@@ -50,7 +50,9 @@ export const ChordFinderStudio: React.FC = () => {
   const [savedSongs, setSavedSongs] = useState<SavedSong[]>([]);
   const [youtubeUrl, setYoutubeUrl] = useState("");
   const [songName, setSongName] = useState("");
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisProgress, setAnalysisProgress] = useState<{ message: string; pct: number } | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
   const [isLiveMic, setIsLiveMic] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -98,14 +100,13 @@ export const ChordFinderStudio: React.FC = () => {
         if (audioRef.current) {
           setCurrentTime(audioRef.current.currentTime);
         }
-      }, 100);
+      }, 50); // fast update for smooth playhead
     }
     return () => clearInterval(interval);
   }, [isPlaying]);
 
   const duration = activeSong.duration || 1;
   const barSeconds = Math.max(1.5, Math.min(4.0, (60 / (activeSong.tempo || 120)) * 4));
-  const currentBarIndex = Math.floor(currentTime / barSeconds);
 
   const formatTime = (time: number) => {
     const mins = Math.floor(time / 60);
@@ -113,26 +114,34 @@ export const ChordFinderStudio: React.FC = () => {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const derivedProgression = activeSong.sections.flatMap((section) =>
-    section.chords.map((chord, idx) => ({
-      chord,
-      bar: `Bar ${idx + 1}`,
-      time: `0:0${idx * 2}`, // Placeholder, but functional for UI list
-      sectionName: section.name,
-    }))
-  );
+  const segments = activeSong.chordSegments || [];
+  const activeSegmentIdx = segments.findIndex(s => currentTime >= s.startTime && currentTime <= s.endTime);
+  const activeIdx = activeSegmentIdx !== -1 ? activeSegmentIdx : 0;
+  
+  const getDisplayChord = (idx: number) => {
+    if (idx < 0 || idx >= segments.length) return { chord: "-", timeLabel: "-" };
+    const seg = segments[idx];
+    return { chord: seg.chord, timeLabel: formatTime(seg.startTime) };
+  };
 
-  const prevChord = derivedProgression[(currentBarIndex - 1 + derivedProgression.length) % derivedProgression.length] || { chord: "-", bar: "-" };
-  const activeChord = derivedProgression[currentBarIndex % derivedProgression.length] || { chord: "-", bar: "-" };
-  const nextChord = derivedProgression[(currentBarIndex + 1) % derivedProgression.length] || { chord: "-", bar: "-" };
+  const prevChord = getDisplayChord(activeIdx - 1);
+  const activeChord = getDisplayChord(activeIdx);
+  const nextChord = getDisplayChord(activeIdx + 1);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    setIsAnalyzing(true);
+    abortControllerRef.current = new AbortController();
+    setAnalysisProgress({ message: "Reading audio file...", pct: 0 });
+    
     try {
-      const result = await analyzeAudioFile(file);
+      const result = await analyzeAudioFile(
+        file, 
+        (msg, pct) => setAnalysisProgress({ message: msg, pct }),
+        abortControllerRef.current.signal
+      );
+      
       setActiveSong(result);
       if (result.audioBlob) {
         await saveSongToDB(result as SavedSong);
@@ -140,17 +149,21 @@ export const ChordFinderStudio: React.FC = () => {
       }
       setCurrentTime(0);
       setIsPlaying(false);
-      setIsAnalyzing(false);
-    } catch (err) {
-      setIsAnalyzing(false);
-      alert("Error analyzing audio file. Please try another audio format.");
+      setAnalysisProgress(null);
+      abortControllerRef.current = null;
+    } catch (err: any) {
+      setAnalysisProgress(null);
+      abortControllerRef.current = null;
+      if (err.message !== "Analysis cancelled by user.") {
+        alert("Error analyzing audio file. Please try another audio format.");
+      }
     }
   };
 
   const handleAnalyzeYoutube = async () => {
     const query = songName.trim() || youtubeUrl.trim();
     if (!query) return;
-    setIsAnalyzing(true);
+    setAnalysisProgress({ message: "Searching song database...", pct: 50 });
     
     try {
       const response = await fetch('/api/analyze-song', {
@@ -166,16 +179,26 @@ export const ChordFinderStudio: React.FC = () => {
       } else {
         data.title = data.title + " (AI-Estimated Chords)";
         data.id = `yt-analyzed-${Date.now()}`;
+        // Map legacy format to new format
+        if (!data.chordSegments) {
+          let t = 0;
+          data.chordSegments = data.sections.flatMap((sec: any) => 
+            sec.chords.map((c: string) => {
+              const seg = { chord: c, startTime: t, endTime: t + 2, confidence: 90 };
+              t += 2;
+              return seg;
+            })
+          );
+        }
         setActiveSong(data);
         setCurrentTime(0);
         setIsPlaying(false);
-        // We don't save YouTube estimated songs to IndexedDB as they lack audioBlobs
       }
     } catch (err) {
       console.error(err);
       alert("Network error while contacting analysis server.");
     } finally {
-      setIsAnalyzing(false);
+      setAnalysisProgress(null);
     }
   };
 
@@ -267,10 +290,10 @@ export const ChordFinderStudio: React.FC = () => {
               />
               <button
                 onClick={handleAnalyzeYoutube}
-                disabled={isAnalyzing}
+                disabled={!!analysisProgress}
                 className="px-3 py-2 bg-[#a3ff12] hover:bg-[#92eb10] text-black font-extrabold text-xs rounded-xl transition-all cursor-pointer font-mono"
               >
-                {isAnalyzing ? "..." : "SEARCH"}
+                {analysisProgress ? "..." : "SEARCH"}
               </button>
             </div>
           </div>
@@ -296,6 +319,39 @@ export const ChordFinderStudio: React.FC = () => {
           </p>
         </div>
       </div>
+
+      {/* Analysis Progress Bar */}
+      {analysisProgress && (
+        <div className="frosted-card rounded-2xl p-4 flex flex-col space-y-3">
+          <div className="flex justify-between items-center">
+            <span className="text-xs font-mono font-bold text-[#a3ff12] tracking-wider animate-pulse">
+              ANALYSIS IN PROGRESS
+            </span>
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-mono text-zinc-400">
+                {Math.round(analysisProgress.pct)}%
+              </span>
+              {abortControllerRef.current && (
+                <button
+                  onClick={() => abortControllerRef.current?.abort()}
+                  className="px-2 py-1 bg-red-500/20 hover:bg-red-500/40 text-red-400 rounded text-[10px] font-bold font-mono transition-colors"
+                >
+                  CANCEL
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="w-full h-2 bg-white/5 rounded-full overflow-hidden">
+            <div 
+              className="h-full bg-gradient-to-r from-green-500 to-[#a3ff12] transition-all duration-300"
+              style={{ width: `${analysisProgress.pct}%` }}
+            />
+          </div>
+          <span className="text-[11px] font-mono text-zinc-500 text-center">
+            {analysisProgress.message}
+          </span>
+        </div>
+      )}
 
       {/* My Songs List */}
       {savedSongs.length > 0 && (
@@ -382,7 +438,7 @@ export const ChordFinderStudio: React.FC = () => {
                   {prevChord.chord}
                 </div>
                 <div className="text-[11px] font-mono text-zinc-500 mt-1">
-                  {prevChord.bar}
+                  {prevChord.timeLabel}
                 </div>
               </div>
 
@@ -392,7 +448,7 @@ export const ChordFinderStudio: React.FC = () => {
                   {activeChord.chord}
                 </div>
                 <div className="text-xs font-mono font-bold text-[#a3ff12] mt-2 tracking-wider">
-                  {activeChord.bar}
+                  {activeChord.timeLabel}
                 </div>
               </div>
 
@@ -402,7 +458,7 @@ export const ChordFinderStudio: React.FC = () => {
                   {nextChord.chord}
                 </div>
                 <div className="text-[11px] font-mono text-zinc-500 mt-1">
-                  {nextChord.bar}
+                  {nextChord.timeLabel}
                 </div>
               </div>
             </div>
@@ -447,12 +503,19 @@ export const ChordFinderStudio: React.FC = () => {
               })}
 
               {/* Chord split lines */}
-              <div className="absolute inset-0 flex justify-between pointer-events-none px-4">
-                {derivedProgression.map((cp, idx) => (
-                  <div key={idx} className="h-full border-r border-white/10 flex flex-col justify-end pb-1 pr-1 text-[10px] font-mono text-zinc-400">
-                    | {cp.chord}
-                  </div>
-                ))}
+              <div className="absolute inset-0 flex pointer-events-none">
+                {segments.map((seg, idx) => {
+                  const leftPct = duration > 0 ? (seg.startTime / duration) * 100 : 0;
+                  return (
+                    <div 
+                      key={seg.id || idx} 
+                      className="absolute h-full border-l border-white/10 flex flex-col justify-end pb-1 pl-1 text-[10px] font-mono text-[#a3ff12]/70"
+                      style={{ left: `${leftPct}%` }}
+                    >
+                      {seg.chord}
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
