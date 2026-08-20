@@ -295,7 +295,9 @@ class DrumEngine {
 
   public subscribeStep(cb: (step: number, total: number) => void) {
     this.stepListeners.add(cb);
-    return () => this.stepListeners.delete(cb);
+    return () => {
+      this.stepListeners.delete(cb);
+    };
   }
 
   public start() {

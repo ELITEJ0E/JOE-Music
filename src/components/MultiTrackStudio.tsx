@@ -1,81 +1,77 @@
 import React, { useState, useEffect, useRef } from "react";
 import {
-  Layers,
+  SkipBack,
+  Square,
   Play,
   Pause,
-  Square,
   Circle,
+  Repeat,
+  Sliders,
+  Volume2,
   Plus,
   Trash2,
   Download,
-  Volume2,
-  VolumeX,
+  Settings,
+  User,
   Radio,
-  Sliders,
-  Scissors,
+  AudioWaveform,
+  Check,
 } from "lucide-react";
 import { audioEngine } from "../audio/audioContext";
 import { DAWTrack, SavedRecording } from "../types";
 import { saveRecordingToDB } from "../utils/storage";
+import { guitarSynth } from "../audio/guitarSynth";
 
 export const MultiTrackStudio: React.FC = () => {
   const [tracks, setTracks] = useState<DAWTrack[]>([
     {
       id: "trk-1",
-      name: "Track 1 - Rhythm Guitar",
-      color: "#a3ff12",
+      name: "Guitar 1",
+      color: "#00FF66",
       volume: 0.85,
-      pan: -0.2,
-      muted: false,
-      soloed: false,
-      audioBuffer: null,
-      recording: false,
-      startTime: 0,
-      duration: 0,
-    },
-    {
-      id: "trk-2",
-      name: "Track 2 - Lead Guitar",
-      color: "#38bdf8",
-      volume: 0.9,
-      pan: 0.2,
-      muted: false,
-      soloed: false,
-      audioBuffer: null,
-      recording: false,
-      startTime: 0,
-      duration: 0,
-    },
-    {
-      id: "trk-3",
-      name: "Track 3 - Bass / Vocal",
-      color: "#f59e0b",
-      volume: 0.8,
       pan: 0,
       muted: false,
       soloed: false,
       audioBuffer: null,
       recording: false,
       startTime: 0,
-      duration: 0,
+      duration: 12,
+    },
+    {
+      id: "trk-2",
+      name: "Guitar 2",
+      color: "#38bdf8",
+      volume: 0.78,
+      pan: 0.2,
+      muted: false,
+      soloed: false,
+      audioBuffer: null,
+      recording: false,
+      startTime: 0,
+      duration: 12,
     },
   ]);
 
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [isRecordingMaster, setIsRecordingMaster] = useState(false);
-  const [armTrackId, setArmTrackId] = useState<string>("trk-1");
+  const [bpm, setBpm] = useState<number>(120);
+  const [keySig, setKeySig] = useState<string>("Am");
+  const [timeSig, setTimeSig] = useState<string>("4/4");
+  const [isPlaying, setIsPlaying] = useState<boolean>(false);
+  const [isRecording, setIsRecording] = useState<boolean>(false);
+  const [isLooping, setIsLooping] = useState<boolean>(true);
+  const [armedTrackId, setArmedTrackId] = useState<string>("trk-1");
+  const [selectedTrackId, setSelectedTrackId] = useState<string>("trk-1");
   const [playheadTimeSec, setPlayheadTimeSec] = useState<number>(0);
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
 
   const audioChunksRef = useRef<Blob[]>([]);
   const timelineAnimRef = useRef<number | null>(null);
-  const activeSourcesRef = useRef<AudioBufferSourceNode[]>([]);
   const playheadStartCtxTimeRef = useRef<number>(0);
   const playheadStartOffsetRef = useRef<number>(0);
+  const activeSourcesRef = useRef<AudioBufferSourceNode[]>([]);
 
-  // Playhead update loop
+  // Timeline playhead loop
   useEffect(() => {
-    if (!isPlaying && !isRecordingMaster) {
+    if (!isPlaying && !isRecording) {
       if (timelineAnimRef.current) cancelAnimationFrame(timelineAnimRef.current);
       return;
     }
@@ -83,7 +79,15 @@ export const MultiTrackStudio: React.FC = () => {
     const ctx = audioEngine.getContext();
     const tick = () => {
       const elapsed = ctx.currentTime - playheadStartCtxTimeRef.current;
-      setPlayheadTimeSec(playheadStartOffsetRef.current + Math.max(0, elapsed));
+      const current = playheadStartOffsetRef.current + Math.max(0, elapsed);
+      // Loop at 16 seconds if looping is active
+      if (isLooping && current > 16) {
+        playheadStartCtxTimeRef.current = ctx.currentTime;
+        playheadStartOffsetRef.current = 0;
+        setPlayheadTimeSec(0);
+      } else {
+        setPlayheadTimeSec(current);
+      }
       timelineAnimRef.current = requestAnimationFrame(tick);
     };
 
@@ -92,72 +96,53 @@ export const MultiTrackStudio: React.FC = () => {
     return () => {
       if (timelineAnimRef.current) cancelAnimationFrame(timelineAnimRef.current);
     };
-  }, [isPlaying, isRecordingMaster]);
+  }, [isPlaying, isRecording, isLooping]);
 
   const handleTogglePlay = () => {
     if (isPlaying) {
-      // Stop playback
-      activeSourcesRef.current.forEach((src) => {
+      activeSourcesRef.current.forEach((s) => {
         try {
-          src.stop();
+          s.stop();
         } catch (_) {}
       });
       activeSourcesRef.current = [];
       setIsPlaying(false);
     } else {
-      // Start playback of all non-muted tracks from current playhead
       const ctx = audioEngine.getContext();
       playheadStartCtxTimeRef.current = ctx.currentTime;
       playheadStartOffsetRef.current = playheadTimeSec;
 
-      const hasSolo = tracks.some((t) => t.soloed);
-
-      tracks.forEach((track) => {
-        if (!track.audioBuffer) return;
-        if (track.muted) return;
-        if (hasSolo && !track.soloed) return;
-
-        const src = ctx.createBufferSource();
-        src.buffer = track.audioBuffer;
-
-        const gainNode = ctx.createGain();
-        gainNode.gain.value = track.volume;
-
-        const panner = ctx.createStereoPanner();
-        panner.pan.value = track.pan;
-
-        src.connect(gainNode);
-        gainNode.connect(panner);
-        panner.connect(audioEngine.getMasterGain());
-
-        const offset = Math.max(0, playheadTimeSec - track.startTime);
-        if (offset < track.audioBuffer.duration) {
-          src.start(ctx.currentTime, offset);
-          activeSourcesRef.current.push(src);
-        }
-      });
+      // Play backing chord preview
+      guitarSynth.strumChord([null, 0, 2, 2, 1, 0], "down", 30, 0, 0.6);
 
       setIsPlaying(true);
     }
   };
 
-  const handleStartRecordTrack = async () => {
-    if (isRecordingMaster) {
-      // Stop recording
+  const handleStop = () => {
+    activeSourcesRef.current.forEach((s) => {
+      try {
+        s.stop();
+      } catch (_) {}
+    });
+    activeSourcesRef.current = [];
+    setIsPlaying(false);
+    setIsRecording(false);
+    setPlayheadTimeSec(0);
+    playheadStartOffsetRef.current = 0;
+  };
+
+  const handleToggleRecord = async () => {
+    if (isRecording) {
       if (mediaRecorder && mediaRecorder.state !== "inactive") {
         mediaRecorder.stop();
       }
-      setIsRecordingMaster(false);
+      setIsRecording(false);
       setIsPlaying(false);
     } else {
-      // Start recording on armed track
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: false,
-            autoGainControl: false,
-            noiseSuppression: false,
-          },
+          audio: { echoCancellation: false, noiseSuppression: false },
         });
 
         audioChunksRef.current = [];
@@ -174,7 +159,7 @@ export const MultiTrackStudio: React.FC = () => {
 
           setTracks((prev) =>
             prev.map((t) =>
-              t.id === armTrackId
+              t.id === armedTrackId
                 ? {
                     ...t,
                     audioBuffer: decoded,
@@ -194,336 +179,311 @@ export const MultiTrackStudio: React.FC = () => {
         playheadStartCtxTimeRef.current = ctx.currentTime;
         playheadStartOffsetRef.current = playheadTimeSec;
 
-        setIsRecordingMaster(true);
+        setIsRecording(true);
         setIsPlaying(true);
       } catch (err) {
-        alert("Please allow microphone input to record track lanes.");
+        alert("Please grant microphone permission to record tracks.");
       }
     }
   };
 
-  const handleRewind = () => {
-    activeSourcesRef.current.forEach((src) => {
-      try {
-        src.stop();
-      } catch (_) {}
-    });
-    activeSourcesRef.current = [];
-    setIsPlaying(false);
-    setIsRecordingMaster(false);
-    setPlayheadTimeSec(0);
-    playheadStartOffsetRef.current = 0;
-  };
-
   const handleAddTrack = () => {
     const newIdx = tracks.length + 1;
-    const newTrack: DAWTrack = {
+    const newTrk: DAWTrack = {
       id: `trk-${Date.now()}`,
-      name: `Track ${newIdx} - Guitar / Overdub`,
-      color: "#a3ff12",
-      volume: 0.85,
+      name: `Guitar ${newIdx}`,
+      color: newIdx % 2 === 1 ? "#00FF66" : "#f59e0b",
+      volume: 0.8,
       pan: 0,
       muted: false,
       soloed: false,
       audioBuffer: null,
       recording: false,
       startTime: 0,
-      duration: 0,
+      duration: 12,
     };
-    setTracks((prev) => [...prev, newTrack]);
+    setTracks((prev) => [...prev, newTrk]);
   };
 
-  const handleDeleteTrack = (id: string) => {
-    if (confirm("Delete this track?")) {
-      setTracks((prev) => prev.filter((t) => t.id !== id));
-    }
-  };
-
-  const handleExportMixdown = async () => {
-    const tracksWithAudio = tracks.filter((t) => t.audioBuffer !== null);
-    if (tracksWithAudio.length === 0) {
-      alert("No recorded audio to export. Record at least one track first!");
-      return;
-    }
-
-    const title = prompt("Enter title for this mixdown session:", "Guitar Studio Track Session");
-    if (!title) return;
-
-    // Use primary track blob or synthesize
-    const primaryBlob = tracksWithAudio[0].audioBlob;
-    if (primaryBlob) {
-      const rec: SavedRecording = {
-        id: `rec-${Date.now()}`,
-        title,
-        date: new Date().toLocaleDateString(),
-        duration: tracksWithAudio[0].duration,
-        blob: primaryBlob,
-        url: URL.createObjectURL(primaryBlob),
-        tags: ["Mixdown", "DAW Session"],
-      };
-      await saveRecordingToDB(rec);
-      alert(`Mixdown saved to Vault!`);
-    }
-  };
+  const activeSelectedTrack = tracks.find((t) => t.id === selectedTrackId) || tracks[0];
 
   return (
-    <div id="panel-multitrack-daw" className="max-w-7xl mx-auto p-4 sm:p-6 space-y-6">
+    <div id="panel-studio-session" className="max-w-6xl mx-auto space-y-5 pb-12 animate-in fade-in duration-200">
       {/* Top Header & Transport Bar */}
-      <div className="frosted-card p-5 rounded-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center space-x-2">
-            <Layers className="w-5 h-5 text-[#a3ff12]" />
-            <h2 className="text-xl font-bold text-white font-mono">
-              MULTI-TRACK RECORDING DAW
-            </h2>
-            <span className="text-[10px] font-mono font-bold bg-[#a3ff12]/15 text-[#a3ff12] px-2 py-0.5 rounded-full border border-[#a3ff12]/30">
-              NON-DESTRUCTIVE
-            </span>
-          </div>
-          <p className="text-xs text-white/40 font-mono mt-0.5">
-            Record multiple guitar stems, balance levels & mixdown master
-          </p>
+      <div className="bg-[#13161a] border border-[#1f242b] rounded-2xl p-4 flex flex-col md:flex-row items-center justify-between gap-4">
+        {/* Left: Studio Session & Tuning Pill */}
+        <div className="flex items-center space-x-3">
+          <h2 className="text-xl font-bold text-white tracking-tight">Studio Session</h2>
+          <span className="px-3 py-1 bg-[#181c22] border border-white/5 rounded-full text-xs font-mono text-zinc-300">
+            E-Standard Tuning
+          </span>
         </div>
 
-        {/* Transport Buttons */}
-        <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+        {/* Center: DAW Transport Controls */}
+        <div className="flex items-center gap-3">
           {/* Rewind */}
           <button
-            onClick={handleRewind}
-            className="p-3 rounded-xl bg-white/5 border border-white/10 text-white/70 hover:text-white hover:bg-white/10 transition-colors backdrop-blur-md"
-            title="Rewind to start"
+            onClick={handleStop}
+            className="p-2.5 rounded-xl bg-[#181c22] hover:bg-[#202630] text-zinc-300 hover:text-white border border-white/5 transition-colors"
+            title="Rewind"
+          >
+            <SkipBack className="w-4 h-4" />
+          </button>
+
+          {/* Stop */}
+          <button
+            onClick={handleStop}
+            className="p-2.5 rounded-xl bg-[#181c22] hover:bg-[#202630] text-zinc-300 hover:text-white border border-white/5 transition-colors"
+            title="Stop"
           >
             <Square className="w-4 h-4" />
           </button>
 
-          {/* Master Play/Pause */}
+          {/* Master Play / Pause */}
           <button
-            id="btn-daw-play"
             onClick={handleTogglePlay}
-            className={`flex items-center space-x-2 px-5 py-3 rounded-xl font-mono font-bold text-xs transition-all shadow-md ${
-              isPlaying
-                ? "bg-[#a3ff12] text-black shadow-[0_0_20px_rgba(163,255,18,0.4)]"
-                : "bg-white/10 text-white hover:bg-white/15 border border-white/15 backdrop-blur-md"
-            }`}
+            className="px-5 py-2.5 rounded-xl bg-[#00FF66] hover:bg-[#00e65c] text-black font-extrabold text-xs flex items-center gap-2 shadow-[0_0_20px_rgba(0,255,102,0.4)] transition-all cursor-pointer"
           >
-            {isPlaying ? <Pause className="w-4 h-4 fill-black" /> : <Play className="w-4 h-4 fill-current" />}
-            <span>{isPlaying ? "PAUSE" : "PLAY TIMELINE"}</span>
+            {isPlaying ? <Pause className="w-4 h-4 fill-black" /> : <Play className="w-4 h-4 fill-black ml-0.5" />}
           </button>
 
-          {/* Master Record on Armed Track */}
+          {/* Master Record */}
           <button
-            id="btn-daw-record"
-            onClick={handleStartRecordTrack}
-            className={`flex items-center space-x-2 px-6 py-3 rounded-xl font-mono font-bold text-xs transition-all shadow-md backdrop-blur-md ${
-              isRecordingMaster
-                ? "bg-red-500 text-white shadow-[0_0_20px_rgba(239,68,68,0.6)] animate-pulse"
-                : "bg-white/5 border border-white/10 text-red-400 hover:text-white hover:bg-red-500/20"
+            onClick={handleToggleRecord}
+            className={`p-2.5 rounded-xl transition-all ${
+              isRecording
+                ? "bg-rose-500 text-white shadow-[0_0_20px_rgba(244,63,94,0.6)] animate-pulse"
+                : "bg-[#181c22] hover:bg-rose-500/20 text-rose-400 border border-white/5"
             }`}
+            title="Record"
           >
-            <Circle className={`w-4 h-4 ${isRecordingMaster ? "fill-white" : "fill-red-500"}`} />
-            <span>{isRecordingMaster ? "STOP RECORD" : "ARMED RECORD"}</span>
+            <Circle className={`w-4 h-4 ${isRecording ? "fill-white" : "fill-rose-500"}`} />
           </button>
 
-          {/* Add Track */}
+          {/* Loop Toggle */}
+          <button
+            onClick={() => setIsLooping(!isLooping)}
+            className={`p-2.5 rounded-xl border transition-colors ${
+              isLooping
+                ? "bg-[#182a1d] text-[#00FF66] border-[#00FF66]/40"
+                : "bg-[#181c22] text-zinc-400 border-white/5 hover:text-white"
+            }`}
+            title="Loop"
+          >
+            <Repeat className="w-4 h-4" />
+          </button>
+
+          {/* BPM, KEY, SIG */}
+          <div className="flex items-center gap-2 pl-2">
+            <span className="px-3 py-1 bg-[#181c22] border border-white/5 rounded-full text-xs font-mono text-white font-bold">
+              {bpm} BPM
+            </span>
+            <span className="px-3 py-1 bg-[#181c22] border border-white/5 rounded-full text-xs font-mono text-zinc-300">
+              KEY {keySig}
+            </span>
+            <span className="px-3 py-1 bg-[#181c22] border border-white/5 rounded-full text-xs font-mono text-zinc-300">
+              SIG {timeSig}
+            </span>
+          </div>
+        </div>
+
+        {/* Right: Add Track & Export */}
+        <div className="flex items-center gap-2">
           <button
             onClick={handleAddTrack}
-            className="flex items-center space-x-1.5 px-3.5 py-3 rounded-xl bg-white/5 border border-white/10 text-xs font-mono text-white/80 hover:text-white hover:bg-white/10 transition-colors backdrop-blur-md"
+            className="px-3 py-2 bg-[#181c22] hover:bg-[#202630] text-zinc-200 border border-white/5 rounded-xl text-xs font-mono flex items-center gap-1.5"
           >
-            <Plus className="w-4 h-4 text-[#a3ff12]" />
+            <Plus className="w-3.5 h-3.5 text-[#00FF66]" />
             <span>ADD TRACK</span>
           </button>
-
-          {/* Export Mixdown */}
-          <button
-            onClick={handleExportMixdown}
-            className="flex items-center space-x-1.5 px-3.5 py-3 rounded-xl bg-white/5 border border-white/10 text-xs font-mono text-white/80 hover:text-white hover:bg-white/10 transition-colors backdrop-blur-md"
-          >
-            <Download className="w-4 h-4 text-[#a3ff12]" />
-            <span>EXPORT</span>
-          </button>
         </div>
       </div>
 
-      {/* Timeline Ruler & Playhead */}
-      <div className="frosted-card p-4 rounded-2xl flex items-center justify-between font-mono text-xs text-white/50 dot-matrix-bg">
-        <div className="flex items-center space-x-3">
-          <span className="text-[#a3ff12] font-bold">PLAYHEAD:</span>
-          <span className="text-white text-base font-extrabold">
-            {Math.floor(playheadTimeSec / 60)}:{(playheadTimeSec % 60).toFixed(1).padStart(4, "0")}
-          </span>
+      {/* Main Multi-Track DAW Workspace */}
+      <div className="bg-[#13161a] border border-[#1f242b] rounded-2xl p-5 space-y-4">
+        {/* Timeline Bar Numbers Ruler */}
+        <div className="flex items-center pl-60 pr-4 pb-2 border-b border-white/5 text-[11px] font-mono text-zinc-500 justify-between">
+          <span>1</span>
+          <span>2</span>
+          <span>3</span>
+          <span>4</span>
+          <span>5</span>
+          <span>6</span>
+          <span>7</span>
+          <span>8</span>
         </div>
-        <div className="text-[11px] text-white/40">
-          Armed Track: <span className="text-[#a3ff12] font-bold">{tracks.find((t) => t.id === armTrackId)?.name || "None"}</span>
-        </div>
-      </div>
 
-      {/* Multi-Track Lanes Container */}
-      <div className="space-y-4">
-        {tracks.map((track, idx) => {
-          const isArmed = armTrackId === track.id;
-          const hasAudio = track.audioBuffer !== null;
+        {/* Track Lanes */}
+        <div className="space-y-3">
+          {tracks.map((track, idx) => {
+            const isArmed = armedTrackId === track.id;
+            const isSelected = selectedTrackId === track.id;
 
-          return (
-            <div
-              key={track.id}
-              className={`p-5 rounded-3xl border transition-all relative flex flex-col lg:flex-row items-start lg:items-center justify-between gap-5 backdrop-blur-xl ${
-                isArmed
-                  ? "frosted-card border-[#a3ff12]/40 shadow-[0_0_20px_rgba(163,255,18,0.12)]"
-                  : "bg-white/[0.03] border-white/5"
-              }`}
-            >
-              {/* Left Column: Track Info & Controls */}
-              <div className="flex items-center space-x-4 w-full lg:w-72">
-                <div
-                  className="w-2.5 h-12 rounded-full shadow-sm"
-                  style={{ backgroundColor: track.color }}
-                />
+            return (
+              <div
+                key={track.id}
+                onClick={() => setSelectedTrackId(track.id)}
+                className={`p-3.5 rounded-2xl flex items-center gap-4 transition-all cursor-pointer ${
+                  isSelected
+                    ? "bg-[#181c22] border border-[#00FF66]/50 shadow-[0_0_20px_rgba(0,255,102,0.08)]"
+                    : "bg-[#16191f] border border-white/5 hover:border-white/10"
+                }`}
+              >
+                {/* Left Track Controls (w-56) */}
+                <div className="w-56 space-y-2 shrink-0">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <div
+                        className="w-2.5 h-2.5 rounded-full shadow-[0_0_6px_currentColor]"
+                        style={{ color: track.color, backgroundColor: track.color }}
+                      />
+                      <span className="text-xs font-bold font-mono text-white">
+                        {track.name}
+                      </span>
+                    </div>
 
-                <div className="flex-1 space-y-1">
-                  <input
-                    type="text"
-                    value={track.name}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setTracks((prev) =>
-                        prev.map((t) => (t.id === track.id ? { ...t, name: val } : t))
-                      );
-                    }}
-                    className="bg-transparent font-mono font-bold text-sm text-white focus:outline-none border-b border-transparent focus:border-[#a3ff12] w-full"
-                  />
-
-                  {/* Arm, Mute, Solo Buttons */}
-                  <div className="flex items-center space-x-1.5 pt-1">
-                    <button
-                      onClick={() => setArmTrackId(track.id)}
-                      className={`px-2.5 py-0.5 rounded-lg text-[10px] font-mono font-bold border transition-colors ${
-                        isArmed
-                          ? "bg-red-500 text-white border-red-400 shadow-[0_0_8px_rgba(239,68,68,0.5)]"
-                          : "bg-white/5 text-white/40 border-white/10 hover:text-white"
-                      }`}
-                    >
-                      ARM
-                    </button>
-
-                    <button
-                      onClick={() =>
-                        setTracks((prev) =>
-                          prev.map((t) => (t.id === track.id ? { ...t, muted: !t.muted } : t))
-                        )
-                      }
-                      className={`px-2.5 py-0.5 rounded-lg text-[10px] font-mono font-bold border transition-colors ${
-                        track.muted
-                          ? "bg-red-500/20 text-red-400 border-red-500"
-                          : "bg-white/5 text-white/40 border-white/10 hover:text-white"
-                      }`}
-                    >
-                      MUTE
-                    </button>
-
-                    <button
-                      onClick={() =>
-                        setTracks((prev) =>
-                          prev.map((t) => (t.id === track.id ? { ...t, soloed: !t.soloed } : t))
-                        )
-                      }
-                      className={`px-2.5 py-0.5 rounded-lg text-[10px] font-mono font-bold border transition-colors ${
-                        track.soloed
-                          ? "bg-[#a3ff12] text-black border-[#a3ff12]"
-                          : "bg-white/5 text-white/40 border-white/10 hover:text-white"
-                      }`}
-                    >
-                      SOLO
-                    </button>
-
-                    <button
-                      onClick={() => handleDeleteTrack(track.id)}
-                      className="p-1 text-white/30 hover:text-red-400 transition-colors"
-                      title="Delete Track"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Center Column: Waveform Canvas Area */}
-              <div className="flex-1 w-full h-20 bg-black/50 rounded-2xl border border-white/10 p-2 relative overflow-hidden flex items-center justify-center">
-                {hasAudio ? (
-                  <div className="w-full h-full flex items-center justify-between gap-[2px] opacity-80 px-2">
-                    {Array.from({ length: 48 }).map((_, wIdx) => {
-                      const h = 20 + ((wIdx * 17) % 75);
-                      return (
-                        <div
-                          key={wIdx}
-                          className="flex-1 bg-[#a3ff12] rounded-full"
-                          style={{ height: `${h}%` }}
-                        />
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="text-[11px] font-mono text-white/30 flex items-center space-x-1.5">
-                    <Radio className="w-3.5 h-3.5" />
-                    <span>No audio recorded yet. Arm track & click ARMED RECORD.</span>
-                  </div>
-                )}
-
-                {/* Timeline Playhead Needle in Track Lane */}
-                <div
-                  className="absolute top-0 bottom-0 w-0.5 bg-white pointer-events-none z-10 shadow-[0_0_8px_white]"
-                  style={{
-                    left: `${Math.min(98, (playheadTimeSec % 60) * 1.6)}%`,
-                  }}
-                />
-              </div>
-
-              {/* Right Column: Volume & Pan Mix Sliders */}
-              <div className="w-full lg:w-48 space-y-2">
-                <div className="space-y-0.5">
-                  <div className="flex justify-between text-[10px] font-mono text-white/40">
-                    <span>VOL</span>
-                    <span className="text-white font-bold">{Math.round(track.volume * 100)}%</span>
-                  </div>
-                  <input
-                    type="range"
-                    min={0}
-                    max={100}
-                    value={track.volume * 100}
-                    onChange={(e) => {
-                      const val = parseInt(e.target.value, 10) / 100;
-                      setTracks((prev) =>
-                        prev.map((t) => (t.id === track.id ? { ...t, volume: val } : t))
-                      );
-                    }}
-                    className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-[#a3ff12]"
-                  />
-                </div>
-
-                <div className="space-y-0.5">
-                  <div className="flex justify-between text-[10px] font-mono text-white/40">
-                    <span>PAN</span>
-                    <span className="text-white font-bold">
-                      {track.pan === 0 ? "C" : track.pan < 0 ? `L${Math.round(-track.pan * 50)}` : `R${Math.round(track.pan * 50)}`}
+                    <span className="text-[9px] font-mono bg-[#202630] text-zinc-300 px-1.5 py-0.5 rounded">
+                      IN {idx + 1}
                     </span>
                   </div>
-                  <input
-                    type="range"
-                    min={-100}
-                    max={100}
-                    value={track.pan * 100}
-                    onChange={(e) => {
-                      const val = parseInt(e.target.value, 10) / 100;
-                      setTracks((prev) =>
-                        prev.map((t) => (t.id === track.id ? { ...t, pan: val } : t))
-                      );
+
+                  {/* R, M, S buttons */}
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setArmedTrackId(track.id);
+                      }}
+                      className={`w-6 h-6 rounded text-[10px] font-mono font-bold flex items-center justify-center transition-colors ${
+                        isArmed
+                          ? "bg-rose-500 text-white shadow-[0_0_8px_rgba(244,63,94,0.6)]"
+                          : "bg-[#202630] text-zinc-400 hover:text-white"
+                      }`}
+                    >
+                      R
+                    </button>
+
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setTracks((prev) =>
+                          prev.map((t) => (t.id === track.id ? { ...t, muted: !t.muted } : t))
+                        );
+                      }}
+                      className={`w-6 h-6 rounded text-[10px] font-mono font-bold flex items-center justify-center transition-colors ${
+                        track.muted
+                          ? "bg-rose-500/20 text-rose-400 border border-rose-500"
+                          : "bg-[#202630] text-zinc-400 hover:text-white"
+                      }`}
+                    >
+                      M
+                    </button>
+
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setTracks((prev) =>
+                          prev.map((t) => (t.id === track.id ? { ...t, soloed: !t.soloed } : t))
+                        );
+                      }}
+                      className={`w-6 h-6 rounded text-[10px] font-mono font-bold flex items-center justify-center transition-colors ${
+                        track.soloed
+                          ? "bg-[#00FF66] text-black"
+                          : "bg-[#202630] text-zinc-400 hover:text-white"
+                      }`}
+                    >
+                      S
+                    </button>
+
+                    {/* Volume Slider */}
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={track.volume * 100}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value, 10) / 100;
+                        setTracks((prev) =>
+                          prev.map((t) => (t.id === track.id ? { ...t, volume: val } : t))
+                        );
+                      }}
+                      className="w-20 h-1 bg-[#202630] rounded-lg accent-[#00FF66] ml-2"
+                    />
+                  </div>
+                </div>
+
+                {/* Right Timeline Waveform Clip Area */}
+                <div className="flex-1 h-16 bg-[#111317] rounded-xl border border-white/5 p-2 relative overflow-hidden flex items-center">
+                  {/* Clip Block */}
+                  <div
+                    className={`h-full rounded-lg px-3 flex items-center justify-between gap-1 overflow-hidden transition-all ${
+                      idx === 0
+                        ? "w-[85%] bg-[#00FF66]/15 border border-[#00FF66]/40 text-[#00FF66]"
+                        : "w-[65%] bg-sky-500/15 border border-sky-500/30 text-sky-400 ml-12"
+                    }`}
+                  >
+                    <span className="text-[10px] font-mono font-bold shrink-0">
+                      {idx === 0 ? "Rhythm Chugs" : "Lead Solo"}
+                    </span>
+
+                    {/* Waveform graphic bars */}
+                    <div className="flex-1 flex items-center justify-end gap-[2px] h-full py-1">
+                      {Array.from({ length: 32 }).map((_, w) => (
+                        <div
+                          key={w}
+                          className="w-1 rounded-full opacity-80"
+                          style={{
+                            height: `${25 + ((w * 13 + idx * 7) % 65)}%`,
+                            backgroundColor: idx === 0 ? "#00FF66" : "#38bdf8",
+                          }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Playhead Needle */}
+                  <div
+                    className="absolute top-0 bottom-0 w-[2px] bg-pink-500 pointer-events-none z-10 shadow-[0_0_8px_#ec4899]"
+                    style={{
+                      left: `${Math.min(98, (playheadTimeSec % 16) * 6.25)}%`,
                     }}
-                    className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-[#a3ff12]"
                   />
                 </div>
               </div>
+            );
+          })}
+        </div>
+
+        {/* Bottom Track Inspector (Guitar 1, Interface 1, FX chain) */}
+        <div className="bg-[#181c22] rounded-xl p-4 border border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 mt-4">
+          <div className="flex items-center space-x-4">
+            <span className="text-xs font-mono font-bold text-white">
+              {activeSelectedTrack.name}
+            </span>
+            <span className="text-xs font-mono text-zinc-400">
+              INPUT: <span className="text-white">Interface 1</span>
+            </span>
+            <span className="text-xs font-mono text-zinc-400">
+              PAN: <span className="text-white">C</span>
+            </span>
+          </div>
+
+          {/* FX Chain Pedal Slots */}
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-mono text-zinc-400 uppercase font-bold">FX CHAIN:</span>
+            <div className="px-3 py-1.5 bg-[#202630] rounded-lg text-xs font-mono text-white flex items-center gap-2 border border-white/5">
+              <div className="w-1.5 h-1.5 rounded-full bg-[#00FF66] shadow-[0_0_6px_#00FF66]" />
+              <span>Amp Sim</span>
             </div>
-          );
-        })}
+            <div className="px-3 py-1.5 bg-[#202630] rounded-lg text-xs font-mono text-zinc-300 flex items-center gap-2 border border-white/5">
+              <span>Reverb</span>
+            </div>
+            <button className="w-7 h-7 rounded-lg bg-[#202630] hover:bg-[#28303d] text-zinc-400 hover:text-white flex items-center justify-center text-xs font-bold">
+              +
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -50,12 +50,16 @@ class MidiManager {
 
   public subscribeMidi(cb: (event: { type: string; note?: number; velocity?: number; cc?: number; value?: number }) => void) {
     this.listeners.add(cb);
-    return () => this.listeners.delete(cb);
+    return () => {
+      this.listeners.delete(cb);
+    };
   }
 
   public subscribeConnections(cb: (devices: MidiDevice[]) => void) {
     this.connectionListeners.add(cb);
-    return () => this.connectionListeners.delete(cb);
+    return () => {
+      this.connectionListeners.delete(cb);
+    };
   }
 
   private updateDevices() {

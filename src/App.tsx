@@ -5,8 +5,11 @@
 
 import React, { useState, useEffect } from "react";
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import { Header } from "./components/Header";
-import { Navigation, NAV_ITEMS } from "./components/Navigation";
+import { SidebarNav } from "./components/SidebarNav";
+import { TopHeaderBar } from "./components/TopHeaderBar";
+import { BottomStatusBar } from "./components/BottomStatusBar";
+import { MobileBottomNav } from "./components/MobileBottomNav";
+import { HomeDashboard } from "./components/HomeDashboard";
 import { TunerPanel } from "./components/TunerPanel";
 import { ToneStudio } from "./components/ToneStudio";
 import { ChordFinderStudio } from "./components/ChordFinderStudio";
@@ -16,100 +19,127 @@ import { LooperStation } from "./components/LooperStation";
 import { MultiTrackStudio } from "./components/MultiTrackStudio";
 import { DrumMetronome } from "./components/DrumMetronome";
 import { PracticeStudio } from "./components/PracticeStudio";
-import { PresetsRecordingsModal } from "./components/PresetsRecordingsModal";
+import { PresetsLibraryView } from "./components/PresetsLibraryView";
+import { MobileRecordingsView } from "./components/MobileRecordingsView";
 import { DeviceSettingsModal } from "./components/DeviceSettingsModal";
 import { WorkstationMode, TonePreset } from "./types";
+import { Radio, Settings, User } from "lucide-react";
 
 export default function App() {
-  const [activeMode, setActiveMode] = useState<WorkstationMode>("chords-ai");
+  const [activeMode, setActiveMode] = useState<WorkstationMode>("home");
   const [globalBpm, setGlobalBpm] = useState<number>(120);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
-  const [isPresetsOpen, setIsPresetsOpen] = useState<boolean>(false);
+  const [isDevicesOpen, setIsDevicesOpen] = useState<boolean>(false);
 
   const handleSelectMode = (mode: WorkstationMode) => {
-    if (mode === "presets") {
-      setIsPresetsOpen(true);
-    } else {
-      setActiveMode(mode);
-    }
+    setActiveMode(mode);
   };
 
   const handleSelectTonePreset = (preset: TonePreset) => {
     setActiveMode("tone-studio");
   };
 
-  // Keyboard shortcut listener: Pressing 1-9 or 0 switches workstation modules
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Ignore if typing inside input, textarea, or contentEditable
-      const target = e.target as HTMLElement;
-      if (
-        target.tagName === "INPUT" ||
-        target.tagName === "TEXTAREA" ||
-        target.isContentEditable
-      ) {
-        return;
-      }
-
-      const match = NAV_ITEMS.find((item) => item.shortcut === e.key);
-      if (match) {
-        handleSelectMode(match.id);
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, []);
-
   return (
     <ErrorBoundary>
-      <div className="min-h-screen bg-[#050505] text-[#e0e0e0] flex flex-col selection:bg-[#a3ff12] selection:text-black relative overflow-x-hidden">
-        {/* Ambient Frosted Glass Background Lighting Orbs */}
-        <div className="absolute top-[-200px] left-[-100px] w-[500px] h-[500px] bg-[#a3ff12]/5 rounded-full blur-[120px] pointer-events-none" />
-        <div className="absolute bottom-[-100px] right-[-100px] w-[400px] h-[400px] bg-purple-600/5 rounded-full blur-[100px] pointer-events-none" />
+      <div className="h-screen w-screen bg-[#0a0c0e] text-[#e5e7eb] flex flex-col selection:bg-[#00FF66] selection:text-black overflow-hidden font-sans">
+        {/* Mobile Top Header */}
+        <div className="md:hidden h-14 bg-[#0d0f12] border-b border-[#191d24] px-4 flex items-center justify-between shrink-0 z-30">
+          <div className="flex items-center space-x-2">
+            <div className="w-2.5 h-2.5 rounded-full bg-[#00FF66] shadow-[0_0_8px_#00FF66]" />
+            <span className="font-extrabold text-sm tracking-tight text-[#00FF66]">
+              Obsidian Sonic
+            </span>
+          </div>
 
-        {/* Workstation Top Header */}
-        <Header
-          bpm={globalBpm}
-          onBpmChange={setGlobalBpm}
-          onOpenSettings={() => setIsSettingsOpen(true)}
-          onOpenPresets={() => setIsPresetsOpen(true)}
-          activeMode={activeMode}
-          onSelectMode={handleSelectMode}
-        />
+          <div className="flex items-center space-x-2.5">
+            <button
+              onClick={() => setIsDevicesOpen(true)}
+              className="p-1.5 rounded-lg bg-[#14171c] text-zinc-300"
+            >
+              <Radio className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setIsSettingsOpen(true)}
+              className="p-1.5 rounded-lg bg-[#14171c] text-zinc-300"
+            >
+              <Settings className="w-4 h-4" />
+            </button>
+            <div className="w-7 h-7 rounded-full bg-zinc-700 flex items-center justify-center text-white text-xs">
+              <User className="w-3.5 h-3.5" />
+            </div>
+          </div>
+        </div>
 
-        {/* Module Navigation Tabs */}
-        <Navigation
-          activeMode={activeMode}
-          onSelectMode={handleSelectMode}
-        />
+        {/* Main Desktop Container (Sidebar + Workstation) */}
+        <div className="flex-1 flex overflow-hidden">
+          {/* Desktop Left Persistent Sidebar */}
+          <div className="hidden md:flex h-full">
+            <SidebarNav
+              activeMode={activeMode}
+              onSelectMode={handleSelectMode}
+              onOpenSettings={() => setIsSettingsOpen(true)}
+              onOpenDevices={() => setIsDevicesOpen(true)}
+            />
+          </div>
 
-        {/* Main Workstation View Area */}
-        <main className="flex-1 pb-16 pt-3 px-2 sm:px-4 relative z-10">
-          {activeMode === "chords-ai" && <ChordFinderStudio />}
-          {activeMode === "tuner" && <TunerPanel />}
-          {activeMode === "tone-studio" && <ToneStudio />}
-          {activeMode === "fretboard" && <FretboardViewer />}
-          {activeMode === "chord-dictionary" && <ChordDictionary />}
-          {activeMode === "looper" && <LooperStation />}
-          {activeMode === "multi-track" && <MultiTrackStudio />}
-          {activeMode === "rhythm" && <DrumMetronome />}
-          {activeMode === "practice" && <PracticeStudio />}
-        </main>
+          {/* Main Content Area */}
+          <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#0a0c0e]">
+            {/* Desktop Top Header Bar */}
+            <div className="hidden md:block">
+              <TopHeaderBar
+                onOpenSettings={() => setIsSettingsOpen(true)}
+                onOpenDevices={() => setIsDevicesOpen(true)}
+                onOpenMetronome={() => handleSelectMode("rhythm")}
+              />
+            </div>
 
-        {/* Settings Modal */}
+            {/* Scrollable Workstation Module Page */}
+            <main className="flex-1 overflow-y-auto px-4 sm:px-8 py-6 relative z-10">
+              {activeMode === "home" && <HomeDashboard onSelectMode={handleSelectMode} />}
+              {activeMode === "songs" && <ChordFinderStudio />}
+              {activeMode === "chords-ai" && <ChordFinderStudio />}
+              {activeMode === "tuner" && <TunerPanel />}
+              {activeMode === "chord-dictionary" && <ChordDictionary />}
+              {activeMode === "fretboard" && <FretboardViewer />}
+              {activeMode === "scales" && <FretboardViewer />}
+              {activeMode === "tone-studio" && <ToneStudio />}
+              {activeMode === "looper" && <LooperStation />}
+              {activeMode === "multi-track" && <MultiTrackStudio />}
+              {activeMode === "rhythm" && <DrumMetronome />}
+              {activeMode === "practice" && <PracticeStudio />}
+              {activeMode === "recordings" && (
+                <div className="md:hidden">
+                  <MobileRecordingsView onSelectMode={handleSelectMode} />
+                </div>
+              )}
+              {activeMode === "recordings" && (
+                <div className="hidden md:block">
+                  <MultiTrackStudio />
+                </div>
+              )}
+              {activeMode === "presets" && (
+                <PresetsLibraryView
+                  onSelectTonePreset={handleSelectTonePreset}
+                  onOpenToneStudio={() => handleSelectMode("tone-studio")}
+                />
+              )}
+            </main>
+
+            {/* Desktop Persistent Bottom Status Bar */}
+            <BottomStatusBar />
+          </div>
+        </div>
+
+        {/* Mobile Bottom Fixed Navigation */}
+        <MobileBottomNav activeMode={activeMode} onSelectMode={handleSelectMode} />
+
+        {/* Device Settings Modal */}
         <DeviceSettingsModal
-          isOpen={isSettingsOpen}
-          onClose={() => setIsSettingsOpen(false)}
-        />
-
-        {/* Presets & Saved Recordings Vault Modal */}
-        <PresetsRecordingsModal
-          isOpen={isPresetsOpen}
-          onClose={() => setIsPresetsOpen(false)}
-          onSelectTonePreset={handleSelectTonePreset}
+          isOpen={isSettingsOpen || isDevicesOpen}
+          onClose={() => {
+            setIsSettingsOpen(false);
+            setIsDevicesOpen(false);
+          }}
         />
       </div>
     </ErrorBoundary>

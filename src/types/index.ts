@@ -173,13 +173,18 @@ export interface DrumPatternConfig {
 }
 
 export type WorkstationMode =
+  | "home"
+  | "songs"
   | "chords-ai"
   | "tuner"
   | "tone-studio"
   | "fretboard"
   | "chord-dictionary"
+  | "scales"
   | "looper"
   | "multi-track"
   | "rhythm"
   | "practice"
-  | "presets";
+  | "recordings"
+  | "presets"
+  | "devices";

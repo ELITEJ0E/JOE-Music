@@ -2,18 +2,19 @@
 
 @layer base {
   :root {
-    --bg-main: #050505;
-    --bg-surface: rgba(255, 255, 255, 0.04);
-    --bg-surface-elevated: rgba(255, 255, 255, 0.08);
-    --neon-lime: #a3ff12;
-    --neon-lime-glow: rgba(163, 255, 18, 0.35);
-    --frosted-border: rgba(255, 255, 255, 0.08);
-    --frosted-border-highlight: rgba(255, 255, 255, 0.15);
+    --bg-main: #0a0c0e;
+    --bg-sidebar: #0d0f12;
+    --bg-surface: #13161a;
+    --bg-surface-elevated: #181c22;
+    --neon-green: #00FF66;
+    --neon-green-glow: rgba(0, 255, 102, 0.35);
+    --border-subtle: rgba(255, 255, 255, 0.07);
+    --border-card: #20252c;
   }
 
   body {
-    background-color: #050505;
-    color: #e0e0e0;
+    background-color: #0a0c0e;
+    color: #e5e7eb;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", sans-serif;
     user-select: none;
     -webkit-font-smoothing: antialiased;
@@ -21,70 +22,86 @@
   }
 }
 
-/* Frosted Glass Cards & Panels */
-.frosted-card {
-  background: rgba(255, 255, 255, 0.035);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.4);
+/* Obsidian Sleek Cards & Panels */
+.stitch-card {
+  background: #13161a;
+  border: 1px solid #1f242b;
+  border-radius: 1rem;
 }
 
-.frosted-card-highlight {
-  background: rgba(255, 255, 255, 0.06);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  border: 1px solid rgba(163, 255, 18, 0.3);
-  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5), 0 0 25px rgba(163, 255, 18, 0.12);
-}
-
-.frosted-button {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  backdrop-filter: blur(12px);
+.stitch-card-hover {
+  background: #13161a;
+  border: 1px solid #1f242b;
+  border-radius: 1rem;
   transition: all 0.2s ease-in-out;
 }
-.frosted-button:hover {
+.stitch-card-hover:hover {
+  background: #171b21;
+  border-color: #2b333e;
+}
+
+.stitch-card-active {
+  background: #13161a;
+  border: 1px solid #00FF66;
+  border-radius: 1rem;
+  box-shadow: 0 0 25px rgba(0, 255, 102, 0.15);
+}
+
+.stitch-btn-primary {
+  background: #00FF66;
+  color: #000000;
+  font-weight: 700;
+  border-radius: 0.75rem;
+  transition: all 0.15s ease-in-out;
+}
+.stitch-btn-primary:hover {
+  background: #00e65c;
+  box-shadow: 0 0 20px rgba(0, 255, 102, 0.4);
+  transform: translateY(-1px);
+}
+
+.stitch-btn-ghost {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #e5e7eb;
+  border-radius: 0.75rem;
+  transition: all 0.15s ease-in-out;
+}
+.stitch-btn-ghost:hover {
   background: rgba(255, 255, 255, 0.1);
   border-color: rgba(255, 255, 255, 0.2);
   color: #ffffff;
 }
 
-.frosted-button-primary {
-  background: #a3ff12;
-  color: #000000;
-  font-weight: 700;
-  box-shadow: 0 0 20px rgba(163, 255, 18, 0.3);
-  transition: all 0.2s ease-in-out;
-}
-.frosted-button-primary:hover {
-  background: #92e610;
-  box-shadow: 0 0 25px rgba(163, 255, 18, 0.45);
-  transform: translateY(-1px);
+.dot-matrix-bg {
+  background-image: radial-gradient(circle at 1.5px 1.5px, rgba(255, 255, 255, 0.05) 1px, transparent 0);
+  background-size: 24px 24px;
 }
 
-.dot-matrix-bg {
-  background-image: radial-gradient(circle at 2px 2px, rgba(255, 255, 255, 0.08) 1px, transparent 0);
-  background-size: 24px 24px;
+.grid-matrix-bg {
+  background-size: 32px 32px;
+  background-image: 
+    linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
 }
 
 /* Custom Scrollbars */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 ::-webkit-scrollbar-track {
-  background: rgba(0, 0, 0, 0.4);
+  background: rgba(0, 0, 0, 0.3);
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.12);
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.25);
 }
 
-/* Rotary / Range Sliders */
+/* Sliders */
 input[type="range"] {
-  accent-color: #a3ff12;
+  accent-color: #00FF66;
 }

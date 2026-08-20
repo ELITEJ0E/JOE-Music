@@ -51,12 +51,16 @@ class LooperEngine {
 
   public subscribeState(cb: () => void) {
     this.stateListeners.add(cb);
-    return () => this.stateListeners.delete(cb);
+    return () => {
+      this.stateListeners.delete(cb);
+    };
   }
 
   public subscribeProgress(cb: (progress: number) => void) {
     this.progressListeners.add(cb);
-    return () => this.progressListeners.delete(cb);
+    return () => {
+      this.progressListeners.delete(cb);
+    };
   }
 
   private notifyState() {
