@@ -44,9 +44,9 @@ class GuitarSynthesizer {
   /**
    * Karplus-Strong physical modeling single plucked string
    */
-  public playPluckedNote(freq: number, startTime: number, duration: number = 2.5, velocity: number = 0.8) {
+  public playPluckedNote(freq: number, startTime: number, duration: number = 2.5, velocity: number = 0.8, customCtx?: BaseAudioContext, targetNode?: AudioNode) {
     if (!freq || freq < 20) return;
-    const ctx = audioEngine.getContext();
+    const ctx = customCtx || audioEngine.getContext();
     const now = startTime || ctx.currentTime;
 
     // Period of the fundamental frequency in samples
@@ -124,7 +124,7 @@ class GuitarSynthesizer {
 
     filter.connect(bodyEQ);
     bodyEQ.connect(gainNode);
-    gainNode.connect(audioEngine.getMasterGain());
+    gainNode.connect(targetNode || audioEngine.getMasterGain());
 
     // Trigger
     noiseSource.start(now);
@@ -135,6 +135,39 @@ class GuitarSynthesizer {
 
     fundamentalOsc.stop(now + duration);
     harmonicOsc.stop(now + duration);
+  }
+
+  /**
+   * Generates a 4-second offline audio buffer with a strummed chord.
+   */
+  public async generateDemoTrack(): Promise<AudioBuffer> {
+    const sampleRate = 44100;
+    const duration = 4; // 4 seconds
+    const offlineCtx = new window.OfflineAudioContext(1, duration * sampleRate, sampleRate);
+    
+    // G major chord [3, 2, 0, 0, 3, 3]
+    const frets: (number | "x")[] = [3, 2, 0, 0, 3, 3];
+    const stringIndices = [0, 1, 2, 3, 4, 5];
+    const strumSpeedMs = 24;
+    const capo = 0;
+    
+    let activeStringCounter = 0;
+    stringIndices.forEach((strIdx) => {
+      const fret = frets[strIdx];
+      if (fret !== "x" && typeof fret === "number" && fret >= 0) {
+        const baseMidi = OPEN_STRING_MIDI[strIdx];
+        const noteMidi = baseMidi + fret + capo;
+        const freq = midiToFrequency(noteMidi);
+
+        const stringDelay = (activeStringCounter * strumSpeedMs) / 1000;
+        const stringVelocity = 0.85 * (0.85 + (strIdx / 5) * 0.25);
+
+        this.playPluckedNote(freq, stringDelay, 3.2, stringVelocity, offlineCtx, offlineCtx.destination);
+        activeStringCounter++;
+      }
+    });
+
+    return offlineCtx.startRendering();
   }
 
   /**

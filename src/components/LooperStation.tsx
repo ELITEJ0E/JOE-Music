@@ -161,8 +161,13 @@ export const LooperStation: React.FC = () => {
                         let heightPercent = 20;
                         if (channelData && channelData.length > 0) {
                           const step = Math.floor(channelData.length / 32);
-                          const sampleVal = Math.abs(channelData[bIdx * step] || 0);
-                          heightPercent = Math.min(100, Math.max(15, sampleVal * 160));
+                          const start = bIdx * step;
+                          let max = 0;
+                          for (let j = 0; j < step && start + j < channelData.length; j++) {
+                            const val = Math.abs(channelData[start + j]);
+                            if (val > max) max = val;
+                          }
+                          heightPercent = Math.min(100, Math.max(15, max * 160));
                         }
                         const isPlayhead = Math.floor(progress * 32) === bIdx && isPlayingThis;
 

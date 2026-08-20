@@ -59,6 +59,7 @@ export interface SongSection {
   chords: string[];
   strummingPattern: string;
   lyrics?: string;
+  confidence?: number;
 }
 
 export interface SongAnalysis {
@@ -75,6 +76,7 @@ export interface SongAnalysis {
   sections: SongSection[];
   tips?: string;
   youtubeUrl?: string;
+  confidence?: number;
 }
 
 export type PedalType =

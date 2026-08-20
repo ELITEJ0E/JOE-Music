@@ -20,6 +20,7 @@ import { guitarSynth } from "../audio/guitarSynth";
 import { analyzeAudioFile } from "../audio/audioAnalyzer";
 import { audioEngine } from "../audio/audioContext";
 import { SongAnalysis } from "../types";
+import { ChordDiagram } from "./ChordDiagram";
 
 export const ChordFinderStudio: React.FC = () => {
   const [activeSong, setActiveSong] = useState<SongAnalysis>({
@@ -45,6 +46,7 @@ export const ChordFinderStudio: React.FC = () => {
   });
 
   const [youtubeUrl, setYoutubeUrl] = useState("");
+  const [songName, setSongName] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isLiveMic, setIsLiveMic] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -59,16 +61,18 @@ export const ChordFinderStudio: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const playTimerRef = useRef<number | null>(null);
 
-  const chordProgression = [
-    { chord: "G", bar: "Bar 1", time: "0:00" },
-    { chord: "D/F#", bar: "Bar 2", time: "0:02" },
-    { chord: "Em7", bar: "Bar 3", time: "0:04" },
-    { chord: "Cadd9", bar: "Bar 4", time: "0:06" },
-  ];
+  const derivedProgression = activeSong.sections.flatMap((section) =>
+    section.chords.map((chord, idx) => ({
+      chord,
+      bar: `Bar ${idx + 1}`,
+      time: `0:0${idx * 2}`, // Fake time for now, or calculate properly
+      sectionName: section.name,
+    }))
+  );
 
-  const prevChord = chordProgression[(currentBarIndex - 1 + chordProgression.length) % chordProgression.length];
-  const activeChord = chordProgression[currentBarIndex % chordProgression.length];
-  const nextChord = chordProgression[(currentBarIndex + 1) % chordProgression.length];
+  const prevChord = derivedProgression[(currentBarIndex - 1 + derivedProgression.length) % derivedProgression.length];
+  const activeChord = derivedProgression[currentBarIndex % derivedProgression.length];
+  const nextChord = derivedProgression[(currentBarIndex + 1) % derivedProgression.length];
 
   // Playback timer loop
   useEffect(() => {
@@ -80,8 +84,8 @@ export const ChordFinderStudio: React.FC = () => {
     const intervalTime = slowDown ? 2600 : 2000;
     playTimerRef.current = window.setInterval(() => {
       setCurrentBarIndex((prev) => {
-        const next = (prev + 1) % chordProgression.length;
-        const targetChord = chordProgression[next].chord;
+        const next = (prev + 1) % derivedProgression.length;
+        const targetChord = derivedProgression[next].chord;
         // Synthesize chord strum
         const voicing = findChordByName(targetChord);
         if (voicing) {
@@ -112,33 +116,35 @@ export const ChordFinderStudio: React.FC = () => {
     }
   };
 
-  const handleAnalyzeYoutube = () => {
-    if (!youtubeUrl) return;
+  const handleAnalyzeYoutube = async () => {
+    const query = songName.trim() || youtubeUrl.trim();
+    if (!query) return;
     setIsAnalyzing(true);
-    setTimeout(() => {
-      setActiveSong({
-        id: "yt-analyzed",
-        title: "Track from YouTube",
-        artist: "Extracted Stream",
-        tempo: 120,
-        timeSignature: "4/4",
-        key: "G Maj",
-        suggestedCapo: 0,
-        difficulty: "Intermediate",
-        tuning: "E Standard",
-        chords: ["G", "D/F#", "Em7", "Cadd9"],
-        sections: [
-          {
-            name: "Progression",
-            startTime: 0,
-            bars: 8,
-            chords: ["G", "D/F#", "Em7", "Cadd9"],
-            strummingPattern: "D D U U D U",
-          },
-        ],
+    
+    try {
+      const response = await fetch('/api/analyze-song', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ songQuery: query })
       });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        alert(data.error || "Failed to analyze song.");
+      } else {
+        // Mark it as AI estimated
+        data.title = data.title + " (AI-Estimated Chords)";
+        data.id = `yt-analyzed-${Date.now()}`;
+        setActiveSong(data);
+        setCurrentBarIndex(0);
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Network error while contacting analysis server.");
+    } finally {
       setIsAnalyzing(false);
-    }, 1200);
+    }
   };
 
   const toggleLiveMic = async () => {
@@ -193,30 +199,39 @@ export const ChordFinderStudio: React.FC = () => {
           <p className="text-[11px] font-mono text-zinc-500 mt-0.5">MP3, WAV, FLAC</p>
         </div>
 
-        {/* YouTube Link */}
+        {/* YouTube Link / Song Search */}
         <div className="frosted-card rounded-3xl p-4 flex flex-col justify-between min-h-[140px]">
           <div className="flex items-center space-x-2">
             <LinkIcon className="w-4 h-4 text-zinc-400" />
             <h3 className="text-xs font-bold font-mono text-zinc-200 uppercase tracking-wider">
-              YouTube Link
+              AI Song Search
             </h3>
           </div>
 
-          <div className="flex items-center gap-2 mt-2">
+          <div className="flex flex-col gap-2 mt-2">
             <input
               type="text"
-              placeholder="Paste URL here..."
-              value={youtubeUrl}
-              onChange={(e) => setYoutubeUrl(e.target.value)}
+              placeholder="Song Name & Artist..."
+              value={songName}
+              onChange={(e) => setSongName(e.target.value)}
               className="flex-1 bg-white/5 text-xs font-mono text-white rounded-xl px-3 py-2 border border-white/10 focus:border-[#a3ff12]/50 focus:outline-none placeholder:text-zinc-500"
             />
-            <button
-              onClick={handleAnalyzeYoutube}
-              disabled={isAnalyzing}
-              className="px-3.5 py-2 bg-[#a3ff12] hover:bg-[#92eb10] text-black font-extrabold text-xs rounded-xl transition-all cursor-pointer font-mono"
-            >
-              {isAnalyzing ? "..." : "ANALYZE"}
-            </button>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                placeholder="Or paste YouTube URL..."
+                value={youtubeUrl}
+                onChange={(e) => setYoutubeUrl(e.target.value)}
+                className="flex-1 bg-white/5 text-xs font-mono text-white rounded-xl px-3 py-2 border border-white/10 focus:border-[#a3ff12]/50 focus:outline-none placeholder:text-zinc-500"
+              />
+              <button
+                onClick={handleAnalyzeYoutube}
+                disabled={isAnalyzing}
+                className="px-3 py-2 bg-[#a3ff12] hover:bg-[#92eb10] text-black font-extrabold text-xs rounded-xl transition-all cursor-pointer font-mono"
+              >
+                {isAnalyzing ? "..." : "SEARCH"}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -260,10 +275,10 @@ export const ChordFinderStudio: React.FC = () => {
         <div className="flex items-center space-x-3">
           <span className="text-[11px] font-mono font-bold text-[#a3ff12] flex items-center gap-1.5">
             <CheckCircle2 className="w-4 h-4 text-[#a3ff12]" />
-            CHORD CONFIDENCE 94%
+            {activeSong.id === "neon-horizon" ? "DEMO DATA" : `CHORD CONFIDENCE ${activeSong.confidence || 0}%`}
           </span>
           <div className="w-24 h-2 bg-white/10 rounded-full overflow-hidden">
-            <div className="w-[94%] h-full bg-[#a3ff12]" />
+            <div className="h-full bg-[#a3ff12]" style={{ width: `${activeSong.id === "neon-horizon" ? 100 : activeSong.confidence || 0}%` }} />
           </div>
         </div>
       </div>
@@ -340,7 +355,7 @@ export const ChordFinderStudio: React.FC = () => {
 
               {/* Chord split lines */}
               <div className="absolute inset-0 flex justify-between pointer-events-none px-4">
-                {chordProgression.map((cp, idx) => (
+                {derivedProgression.map((cp, idx) => (
                   <div key={idx} className="h-full border-r border-white/10 flex flex-col justify-end pb-1 pr-1 text-[10px] font-mono text-zinc-400">
                     | {cp.chord}
                   </div>
@@ -351,7 +366,7 @@ export const ChordFinderStudio: React.FC = () => {
             {/* Transport controls: |<<, ▶, >>| */}
             <div className="flex items-center justify-center gap-4 pt-1">
               <button
-                onClick={() => setCurrentBarIndex((prev) => (prev - 1 + chordProgression.length) % chordProgression.length)}
+                onClick={() => setCurrentBarIndex((prev) => (prev - 1 + derivedProgression.length) % derivedProgression.length)}
                 className="w-10 h-10 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 flex items-center justify-center text-zinc-300 hover:text-white transition-colors cursor-pointer"
               >
                 <SkipBack className="w-4 h-4" />
@@ -365,7 +380,7 @@ export const ChordFinderStudio: React.FC = () => {
               </button>
 
               <button
-                onClick={() => setCurrentBarIndex((prev) => (prev + 1) % chordProgression.length)}
+                onClick={() => setCurrentBarIndex((prev) => (prev + 1) % derivedProgression.length)}
                 className="w-10 h-10 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 flex items-center justify-center text-zinc-300 hover:text-white transition-colors cursor-pointer"
               >
                 <SkipForward className="w-4 h-4" />
@@ -484,36 +499,7 @@ export const ChordFinderStudio: React.FC = () => {
 
             {/* Fretboard SVG / Grid */}
             <div className="w-full bg-[#13161a] rounded-lg p-3 border border-white/5 flex flex-col items-center justify-center">
-              <svg viewBox="0 0 160 110" className="w-full h-28">
-                {/* Nut */}
-                <line x1="20" y1="20" x2="140" y2="20" stroke="#ffffff" strokeWidth="4" />
-                {/* Frets */}
-                {[40, 60, 80, 100].map((y, i) => (
-                  <line key={i} x1="20" y1={y} x2="140" y2={y} stroke="rgba(255,255,255,0.2)" strokeWidth="1.5" />
-                ))}
-                {/* Strings (E, A, D, G, B, e) */}
-                {[20, 44, 68, 92, 116, 140].map((x, i) => (
-                  <line key={i} x1={x} y1="20" x2={x} y2="100" stroke="rgba(255,255,255,0.4)" strokeWidth={2.5 - i * 0.3} />
-                ))}
-
-                {/* Finger Dots for Em7: (0, 2, 2, 0, 3, 0) */}
-                {/* A string fret 2 (x=44, y=50) */}
-                <circle cx="44" cy="50" r="7" fill="#a3ff12" filter="drop-shadow(0 0 6px rgba(163,255,18,0.8))" />
-                <text x="44" y="53.5" textAnchor="middle" fontSize="9" fontWeight="bold" fill="#000">1</text>
-
-                {/* D string fret 2 (x=68, y=50) */}
-                <circle cx="68" cy="50" r="7" fill="#a3ff12" filter="drop-shadow(0 0 6px rgba(163,255,18,0.8))" />
-                <text x="68" y="53.5" textAnchor="middle" fontSize="9" fontWeight="bold" fill="#000">2</text>
-
-                {/* B string fret 3 (x=116, y=70) */}
-                <circle cx="116" cy="70" r="7" fill="#a3ff12" filter="drop-shadow(0 0 6px rgba(163,255,18,0.8))" />
-                <text x="116" y="73.5" textAnchor="middle" fontSize="9" fontWeight="bold" fill="#000">3</text>
-
-                {/* Open strings markers above nut: E(20), G(92), e(140) */}
-                <circle cx="20" cy="10" r="3.5" fill="none" stroke="#a3ff12" strokeWidth="1.5" />
-                <circle cx="92" cy="10" r="3.5" fill="none" stroke="#a3ff12" strokeWidth="1.5" />
-                <circle cx="140" cy="10" r="3.5" fill="none" stroke="#a3ff12" strokeWidth="1.5" />
-              </svg>
+              <ChordDiagram frets={activeVoicing.frets} fingers={activeVoicing.fingers} size="md" />
             </div>
           </div>
         </div>

@@ -52,6 +52,32 @@ export const MultiTrackStudio: React.FC = () => {
     },
   ]);
 
+  useEffect(() => {
+    // Generate demo track audio buffer for track 1
+    guitarSynth.generateDemoTrack().then((buffer) => {
+      setTracks((prev) =>
+        prev.map((t) => (t.id === "trk-1" ? { ...t, audioBuffer: buffer, duration: buffer.duration } : t))
+      );
+    });
+  }, []);
+
+  const getWaveformPeaks = (buffer: AudioBuffer | null, numPeaks: number): number[] => {
+    if (!buffer) return Array.from({ length: numPeaks }).map(() => Math.random() * 0.5 + 0.1);
+    const data = buffer.getChannelData(0);
+    const step = Math.floor(data.length / numPeaks);
+    const peaks = [];
+    for (let i = 0; i < numPeaks; i++) {
+      let max = 0;
+      const start = i * step;
+      for (let j = 0; j < step && start + j < data.length; j++) {
+        const val = Math.abs(data[start + j]);
+        if (val > max) max = val;
+      }
+      peaks.push(max);
+    }
+    return peaks;
+  };
+
   const [bpm, setBpm] = useState<number>(120);
   const [keySig, setKeySig] = useState<string>("Am");
   const [timeSig, setTimeSig] = useState<string>("4/4");
@@ -429,13 +455,13 @@ export const MultiTrackStudio: React.FC = () => {
 
                     {/* Waveform graphic bars */}
                     <div className="flex-1 flex items-center justify-end gap-[2px] h-full py-1">
-                      {Array.from({ length: 32 }).map((_, w) => (
+                      {getWaveformPeaks(track.audioBuffer, 32).map((peak, w) => (
                         <div
                           key={w}
                           className="w-1 rounded-full opacity-80"
                           style={{
-                            height: `${25 + ((w * 13 + idx * 7) % 65)}%`,
-                            backgroundColor: idx === 0 ? "#a3ff12" : "#38bdf8",
+                            height: `${Math.max(10, peak * 100)}%`,
+                            backgroundColor: track.color,
                           }}
                         />
                       ))}
