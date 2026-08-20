@@ -319,6 +319,9 @@ export const ChordDictionary: React.FC = () => {
               <ChordDiagram
                 frets={selectedChord.frets}
                 fingers={selectedChord.fingers}
+                barre={selectedChord.barre}
+                cagedShape={selectedChord.cagedShape}
+                position={selectedChord.baseFret}
                 onPluck={handleSingleStringPluck}
               />
             </div>

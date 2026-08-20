@@ -46,8 +46,8 @@ export default function App() {
         <div className="md:hidden h-14 bg-[#0d0f12]/80 backdrop-blur-md border-b border-white/5 px-4 flex items-center justify-between shrink-0 z-30">
           <div className="flex items-center space-x-2">
             <div className="w-2.5 h-2.5 rounded-full bg-[#a3ff12] shadow-[0_0_8px_#a3ff12]" />
-            <span className="font-extrabold text-sm tracking-tight text-[#a3ff12]">
-              Guitar Studio
+            <span className="font-extrabold text-sm tracking-tight">
+              <span className="text-[#a3ff12]">JOE</span> <span className="text-white">Studio</span>
             </span>
           </div>
 

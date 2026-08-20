@@ -1,6 +1,6 @@
 {
-  "name": "Guitar Studio",
-  "description": "Professional guitar workstation with real-time tuner, tone pedalboard DSP, chord finder & analyzer, interactive fretboard, multi-track DAW, looper, and practice studio.",
+  "name": "JOE Studio",
+  "description": "JOE Studio professional music workstation with real-time tuner, tone pedalboard DSP, chord finder & analyzer, interactive fretboard, multi-track DAW, looper, and practice studio.",
   "requestFramePermissions": ["microphone"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

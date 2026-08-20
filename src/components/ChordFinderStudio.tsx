@@ -521,6 +521,9 @@ export const ChordFinderStudio: React.FC = () => {
                   <ChordDiagram
                     frets={activeVoicingResult.voicing.frets}
                     fingers={activeVoicingResult.voicing.fingers}
+                    barre={activeVoicingResult.voicing.barre}
+                    cagedShape={activeVoicingResult.voicing.cagedShape}
+                    position={activeVoicingResult.voicing.baseFret}
                     size="lg"
                   />
 

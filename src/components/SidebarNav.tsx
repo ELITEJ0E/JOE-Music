@@ -55,13 +55,10 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({
       <div>
         <div className="px-3 py-2">
           <div className="flex items-center space-x-2">
-            <h1 className="text-xl font-extrabold text-white tracking-tight">
-              Guitar Studio
+            <h1 className="text-xl font-extrabold tracking-tight">
+              <span className="text-[#a3ff12]">JOE</span> <span className="text-white">Studio</span>
             </h1>
           </div>
-          <p className="text-[11px] font-mono text-zinc-400 mt-0.5 tracking-wider">
-            Pro Production
-          </p>
         </div>
 
         {/* Navigation Items List */}
