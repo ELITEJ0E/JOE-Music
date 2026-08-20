@@ -225,10 +225,26 @@ self.onmessage = function (e) {
     reportProgress("HMM Viterbi Decoding...", 75);
     // Viterbi Decoding
     // Transitions: self=0.9, others=0.1 / (N-1)
+    if (numFrames < 4) {
+      throw new Error(`Audio buffer is too short (${numFrames} frames calculated, minimum of 4 required). Please provide longer audio.`);
+    }
+
     const nStates = CHORD_STATES.length;
     const viterbi = [];
     const backpointers = [];
     
+    // Check for NaN or Inf in chromagram
+    let hasNaNOrInf = false;
+    for (let c of chromagram) {
+      for (let i = 0; i < 12; i++) {
+        if (isNaN(c[i]) || !isFinite(c[i])) {
+          hasNaNOrInf = true;
+          break;
+        }
+      }
+      if (hasNaNOrInf) break;
+    }
+
     // Init
     const initCol = new Float32Array(nStates);
     for (let s = 0; s < nStates; s++) {
@@ -276,7 +292,7 @@ self.onmessage = function (e) {
     const statePath = new Int32Array(numFrames);
     statePath[numFrames-1] = lastState;
     for (let t = numFrames - 1; t > 0; t--) {
-      statePath[t-1] = backpointers[t][statePath[t]];
+      statePath[t-1] = backpointers[t-1][statePath[t]];
     }
     
     // Segment grouping and bass estimation
@@ -392,7 +408,21 @@ self.onmessage = function (e) {
         chordSegments: finalSegments,
         uniqueChords,
         overallConfidence: Math.min(99, Math.round(overallConfidence)),
-        beats
+        beats,
+        diagnostics: {
+          workerSampleCount: channelData.length,
+          featureFrameCount: numFrames,
+          chromaFrameCount: chromagram.length,
+          bassFrameCount: bassChromagram.length,
+          keyResult: estimatedKey,
+          numChordStates: nStates,
+          observationMatrixDims: `${numFrames}x${nStates}`,
+          hasNaNOrInf,
+          viterbiInputDims: `${numFrames}x${nStates}`,
+          viterbiOutputLen: statePath.length,
+          rawChordSegmentCount: segments.length,
+          finalChordSegmentCount: finalSegments.length
+        }
       }
     });
     

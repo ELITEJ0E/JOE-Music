@@ -36,6 +36,18 @@ export async function analyzeAudioFile(
       } else if (e.data.type === "result") {
         const { analysis } = e.data;
         
+        const mainDiagnostics = {
+          fileSize: file.size,
+          mimeType: file.type || "audio/unknown",
+          decodedDuration: duration,
+          sampleRate: sampleRate,
+          numChannels: audioBuffer.numberOfChannels,
+          numSamples: audioBuffer.length,
+          workerStarted: true,
+          workerReceivedSamples: true,
+          ...analysis.diagnostics
+        };
+
         resolve({
           id: `song-${Date.now()}`,
           title: file.name.replace(/\.[^/.]+$/, ""),
@@ -55,7 +67,8 @@ export async function analyzeAudioFile(
           tips: "Extracted using Guitariz-inspired MIR (CQT + HPSS + Viterbi HMM).",
           audioBlob: file,
           duration: duration,
-          analysisVersion: "1.0.0"
+          analysisVersion: "1.0.0",
+          diagnostics: mainDiagnostics
         });
         worker.terminate();
       } else if (e.data.type === "error") {

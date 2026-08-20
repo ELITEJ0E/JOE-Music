@@ -87,7 +87,7 @@ export interface SongAnalysis {
   suggestedCapo: number;
   difficulty: "Beginner" | "Intermediate" | "Advanced";
   chords: string[]; // List of unique chords used
-  chordSegments: ChordSegment[]; // Timeline of chords
+  chordSegments?: ChordSegment[]; // Timeline of chords
   tuning: string;
   tuningDeviation?: number; // Estimated cents deviation from A=440
   sections: SongSection[];
@@ -98,6 +98,28 @@ export interface SongAnalysis {
   audioBlob?: Blob;
   duration?: number;
   analysisVersion?: string;
+  diagnostics?: {
+    fileSize: number;
+    mimeType: string;
+    decodedDuration: number;
+    sampleRate: number;
+    numChannels: number;
+    numSamples: number;
+    workerStarted: boolean;
+    workerReceivedSamples: boolean;
+    workerSampleCount: number;
+    featureFrameCount: number;
+    chromaFrameCount: number;
+    bassFrameCount: number;
+    keyResult: string;
+    numChordStates: number;
+    observationMatrixDims: string;
+    hasNaNOrInf: boolean;
+    viterbiInputDims: string;
+    viterbiOutputLen: number;
+    rawChordSegmentCount: number;
+    finalChordSegmentCount: number;
+  };
 }
 
 export interface SavedSong extends SongAnalysis {
