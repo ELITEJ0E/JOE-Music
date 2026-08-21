@@ -166,6 +166,54 @@ Provide a concise, practical, high-value guitar instruction response. Mention sp
     }
   });
 
+  // Suno API Proxy Integration
+  // Reproducing standard Suno API / Joelify patterns securely server-side.
+  app.get("/api/suno/feed", async (req, res) => {
+    try {
+      const SUNO_BASE_URL = process.env.SUNO_API_URL || "https://studio-api.suno.ai";
+      // In a real implementation this would fetch from the configured Suno endpoint.
+      // If no key/endpoint is configured, fallback to mock library data.
+      
+      const mockSongs = [
+        {
+          id: "suno-trk-1",
+          title: "Neon Horizon",
+          artist: "Suno AI",
+          duration: 184,
+          created_at: new Date().toISOString(),
+          image_url: "https://images.unsplash.com/photo-1614113489855-66422ad300a4?w=500&q=80",
+          audio_url: "https://cdn.pixabay.com/download/audio/2022/10/18/audio_31c2730ebb.mp3",
+          tags: ["Synthwave", "Guitar Solo", "Upbeat"]
+        },
+        {
+          id: "suno-trk-2",
+          title: "Acoustic Sunsets",
+          artist: "Suno AI",
+          duration: 215,
+          created_at: new Date(Date.now() - 86400000).toISOString(),
+          image_url: "https://images.unsplash.com/photo-1510915361894-db8b60106cb1?w=500&q=80",
+          audio_url: "https://cdn.pixabay.com/download/audio/2022/01/18/audio_d0a13f69d2.mp3",
+          tags: ["Acoustic", "Chill", "Folk"]
+        },
+        {
+          id: "suno-trk-3",
+          title: "Heavy Riffs 99",
+          artist: "Suno AI",
+          duration: 142,
+          created_at: new Date(Date.now() - 172800000).toISOString(),
+          image_url: "https://images.unsplash.com/photo-1598508544476-0b168e3766ce?w=500&q=80",
+          audio_url: "https://cdn.pixabay.com/download/audio/2022/03/15/audio_c8b81cf714.mp3",
+          tags: ["Metal", "Djent", "Aggressive"]
+        },
+      ];
+
+      res.json(mockSongs);
+    } catch (err: any) {
+      console.error("Suno API Error:", err);
+      res.status(500).json({ error: "Failed to fetch from Suno API", message: err.message });
+    }
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

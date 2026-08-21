@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Home,
@@ -13,6 +13,7 @@ import {
   Layers,
   MoreHorizontal,
   X,
+  Download,
 } from "lucide-react";
 import { WorkstationMode } from "../types";
 
@@ -48,6 +49,25 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
 
   // Directly displayed items in the main horizontal bar
   const mainBarItems = ALL_NAV_ITEMS.slice(0, 5);
+
+  // Handle browser popstate / back button navigation for the drawer
+  useEffect(() => {
+    if (!isSheetOpen) return;
+
+    window.history.pushState({ modal: "mobile-launcher-sheet" }, "");
+
+    const handlePopState = () => {
+      setIsSheetOpen(false);
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+      if (window.history.state?.modal === "mobile-launcher-sheet") {
+        window.history.back();
+      }
+    };
+  }, [isSheetOpen]);
 
   const handleSelect = (id: WorkstationMode) => {
     onSelectMode(id);
@@ -117,7 +137,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setIsSheetOpen(false)}
-              className="md:hidden fixed inset-0 bg-black/75 backdrop-blur-sm z-50"
+              className="md:hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50"
             />
 
             {/* Custom slide-up drawer containing workspace module grid */}
@@ -125,8 +145,8 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
               initial={{ y: "100%" }}
               animate={{ y: 0 }}
               exit={{ y: "100%" }}
-              transition={{ type: "spring", damping: 25, stiffness: 220 }}
-              className="md:hidden fixed bottom-0 inset-x-0 bg-[#0d0f12] border-t border-white/10 rounded-t-[2rem] max-h-[85vh] overflow-y-auto p-6 pb-12 z-50 shadow-[0_-10px_40px_rgba(0,0,0,0.8)]"
+              transition={{ type: "spring", damping: 30, stiffness: 240 }}
+              className="md:hidden fixed bottom-0 inset-x-0 bg-[#0d0f12] border-t border-white/10 rounded-t-[2rem] max-h-[90vh] overflow-y-auto p-6 pb-12 z-50 shadow-[0_-10px_40px_rgba(0,0,0,0.9)]"
             >
               {/* iOS style Pull tab drag indicator */}
               <div className="w-12 h-1.5 bg-white/15 rounded-full mx-auto mb-6" />
@@ -179,6 +199,17 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
                     </button>
                   );
                 })}
+              </div>
+
+              {/* Mobile Launcher PWA download button bottom drawer */}
+              <div className="mt-8 pt-6 border-t border-white/5">
+                <button
+                  onClick={() => alert("Guitar Studio is PWA ready and installed.")}
+                  className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-[#a3ff12]/10 to-[#a3ff12]/5 hover:from-[#a3ff12]/15 hover:to-[#a3ff12]/10 border border-[#a3ff12]/30 flex items-center justify-center space-x-2 text-[#a3ff12] font-bold shadow-[0_0_15px_rgba(163,255,18,0.05)] cursor-pointer"
+                >
+                  <Download className="w-4.5 h-4.5" />
+                  <span className="text-xs font-mono font-bold uppercase tracking-wider">Install App on Mobile</span>
+                </button>
               </div>
             </motion.div>
           </>

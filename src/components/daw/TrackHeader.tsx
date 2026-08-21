@@ -116,6 +116,11 @@ export const TrackHeader: React.FC<TrackHeaderProps> = ({
                 {track.name}
               </span>
             )}
+            {isArmed && (
+              <span className="ml-1 text-[8px] font-mono font-bold px-1 rounded border bg-[#a3ff12]/20 text-[#a3ff12] border-[#a3ff12]/40" title="Processing through Tone Studio DSP">
+                TONE DSP
+              </span>
+            )}
           </div>
 
           {/* Quick Menu */}

@@ -53,7 +53,13 @@ const INTERVAL_QUIZ_DATA = [
   { name: "Octave (Somewhere Over the Rainbow)", semitones: 12 },
 ];
 
-export const PracticeStudio: React.FC = () => {
+import { SunoSong } from "./SongsLibraryView";
+
+interface PracticeStudioProps {
+  initialSong?: SunoSong | null;
+}
+
+export const PracticeStudio: React.FC<PracticeStudioProps> = ({ initialSong }) => {
   const [activeTab, setActiveTab] = useState<"drills" | "ear" | "ai-coach">("drills");
 
   // Drills state

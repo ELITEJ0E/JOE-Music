@@ -22,9 +22,10 @@ import { saveProjectToDB, saveLooperSessionToDB } from "../utils/storage";
 
 interface LooperStationProps {
   onSelectMode?: (mode: WorkstationMode) => void;
+  onCommitToStudio?: (buffer: AudioBuffer, trackName: string) => void;
 }
 
-export const LooperStation: React.FC<LooperStationProps> = ({ onSelectMode }) => {
+export const LooperStation: React.FC<LooperStationProps> = ({ onSelectMode, onCommitToStudio }) => {
   const [tracks, setTracks] = useState<LooperTrack[]>(looperEngine.getTracks());
   const [status, setStatus] = useState(looperEngine.getStatus());
   const [progress, setProgress] = useState<number>(0);

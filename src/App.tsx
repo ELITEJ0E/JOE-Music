@@ -21,6 +21,7 @@ import { PracticeStudio } from "./components/PracticeStudio";
 import { PresetsLibraryView } from "./components/PresetsLibraryView";
 import { MobileRecordingsView } from "./components/MobileRecordingsView";
 import { DeviceSettingsModal } from "./components/DeviceSettingsModal";
+import { SongsLibraryView, SunoSong } from "./components/SongsLibraryView";
 import { WorkstationMode, TonePreset } from "./types";
 import { Radio, Settings, User } from "lucide-react";
 
@@ -29,9 +30,25 @@ export default function App() {
   const [globalBpm, setGlobalBpm] = useState<number>(120);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
   const [isDevicesOpen, setIsDevicesOpen] = useState<boolean>(false);
+  const [importedSong, setImportedSong] = useState<SunoSong | null>(null);
 
   const handleSelectMode = (mode: WorkstationMode) => {
     setActiveMode(mode);
+  };
+
+  const handleAnalyzeSong = (song: SunoSong) => {
+    setImportedSong(song);
+    setActiveMode("chords-ai");
+  };
+
+  const handleOpenInStudio = (song: SunoSong) => {
+    setImportedSong(song);
+    setActiveMode("studio");
+  };
+
+  const handleUseAsPractice = (song: SunoSong) => {
+    setImportedSong(song);
+    setActiveMode("practice");
   };
 
   const handleSelectTonePreset = (preset: TonePreset) => {
@@ -95,18 +112,18 @@ export default function App() {
             {/* Scrollable Workstation Module Page */}
             <main className="flex-1 overflow-y-auto px-4 sm:px-8 py-6 relative z-10 pb-24 md:pb-6">
               {activeMode === "home" && <HomeDashboard onSelectMode={handleSelectMode} />}
-              {activeMode === "songs" && <ChordFinderStudio />}
-              {activeMode === "chords-ai" && <ChordFinderStudio />}
+              {activeMode === "songs" && <SongsLibraryView onAnalyzeSong={handleAnalyzeSong} onOpenInStudio={handleOpenInStudio} onUseAsPractice={handleUseAsPractice} />}
+              {activeMode === "chords-ai" && <ChordFinderStudio initialSong={importedSong} />}
               {activeMode === "tuner" && <TunerPanel />}
               {activeMode === "chord-dictionary" && <ChordDictionary />}
               {activeMode === "fretboard" && <FretboardViewer mode="fretboard" />}
               {activeMode === "scales" && <FretboardViewer mode="scales" />}
               {activeMode === "tone-studio" && <ToneStudio />}
               {activeMode === "looper" && <LooperStation onSelectMode={handleSelectMode} />}
-              {activeMode === "multi-track" && <MultiTrackStudio />}
+              {activeMode === "multi-track" && <MultiTrackStudio initialSong={importedSong} />}
               {activeMode === "rhythm" && <DrumMetronome />}
-              {activeMode === "practice" && <PracticeStudio />}
-              {activeMode === "studio" && <MultiTrackStudio />}
+              {activeMode === "practice" && <PracticeStudio initialSong={importedSong} />}
+              {activeMode === "studio" && <MultiTrackStudio initialSong={importedSong} />}
               {activeMode === "presets" && (
                 <PresetsLibraryView
                   onSelectTonePreset={handleSelectTonePreset}

@@ -102,37 +102,37 @@ export const ChordDictionary: React.FC = () => {
   const soundingChordName = selectedChord ? `${soundingRoot} ${selectedChord.quality}` : "";
 
   return (
-    <div id="panel-chord-dictionary" className="max-w-6xl mx-auto space-y-6 pb-12 animate-in fade-in duration-200">
+    <div id="panel-chord-dictionary" className="max-w-6xl mx-auto space-y-4 sm:space-y-6 px-3 sm:px-0 pb-12 animate-in fade-in duration-200">
       {/* Top Header & Search */}
-      <div className="frosted-card rounded-3xl p-5 space-y-4">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+      <div className="frosted-card rounded-2xl sm:rounded-3xl p-4 sm:p-5 space-y-3.5 sm:space-y-4">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
           <div>
-            <div className="flex items-center space-x-2.5">
-              <BookOpen className="w-5 h-5 text-[#a3ff12]" />
-              <h2 className="text-xl font-bold text-white font-mono tracking-tight">
-                CHORD DICTIONARY & VOICING EXPLORER
+            <div className="flex items-center space-x-2">
+              <BookOpen className="w-4 h-4 sm:w-5 sm:h-5 text-[#a3ff12]" />
+              <h2 className="text-lg sm:text-xl font-bold text-white font-mono tracking-tight">
+                CHORD LIBRARY
               </h2>
             </div>
-            <p className="text-xs text-zinc-400 font-mono mt-1">
+            <p className="text-[11px] sm:text-xs text-zinc-400 font-mono mt-0.5 sm:mt-1">
               Comprehensive guitar voicings, CAGED positions, finger placements & interactive strum audio
             </p>
           </div>
 
           {/* Search Input */}
           <div className="relative w-full sm:w-64">
-            <Search className="w-4 h-4 text-zinc-400 absolute left-3.5 top-3" />
+            <Search className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-zinc-400 absolute left-3 top-2.5 sm:top-3" />
             <input
               type="text"
               placeholder="Search chord (e.g. Dm7, G7, Cadd9)..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-[#181c22]/80 text-xs font-mono text-white border border-white/10 rounded-xl pl-10 pr-4 py-2.5 focus:outline-none focus:border-[#a3ff12]/50 animate-all"
+              className="w-full bg-[#181c22]/80 text-[11px] sm:text-xs font-mono text-white border border-white/10 rounded-xl pl-9 sm:pl-10 pr-3 sm:pr-4 py-2 sm:py-2.5 focus:outline-none focus:border-[#a3ff12]/50 transition-all"
             />
           </div>
         </div>
 
         {/* Root Filter Pills */}
-        <div className="flex flex-wrap gap-1.5 pt-1">
+        <div className="flex flex-wrap gap-1 sm:gap-1.5 pt-0.5 sm:pt-1">
           {ROOTS.map((r) => {
             const isSelected = selectedRoot === r && !searchQuery;
             return (
@@ -142,7 +142,7 @@ export const ChordDictionary: React.FC = () => {
                   setSelectedRoot(r);
                   setSearchQuery("");
                 }}
-                className={`px-3 py-1.5 rounded-xl text-xs font-mono font-bold transition-all border cursor-pointer ${
+                className={`px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg sm:rounded-xl text-[11px] sm:text-xs font-mono font-bold transition-all border cursor-pointer ${
                   isSelected
                     ? "bg-[#a3ff12] text-black border-[#a3ff12] shadow-[0_0_10px_rgba(163,255,18,0.4)]"
                     : "bg-white/5 text-zinc-400 border border-white/5 hover:text-white hover:border-zinc-700"
@@ -155,9 +155,9 @@ export const ChordDictionary: React.FC = () => {
         </div>
 
         {/* Quality & CAGED Filter Row */}
-        <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-white/5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3 pt-2 border-t border-white/5">
           {/* Quality Filter Pills */}
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap gap-1 sm:gap-1.5">
             {QUALITIES.map((q) => {
               const isSelected = selectedQuality === q && !searchQuery;
               return (
@@ -167,7 +167,7 @@ export const ChordDictionary: React.FC = () => {
                     setSelectedQuality(q);
                     setSearchQuery("");
                   }}
-                  className={`px-3 py-1 rounded-lg text-xs font-mono transition-all border cursor-pointer ${
+                  className={`px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-lg text-[11px] sm:text-xs font-mono transition-all border cursor-pointer ${
                     isSelected
                       ? "bg-[#a3ff12]/15 text-[#a3ff12] border-[#a3ff12]/40 font-bold"
                       : "bg-white/5 text-zinc-400 border border-white/5 hover:text-white hover:border-zinc-700"
@@ -180,13 +180,13 @@ export const ChordDictionary: React.FC = () => {
           </div>
 
           {/* CAGED Filter Buttons */}
-          <div className="flex items-center space-x-1">
+          <div className="flex items-center space-x-1 shrink-0 pt-1 sm:pt-0">
             <span className="text-[10px] font-mono text-zinc-500 uppercase mr-1">CAGED:</span>
             {CAGED_SHAPES.map((shape) => (
               <button
                 key={shape}
                 onClick={() => setSelectedCaged(shape)}
-                className={`px-2 py-0.5 rounded text-[11px] font-mono font-bold border transition-all cursor-pointer ${
+                className={`px-2 py-0.5 rounded text-[10px] sm:text-[11px] font-mono font-bold border transition-all cursor-pointer ${
                   selectedCaged === shape
                     ? "bg-[#a3ff12] text-black border-[#a3ff12]"
                     : "bg-white/5 text-zinc-400 border border-white/5 hover:text-white"
@@ -200,10 +200,10 @@ export const ChordDictionary: React.FC = () => {
       </div>
 
       {/* Main Grid: Chord Selection List & Big Diagram Inspector */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left: Filtered Chords List */}
-        <div className="frosted-card rounded-3xl p-4 space-y-2 max-h-[560px] overflow-y-auto">
-          <div className="text-[10px] font-mono uppercase tracking-widest text-zinc-400 px-2 py-1 flex justify-between items-center">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
+        {/* Left: Filtered Chords List (Shorter height on mobile) */}
+        <div className="frosted-card rounded-2xl sm:rounded-3xl p-3 sm:p-4 space-y-2 max-h-[220px] sm:max-h-[320px] lg:max-h-[520px] overflow-y-auto scrollbar-hide">
+          <div className="text-[10px] font-mono uppercase tracking-widest text-zinc-400 px-1 py-0.5 flex justify-between items-center sticky top-0 bg-[#0d1017]/95 backdrop-blur-md z-10 pb-1 border-b border-white/5">
             <span>MATCHING VOICINGS ({filteredChords.length})</span>
             {selectedCaged !== "ALL" && (
               <span className="text-[#a3ff12] font-bold">SHAPE: {selectedCaged}</span>
@@ -211,7 +211,7 @@ export const ChordDictionary: React.FC = () => {
           </div>
 
           {filteredChords.length === 0 ? (
-            <div className="p-8 text-center text-xs font-mono text-zinc-500">
+            <div className="p-6 text-center text-xs font-mono text-zinc-500">
               No matching voicings found. Try selecting "All" qualities or resetting search.
             </div>
           ) : (
@@ -224,14 +224,14 @@ export const ChordDictionary: React.FC = () => {
                     setSelectedChord(chord);
                     handleStrum(chord, "down");
                   }}
-                  className={`p-3.5 rounded-xl border cursor-pointer transition-all flex items-center justify-between ${
+                  className={`p-2.5 sm:p-3 rounded-xl border cursor-pointer transition-all flex items-center justify-between ${
                     isSelected
                       ? "bg-[#a3ff12]/15 border-[#a3ff12]/50 text-white shadow-[0_0_15px_rgba(163,255,18,0.15)]"
                       : "bg-white/5 border border-white/5 text-zinc-300 hover:border-white/10 hover:text-white"
                   }`}
                 >
                   <div>
-                    <div className="font-mono font-bold text-sm text-white">
+                    <div className="font-mono font-bold text-xs sm:text-sm text-white">
                       {chord.name}
                     </div>
                     <div className="text-[10px] font-mono text-zinc-400">
@@ -240,8 +240,8 @@ export const ChordDictionary: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="flex items-center space-x-2">
-                    <span className="text-[10px] font-mono text-[#a3ff12] px-2 py-0.5 rounded-md bg-[#a3ff12]/15 border border-[#a3ff12]/30">
+                  <div className="flex items-center space-x-1.5 sm:space-x-2">
+                    <span className="text-[9px] sm:text-[10px] font-mono text-[#a3ff12] px-1.5 sm:px-2 py-0.5 rounded-md bg-[#a3ff12]/15 border border-[#a3ff12]/30">
                       {chord.difficulty || "Open"}
                     </span>
                     <button
@@ -249,7 +249,7 @@ export const ChordDictionary: React.FC = () => {
                         e.stopPropagation();
                         handleStrum(chord, "down");
                       }}
-                      className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-zinc-400 hover:text-white cursor-pointer"
+                      className="p-1 sm:p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-zinc-400 hover:text-white cursor-pointer"
                       title="Quick Preview"
                     >
                       <Volume2 className="w-3.5 h-3.5" />
@@ -262,21 +262,21 @@ export const ChordDictionary: React.FC = () => {
         </div>
 
         {/* Right 2 Columns: Large SVG Chord Box & Audio Controls */}
-        <div className="lg:col-span-2 frosted-card rounded-3xl p-6 sm:p-8 flex flex-col justify-between space-y-6 dot-matrix-bg">
+        <div className="lg:col-span-2 frosted-card rounded-2xl sm:rounded-3xl p-4 sm:p-6 lg:p-8 flex flex-col justify-between space-y-4 sm:space-y-6 dot-matrix-bg">
           {selectedChord ? (
             <>
               {/* Chord Name, Sounding Transposed Key & Strum Triggers */}
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-white/5 pb-4">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4 border-b border-white/5 pb-3 sm:pb-4">
                 <div>
-                  <div className="flex items-baseline space-x-3">
-                    <h2 className="text-3xl sm:text-4xl font-extrabold font-mono text-white">
+                  <div className="flex items-baseline space-x-2.5">
+                    <h2 className="text-2xl sm:text-3xl font-extrabold font-mono text-white">
                       {selectedChord.name}
                     </h2>
-                    <span className="text-xs font-mono font-bold text-[#a3ff12] px-2.5 py-0.5 rounded-full bg-[#a3ff12]/15 border border-[#a3ff12]/30">
+                    <span className="text-[10px] sm:text-xs font-mono font-bold text-[#a3ff12] px-2 py-0.5 rounded-full bg-[#a3ff12]/15 border border-[#a3ff12]/30">
                       {selectedChord.quality}
                     </span>
                   </div>
-                  <div className="flex items-center space-x-2 text-xs font-mono text-zinc-400 mt-1">
+                  <div className="flex flex-wrap items-center gap-1.5 text-[11px] sm:text-xs font-mono text-zinc-400 mt-0.5 sm:mt-1">
                     <span>Voicing: {selectedChord.notes?.join(" - ") || "Root, 3rd, 5th"}</span>
                     {(capoFret > 0 || transposeOffset !== 0) && (
                       <span className="text-[#a3ff12] font-bold">
@@ -287,11 +287,11 @@ export const ChordDictionary: React.FC = () => {
                 </div>
 
                 {/* Audio Playback Triggers */}
-                <div className="flex items-center space-x-2">
+                <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
                   <button
                     id="btn-chord-downstrum"
                     onClick={() => handleStrum(selectedChord, "down")}
-                    className="flex items-center space-x-1.5 px-3.5 py-2 rounded-xl bg-white/5 border border-white/5 text-xs font-mono text-zinc-200 hover:text-white hover:border-[#a3ff12]/40 transition-all cursor-pointer"
+                    className="flex items-center space-x-1 px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-xl bg-white/5 border border-white/5 text-[11px] sm:text-xs font-mono text-zinc-200 hover:text-white hover:border-[#a3ff12]/40 transition-all cursor-pointer"
                   >
                     <ArrowDown className="w-3.5 h-3.5 text-[#a3ff12]" />
                     <span>DOWNSTRUM</span>
@@ -300,7 +300,7 @@ export const ChordDictionary: React.FC = () => {
                   <button
                     id="btn-chord-upstrum"
                     onClick={() => handleStrum(selectedChord, "up")}
-                    className="flex items-center space-x-1.5 px-3.5 py-2 rounded-xl bg-white/5 border border-white/5 text-xs font-mono text-zinc-200 hover:text-white hover:border-[#a3ff12]/40 transition-all cursor-pointer"
+                    className="flex items-center space-x-1 px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-xl bg-white/5 border border-white/5 text-[11px] sm:text-xs font-mono text-zinc-200 hover:text-white hover:border-[#a3ff12]/40 transition-all cursor-pointer"
                   >
                     <ArrowUp className="w-3.5 h-3.5 text-[#a3ff12]" />
                     <span>UPSTRUM</span>
@@ -309,7 +309,7 @@ export const ChordDictionary: React.FC = () => {
                   <button
                     id="btn-chord-arpeggio"
                     onClick={() => handleArpeggio(selectedChord)}
-                    className="flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-[#a3ff12] hover:bg-[#92eb10] text-black font-extrabold text-xs cursor-pointer shadow-[0_0_15px_rgba(163,255,18,0.3)]"
+                    className="flex items-center space-x-1 px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl bg-[#a3ff12] hover:bg-[#92eb10] text-black font-extrabold text-[11px] sm:text-xs cursor-pointer shadow-[0_0_15px_rgba(163,255,18,0.3)]"
                   >
                     <Music className="w-3.5 h-3.5" />
                     <span>ARPEGGIO</span>
@@ -318,11 +318,11 @@ export const ChordDictionary: React.FC = () => {
               </div>
 
               {/* SVG Fretboard Chord Diagram (Click dots/strings to pluck single notes) */}
-              <div className="flex flex-col justify-center items-center py-2">
-                <div className="text-[10px] font-mono text-zinc-500 mb-2">
+              <div className="flex flex-col justify-center items-center py-1 sm:py-2">
+                <div className="text-[10px] font-mono text-zinc-500 mb-2 text-center">
                   💡 Click any string nut or finger dot to pluck individual note
                 </div>
-                <div className="bg-[#0a0c0e]/60 p-6 rounded-2xl border border-white/5 shadow-2xl">
+                <div className="bg-[#0a0c0e]/60 p-4 sm:p-6 rounded-2xl border border-white/5 shadow-2xl max-w-full overflow-x-auto">
                   <ChordDiagram
                     frets={selectedChord.frets}
                     fingers={selectedChord.fingers}
@@ -335,20 +335,18 @@ export const ChordDictionary: React.FC = () => {
               </div>
             </>
           ) : (
-            <div className="flex-1 flex flex-col items-center justify-center text-zinc-500 font-mono text-sm">
-              <BookOpen className="w-12 h-12 mb-4 opacity-50" />
+            <div className="flex-1 flex flex-col items-center justify-center text-zinc-500 font-mono text-sm py-8">
+              <BookOpen className="w-10 h-10 sm:w-12 sm:h-12 mb-3 opacity-50" />
               <p>No valid voicings found for this chord.</p>
-              <p className="text-xs mt-2 opacity-70">Try a different query or quality.</p>
+              <p className="text-xs mt-1.5 opacity-70">Try a different query or quality.</p>
             </div>
           )}
 
-
-
           {/* Capo & Transposition & Strum Speed Bar */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3 pt-2">
             {/* Capo Position */}
-            <div className="p-3.5 rounded-xl bg-white/5 border border-white/5 flex flex-col justify-between">
-              <div className="flex items-center justify-between text-xs font-mono text-zinc-400 mb-1.5">
+            <div className="p-3 sm:p-3.5 rounded-xl bg-white/5 border border-white/5 flex flex-col justify-between">
+              <div className="flex items-center justify-between text-[11px] sm:text-xs font-mono text-zinc-400 mb-1.5">
                 <span>Capo Fret:</span>
                 <span className="text-[#a3ff12] font-bold">
                   {capoFret === 0 ? "None (Open)" : `Fret ${capoFret}`}
@@ -365,8 +363,8 @@ export const ChordDictionary: React.FC = () => {
             </div>
 
             {/* Transpose Semitones */}
-            <div className="p-3.5 rounded-xl bg-white/5 border border-white/5 flex flex-col justify-between">
-              <div className="flex items-center justify-between text-xs font-mono text-zinc-400 mb-1.5">
+            <div className="p-3 sm:p-3.5 rounded-xl bg-white/5 border border-white/5 flex flex-col justify-between">
+              <div className="flex items-center justify-between text-[11px] sm:text-xs font-mono text-zinc-400 mb-1.5">
                 <span>Transpose:</span>
                 <span className="text-[#a3ff12] font-bold">
                   {transposeOffset > 0 ? `+${transposeOffset}` : transposeOffset} st
@@ -375,7 +373,7 @@ export const ChordDictionary: React.FC = () => {
               <div className="flex items-center justify-between space-x-2">
                 <button
                   onClick={() => setTransposeOffset((v) => Math.max(-12, v - 1))}
-                  className="p-1 rounded bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white text-xs font-mono cursor-pointer"
+                  className="px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white text-xs font-mono cursor-pointer"
                 >
                   -1
                 </button>
@@ -389,7 +387,7 @@ export const ChordDictionary: React.FC = () => {
                 />
                 <button
                   onClick={() => setTransposeOffset((v) => Math.min(12, v + 1))}
-                  className="p-1 rounded bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white text-xs font-mono cursor-pointer"
+                  className="px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white text-xs font-mono cursor-pointer"
                 >
                   +1
                 </button>
@@ -397,8 +395,8 @@ export const ChordDictionary: React.FC = () => {
             </div>
 
             {/* Strum Speed */}
-            <div className="p-3.5 rounded-xl bg-white/5 border border-white/5 flex flex-col justify-between">
-              <div className="flex items-center justify-between text-xs font-mono text-zinc-400 mb-1.5">
+            <div className="p-3 sm:p-3.5 rounded-xl bg-white/5 border border-white/5 flex flex-col justify-between">
+              <div className="flex items-center justify-between text-[11px] sm:text-xs font-mono text-zinc-400 mb-1.5">
                 <span>Strum Speed:</span>
                 <span className="text-[#a3ff12] font-bold">{strumSpeed} ms</span>
               </div>

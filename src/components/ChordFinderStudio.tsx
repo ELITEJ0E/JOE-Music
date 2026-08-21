@@ -34,12 +34,60 @@ import {
   getLastPlayedSongId,
 } from "../utils/storage";
 
-export const ChordFinderStudio: React.FC = () => {
+import { SunoSong } from "./SongsLibraryView";
+
+interface ChordFinderStudioProps {
+  initialSong?: SunoSong | null;
+}
+
+export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSong }) => {
   const [activeSong, setActiveSong] = useState<SongAnalysis | null>(null);
   const [savedSongs, setSavedSongs] = useState<SavedSong[]>([]);
   const [youtubeUrl, setYoutubeUrl] = useState("");
   const [songName, setSongName] = useState("");
   const [analysisProgress, setAnalysisProgress] = useState<{ message: string; pct: number } | null>(null);
+
+  // Analyze initial song if provided
+  useEffect(() => {
+    if (initialSong && initialSong.audio_url && !activeSong) {
+      const analyzeSunoSong = async () => {
+        try {
+          abortControllerRef.current = new AbortController();
+          setAnalysisProgress({ message: "Fetching Suno audio...", pct: 10 });
+          const res = await fetch(initialSong.audio_url);
+          const blob = await res.blob();
+          const file = new File([blob], `${initialSong.title}.mp3`, { type: "audio/mpeg" });
+          
+          setAnalysisProgress({ message: "Reading audio file...", pct: 30 });
+          const result = await analyzeAudioFile(
+            file,
+            (msg, pct) => setAnalysisProgress({ message: msg, pct: 30 + (pct * 0.7) }),
+            abortControllerRef.current.signal
+          );
+          const songWithMeta: SavedSong = {
+            ...result,
+            title: initialSong.title,
+            artist: initialSong.artist,
+            lastPlayedAt: Date.now(),
+            savedAt: Date.now(),
+          };
+          await saveSongToDB(songWithMeta);
+          
+          setSavedSongs(prev => {
+            const exists = prev.find(s => s.id === songWithMeta.id);
+            if (exists) return prev;
+            return [songWithMeta, ...prev];
+          });
+          setActiveSong(songWithMeta);
+          setAnalysisProgress(null);
+        } catch (err: any) {
+          console.error("Failed to analyze Suno song:", err);
+          setAnalysisProgress(null);
+        }
+      };
+      analyzeSunoSong();
+    }
+  }, [initialSong]);
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const [isLiveMic, setIsLiveMic] = useState(false);

@@ -288,12 +288,13 @@ export const FretboardViewer: React.FC<FretboardViewerProps> = ({ mode = "fretbo
       </div>
 
       {/* Interactive Fretboard Neck Visualizer */}
-      <div className="frosted-card rounded-3xl p-6 space-y-4 overflow-x-auto dot-matrix-bg">
-        <div
-          className="select-none"
-          style={{ minWidth: `${Math.max(900, fretCount * 44 + 80)}px` }}
-        >
-          {/* Fret Markers Row (Top Numbers) */}
+      <div className="frosted-card rounded-3xl p-4 sm:p-6 space-y-4 dot-matrix-bg w-full">
+        <div className="w-full overflow-x-auto pb-4 scrollbar-hide">
+          <div
+            className="select-none"
+            style={{ minWidth: `${Math.max(900, fretCount * 44 + 80)}px` }}
+          >
+            {/* Fret Markers Row (Top Numbers) */}
           <div
             className="grid text-center text-[10px] font-mono text-zinc-400 mb-2"
             style={{
@@ -423,6 +424,7 @@ export const FretboardViewer: React.FC<FretboardViewerProps> = ({ mode = "fretbo
           </div>
         </div>
 
+        </div>
         {/* Legend Row */}
         <div className="flex flex-wrap items-center justify-between gap-4 pt-3 border-t border-white/5 text-[11px] font-mono text-zinc-400">
           <div className="flex items-center space-x-4">

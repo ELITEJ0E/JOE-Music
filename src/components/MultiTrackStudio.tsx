@@ -61,7 +61,13 @@ const DEFAULT_PROJECT_ID = "project-default-session";
 
 type StudioTab = "timeline" | "looper" | "drums" | "mixer" | "projects";
 
-export const MultiTrackStudio: React.FC = () => {
+import { SunoSong } from "./SongsLibraryView";
+
+interface MultiTrackStudioProps {
+  initialSong?: SunoSong | null;
+}
+
+export const MultiTrackStudio: React.FC<MultiTrackStudioProps> = ({ initialSong }) => {
   const [activeTab, setActiveTab] = useState<StudioTab>("timeline");
   const [project, setProject] = useState<DAWProject>({
     id: DEFAULT_PROJECT_ID,
@@ -682,6 +688,37 @@ export const MultiTrackStudio: React.FC = () => {
     commitProjectChange({ ...project, tracks: updatedTracks }, "Update Clip Settings", false);
   };
 
+  const handleCommitLooperTrack = (buffer: AudioBuffer, trackName: string) => {
+    const newClipId = `clip-${Date.now()}`;
+    const newTrkId = `trk-looper-${Date.now()}`;
+    const newTrk: DAWTrack = {
+      id: newTrkId,
+      name: `Looper: ${trackName}`,
+      color: "#f59e0b",
+      volume: 0.85,
+      pan: 0,
+      muted: false,
+      soloed: false,
+      armed: false,
+      monitoring: false,
+      clips: [{
+        id: newClipId,
+        name: trackName,
+        startTime: playheadTimeSec,
+        duration: buffer.duration,
+        audioBuffer: buffer,
+        trimStart: 0,
+        gain: 1,
+        fadeInSec: 0.01,
+        fadeOutSec: 0.01,
+      }]
+    };
+    const newProj = { ...project, tracks: [...project.tracks, newTrk] };
+    dawHistory.pushState(project, "Commit Looper Track");
+    setProject(newProj);
+    showToast(`Committed ${trackName} to Timeline`);
+  };
+
   // Track Management: Add Track
   const handleAddTrack = () => {
     const count = project.tracks.length + 1;
@@ -1210,33 +1247,7 @@ export const MultiTrackStudio: React.FC = () => {
         </div>
       </header>
 
-      {/* Studio Navigation Tabs */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-white/5 pb-2 px-2">
-        {(["timeline", "looper", "drums", "mixer", "projects"] as const).map((tab) => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`px-5 py-2.5 rounded-xl text-xs font-mono font-bold transition-all capitalize cursor-pointer ${
-              activeTab === tab
-                ? "bg-[#a3ff12]/15 text-[#a3ff12] border border-[#a3ff12]/30 shadow-[0_0_15px_rgba(163,255,18,0.1)]"
-                : "bg-white/5 text-zinc-400 border border-transparent hover:text-white hover:bg-white/10"
-            }`}
-          >
-            {tab === "timeline"
-              ? "Tracks / Timeline"
-              : tab === "looper"
-              ? "Looper Station"
-              : tab === "drums"
-              ? "Drum Machine & Metronome"
-              : tab === "mixer"
-              ? "Mixer Console"
-              : "Projects"}
-          </button>
-        ))}
-      </div>
-
-      {activeTab === "timeline" && (
-        <>
+      {/* MULTI-TRACK TIMELINE WORKSPACE (ALWAYS VISIBLE) */}
           {/* MAIN TRANSPORT BAR */}
           <div className="bg-[#12151e] border border-white/10 rounded-2xl p-3 sm:px-6 flex flex-wrap items-center justify-between gap-4 shadow-lg">
         {/* Playback & Record Controls */}
@@ -1519,12 +1530,35 @@ export const MultiTrackStudio: React.FC = () => {
           })}
         </div>
       </div>
-        </>
-      )}
+
+      {/* Studio Utility Navigation Tabs */}
+      <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-white/5 px-2 mt-4">
+        {(["timeline", "looper", "drums", "mixer", "projects"] as const).map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={`px-5 py-2.5 rounded-xl text-xs font-mono font-bold transition-all capitalize cursor-pointer ${
+              activeTab === tab
+                ? "bg-[#a3ff12]/15 text-[#a3ff12] border border-[#a3ff12]/30 shadow-[0_0_15px_rgba(163,255,18,0.1)]"
+                : "bg-white/5 text-zinc-400 border border-transparent hover:text-white hover:bg-white/10"
+            }`}
+          >
+            {tab === "timeline"
+              ? "Close Utility Panel"
+              : tab === "looper"
+              ? "Looper Station"
+              : tab === "drums"
+              ? "Drum Machine & Metronome"
+              : tab === "mixer"
+              ? "Mixer Console"
+              : "Projects"}
+          </button>
+        ))}
+      </div>
 
       {activeTab === "looper" && (
         <div className="bg-[#0b0e14] border border-white/10 rounded-2xl shadow-2xl p-2 min-h-[500px]">
-          <LooperStation />
+          <LooperStation onCommitToStudio={handleCommitLooperTrack} />
         </div>
       )}
 

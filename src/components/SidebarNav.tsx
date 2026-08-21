@@ -137,17 +137,17 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({
         {/* Utility Icon Links - Hidden when collapsed */}
         <div
           className={`transition-all duration-300 overflow-hidden ${
-            isCollapsed ? "h-0 opacity-0 pointer-events-none mt-0" : "h-6 opacity-100 mt-2"
+            isCollapsed ? "h-0 opacity-0 pointer-events-none mt-0" : "h-11 opacity-100 mt-2"
           }`}
         >
-          <div className="flex items-center justify-center text-zinc-400 text-xs">
+          <div className="flex items-center justify-center">
             <button
               onClick={() => alert("Guitar Studio is PWA ready and installed.")}
-              className="flex items-center space-x-1.5 hover:text-white transition-colors cursor-pointer"
+              className="w-full flex items-center justify-center space-x-2 py-2.5 px-3 rounded-xl bg-[#a3ff12]/5 hover:bg-[#a3ff12]/15 border border-[#a3ff12]/20 hover:border-[#a3ff12]/40 text-[#a3ff12] hover:text-white transition-all cursor-pointer font-bold duration-300 shadow-[0_0_10px_rgba(163,255,18,0.05)]"
               title="Install App"
             >
-              <Download className="w-3.5 h-3.5 text-zinc-400" />
-              <span className="text-[11px] font-mono font-bold">Install App</span>
+              <Download className="w-4 h-4 shrink-0" />
+              <span className="text-xs font-mono font-bold uppercase tracking-wider">Install Desktop App</span>
             </button>
           </div>
         </div>
