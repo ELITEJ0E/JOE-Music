@@ -25,6 +25,7 @@ import {
   SunoTrack,
 } from "../lib/suno-playlists";
 import { useSunoPlaylist } from "../hooks/useSunoPlaylist";
+import { recordRecentSongPlay } from "../utils/recentSongs";
 
 // Backward-compatible alias
 export type SunoSong = SunoTrack;
@@ -131,7 +132,10 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
     audio.src = track.audioUrl || track.audio_url || "";
     audio.currentTime = 0;
     audio.volume = isMuted ? 0 : volume;
-    audio.play().then(() => setIsPlaying(true)).catch((e) => console.warn(e));
+    audio.play().then(() => {
+      setIsPlaying(true);
+      recordRecentSongPlay(track);
+    }).catch((e) => console.warn(e));
   };
 
   // "Play All" Handler: Loads the full playlist into the player queue and starts playing track 1

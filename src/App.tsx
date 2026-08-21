@@ -111,7 +111,14 @@ export default function App() {
 
             {/* Scrollable Workstation Module Page */}
             <main className="flex-1 overflow-y-auto px-4 sm:px-8 py-6 relative z-10 pb-24 md:pb-6">
-              {activeMode === "home" && <HomeDashboard onSelectMode={handleSelectMode} />}
+              {activeMode === "home" && (
+                <HomeDashboard
+                  onSelectMode={handleSelectMode}
+                  onAnalyzeSong={handleAnalyzeSong}
+                  onOpenInStudio={handleOpenInStudio}
+                  onUseAsPractice={handleUseAsPractice}
+                />
+              )}
               {activeMode === "songs" && <SongsLibraryView onAnalyzeSong={handleAnalyzeSong} onOpenInStudio={handleOpenInStudio} onUseAsPractice={handleUseAsPractice} />}
               {activeMode === "chords-ai" && <ChordFinderStudio initialSong={importedSong} />}
               {activeMode === "tuner" && <TunerPanel />}
