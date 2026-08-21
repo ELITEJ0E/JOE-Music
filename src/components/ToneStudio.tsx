@@ -37,6 +37,7 @@ export const ToneStudio: React.FC = () => {
   const [inputDb, setInputDb] = useState<number>(-100);
   const [masterDb, setMasterDb] = useState<number>(-100);
   const [latencyMs, setLatencyMs] = useState<number>(4.2);
+  const [activePedalId, setActivePedalId] = useState<string | null>(DEFAULT_TONE_PRESETS[0].pedals[0].id);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const animRef = useRef<number | null>(null);
@@ -144,7 +145,11 @@ export const ToneStudio: React.FC = () => {
 
   const handleSelectPreset = (preset: TonePreset) => {
     setActivePreset(preset);
-    setPedals(JSON.parse(JSON.stringify(preset.pedals)));
+    const newPedals = JSON.parse(JSON.stringify(preset.pedals));
+    setPedals(newPedals);
+    if (newPedals.length > 0) {
+      setActivePedalId(newPedals[0].id);
+    }
   };
 
   const handleTogglePedal = (pedalId: string) => {
@@ -408,165 +413,190 @@ export const ToneStudio: React.FC = () => {
           </div>
         </div>
 
-        {/* Signal Flow Cards with Reordering Arrows and Bypass */}
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+        {/* Signal Flow Horizontal Chain */}
+        <div className="flex overflow-x-auto gap-4 py-4 px-2 no-scrollbar items-center border border-white/5 bg-[#0b0e14] rounded-3xl shadow-inner relative">
           {pedals.map((pedal, idx) => {
             const isFirst = idx === 0;
             const isLast = idx === pedals.length - 1;
+            const isActiveNode = activePedalId === pedal.id;
 
             return (
-              <div
-                key={pedal.id}
-                id={`pedal-${pedal.type}`}
-                className={`p-5 relative flex flex-col justify-between transition-all rounded-3xl border ${
-                  pedal.enabled
-                    ? "frosted-card border-[#a3ff12]/20 shadow-xl"
-                    : "bg-white/5 border border-white/5 opacity-60"
-                }`}
-              >
-                {/* Top Bar: Stage Index, Pedal Name, Move Buttons & Stomp Bypass */}
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center space-x-2.5">
-                    {/* LED Indicator */}
-                    <div
-                      className="w-2.5 h-2.5 rounded-full transition-all"
-                      style={{
-                        backgroundColor: pedal.enabled ? "#a3ff12" : "rgba(255,255,255,0.1)",
-                        boxShadow: pedal.enabled ? "0 0 10px #a3ff12" : "none",
-                      }}
-                    />
-                    <div>
-                      <div className="flex items-center space-x-1.5">
-                        <span className="text-[10px] font-mono text-zinc-500 font-bold">0{idx + 1}</span>
-                        <h3 className="font-mono font-bold text-sm text-white tracking-wide">
-                          {pedal.name}
-                        </h3>
-                      </div>
-                      <span className="text-[10px] font-mono text-zinc-400 uppercase">
-                        {pedal.type}
-                      </span>
+              <div key={pedal.id} className="flex items-center shrink-0">
+                <div
+                  id={`pedal-${pedal.type}`}
+                  onClick={() => setActivePedalId(pedal.id)}
+                  className={`w-36 h-48 relative flex flex-col justify-between transition-all rounded-2xl border p-4 cursor-pointer select-none ${
+                    pedal.enabled
+                      ? "bg-gradient-to-b from-[#1c2128] to-[#12151d] border-white/10 shadow-lg"
+                      : "bg-[#0b0d10] border-white/5 opacity-50"
+                  } ${isActiveNode ? "ring-2 ring-[#a3ff12]/50 border-[#a3ff12] shadow-[0_0_20px_rgba(163,255,18,0.15)]" : ""}`}
+                >
+                  {/* Top Bar: LED & Name */}
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center space-x-2">
+                      <div
+                        className="w-2 h-2 rounded-full transition-all"
+                        style={{
+                          backgroundColor: pedal.enabled ? "#a3ff12" : "rgba(255,255,255,0.1)",
+                          boxShadow: pedal.enabled ? "0 0 10px #a3ff12" : "none",
+                        }}
+                      />
+                      <span className="text-[9px] font-mono text-zinc-500 font-bold">0{idx + 1}</span>
                     </div>
                   </div>
 
-                  <div className="flex items-center space-x-1.5">
-                    {/* Reorder Buttons */}
-                    <button
-                      disabled={isFirst}
-                      onClick={() => handleMovePedal(idx, "left")}
-                      className={`p-1 rounded-lg text-xs font-mono border transition-all ${
-                        isFirst
-                          ? "opacity-20 text-zinc-600 border-transparent cursor-not-allowed"
-                          : "bg-white/5 text-zinc-400 hover:text-white border-white/5 hover:border-white/20 cursor-pointer"
-                      }`}
-                      title="Move Left in Signal Chain"
-                    >
-                      <ArrowLeft className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      disabled={isLast}
-                      onClick={() => handleMovePedal(idx, "right")}
-                      className={`p-1 rounded-lg text-xs font-mono border transition-all ${
-                        isLast
-                          ? "opacity-20 text-zinc-600 border-transparent cursor-not-allowed"
-                          : "bg-white/5 text-zinc-400 hover:text-white border-white/5 hover:border-white/20 cursor-pointer"
-                      }`}
-                      title="Move Right in Signal Chain"
-                    >
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </button>
-
-                    {/* Stomp Switch */}
-                    <button
-                      id={`btn-stomp-${pedal.id}`}
-                      onClick={() => handleTogglePedal(pedal.id)}
-                      className={`px-3 py-1 rounded-lg text-[11px] font-mono font-bold transition-all border cursor-pointer ${
-                        pedal.enabled
-                          ? "bg-[#a3ff12] text-black border-[#a3ff12] shadow-[0_0_12px_rgba(163,255,18,0.3)]"
-                          : "bg-white/5 text-zinc-400 border border-white/5 hover:text-white"
-                      }`}
-                    >
-                      {pedal.enabled ? "ACTIVE" : "BYPASS"}
-                    </button>
+                  <div className="flex-1 flex flex-col items-center justify-center text-center">
+                    <h3 className="font-mono font-bold text-xs text-white tracking-wide">
+                      {pedal.name}
+                    </h3>
+                    <span className="text-[9px] font-mono text-zinc-500 uppercase mt-1">
+                      {pedal.type}
+                    </span>
                   </div>
+
+                  {/* Stomp Switch */}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleTogglePedal(pedal.id); }}
+                    className={`mt-4 w-10 h-10 mx-auto rounded-full border-4 flex items-center justify-center transition-all ${
+                      pedal.enabled
+                        ? "bg-zinc-800 border-[#a3ff12]/50 shadow-[0_0_15px_rgba(163,255,18,0.4)]"
+                        : "bg-zinc-900 border-zinc-800"
+                    }`}
+                  >
+                    <div className={`w-3 h-3 rounded-full ${pedal.enabled ? 'bg-zinc-300' : 'bg-zinc-700'}`} />
+                  </button>
                 </div>
-
-                {/* Rotary Knobs & Sliders */}
-                <div className="space-y-3.5 my-2">
-                  {Object.entries(pedal.params).map(([key, val]) => {
-                    if (typeof val === "boolean") return null;
-
-                    if (key === "cabinet") {
-                      return (
-                        <div key={key} className="space-y-1">
-                          <label className="text-[11px] font-mono text-zinc-400 uppercase tracking-wider block">
-                            Cabinet Speaker IR
-                          </label>
-                          <select
-                            value={val as string}
-                            onChange={(e) => handleParamChange(pedal.id, key, e.target.value)}
-                            className="w-full bg-[#0a0c0e]/80 text-xs font-mono text-white border border-white/10 rounded-xl px-2.5 py-1.5 focus:outline-none focus:border-[#a3ff12]"
-                          >
-                            <option value="4x12 Vintage" className="bg-[#13161a]">4x12 Vintage Celestion V30</option>
-                            <option value="2x12 Open Back" className="bg-[#13161a]">2x12 Open Back Fender Tweed</option>
-                            <option value="1x12 Tweed" className="bg-[#13161a]">1x12 Studio Direct Amp</option>
-                          </select>
-                        </div>
-                      );
-                    }
-
-                    const numVal = val as number;
-                    const isDb = key === "threshold";
-                    const isMs = key === "time" || key === "attack" || key === "release";
-                    const isHz = key === "rate";
-
-                    return (
-                      <div key={key} className="space-y-1">
-                        <div className="flex justify-between text-[11px] font-mono text-zinc-400">
-                          <span className="uppercase tracking-wider">{key}</span>
-                          <span className="text-white font-bold">
-                            {numVal}
-                            {isDb ? " dB" : isMs ? " ms" : isHz ? " Hz" : "%"}
-                          </span>
-                        </div>
-
-                        <input
-                          type="range"
-                          min={key === "threshold" ? -70 : key === "rate" ? 0.2 : 0}
-                          max={key === "threshold" ? 0 : key === "time" ? 1000 : key === "rate" ? 5 : 100}
-                          step={key === "rate" ? 0.1 : 1}
-                          value={numVal}
-                          onChange={(e) =>
-                            handleParamChange(
-                              pedal.id,
-                              key,
-                              key === "rate" ? parseFloat(e.target.value) : parseInt(e.target.value, 10)
-                            )
-                          }
-                          className="w-full h-1.5 bg-[#181c22] rounded-lg appearance-none cursor-pointer accent-[#a3ff12]"
-                        />
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* Bottom Pedal Chassis Status & Connector */}
-                <div className="flex justify-between items-center mt-3 pt-2.5 border-t border-white/5 text-[10px] font-mono text-zinc-500">
-                  <span className="flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-white/10" />
-                    STAGE 0{idx + 1}
-                  </span>
-                  <span className="text-[#a3ff12]/70 uppercase font-semibold">
-                    {pedal.enabled ? "IN-CHAIN" : "BYPASSED"}
-                  </span>
-                  <span className="flex items-center gap-1">
-                    OUT
-                    <ArrowRight className="w-2.5 h-2.5 text-zinc-600" />
-                  </span>
-                </div>
+                
+                {/* Arrow to Next */}
+                {!isLast && (
+                  <div className="w-8 flex items-center justify-center text-zinc-700 mx-2">
+                    <ArrowRight className="w-5 h-5" />
+                  </div>
+                )}
               </div>
             );
           })}
         </div>
+
+        {/* Selected Pedal Controls Panel */}
+        {(() => {
+          const activePedal = pedals.find(p => p.id === activePedalId);
+          if (!activePedal) return null;
+          const pedalIdx = pedals.findIndex(p => p.id === activePedalId);
+
+          return (
+            <div className="mt-6 bg-[#11141a] border border-white/10 rounded-3xl p-6 shadow-xl relative animate-in fade-in slide-in-from-bottom-2">
+              <div className="flex items-center justify-between mb-6 border-b border-white/5 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-xs font-mono font-bold text-zinc-400">
+                    0{pedalIdx + 1}
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-mono font-bold text-white tracking-wide">{activePedal.name}</h3>
+                    <p className="text-[10px] font-mono text-[#a3ff12] uppercase tracking-wider">{activePedal.type} MODULE</p>
+                  </div>
+                </div>
+                
+                <div className="flex items-center gap-2">
+                   <button
+                    disabled={pedalIdx === 0}
+                    onClick={() => handleMovePedal(pedalIdx, "left")}
+                    className={`p-2 rounded-xl text-xs font-mono border transition-all ${
+                      pedalIdx === 0
+                        ? "opacity-20 text-zinc-600 border-transparent cursor-not-allowed"
+                        : "bg-white/5 text-zinc-400 hover:text-white border-white/5 hover:border-white/20 cursor-pointer"
+                    }`}
+                    title="Move Left in Signal Chain"
+                  >
+                    <ArrowLeft className="w-4 h-4" />
+                  </button>
+                  <button
+                    disabled={pedalIdx === pedals.length - 1}
+                    onClick={() => handleMovePedal(pedalIdx, "right")}
+                    className={`p-2 rounded-xl text-xs font-mono border transition-all ${
+                      pedalIdx === pedals.length - 1
+                        ? "opacity-20 text-zinc-600 border-transparent cursor-not-allowed"
+                        : "bg-white/5 text-zinc-400 hover:text-white border-white/5 hover:border-white/20 cursor-pointer"
+                    }`}
+                    title="Move Right in Signal Chain"
+                  >
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                  <div className="w-px h-6 bg-white/10 mx-2" />
+                  <button
+                    onClick={() => handleTogglePedal(activePedal.id)}
+                    className={`px-4 py-2 rounded-xl text-xs font-mono font-bold transition-all border cursor-pointer ${
+                      activePedal.enabled
+                        ? "bg-[#a3ff12] text-black border-[#a3ff12] shadow-[0_0_12px_rgba(163,255,18,0.3)]"
+                        : "bg-white/5 text-zinc-400 border border-white/5 hover:text-white"
+                    }`}
+                  >
+                    {activePedal.enabled ? "ACTIVE" : "BYPASSED"}
+                  </button>
+                </div>
+              </div>
+
+              {/* Parameter Controls Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {Object.entries(activePedal.params).map(([key, val]) => {
+                  if (typeof val === "boolean") return null;
+
+                  if (key === "cabinet") {
+                    return (
+                      <div key={key} className="space-y-2">
+                        <label className="text-[11px] font-mono text-zinc-400 uppercase tracking-wider block">
+                          Cabinet Speaker IR
+                        </label>
+                        <select
+                          value={val as string}
+                          onChange={(e) => handleParamChange(activePedal.id, key, e.target.value)}
+                          className="w-full bg-black/40 text-sm font-mono text-white border border-white/10 rounded-xl px-4 py-3 focus:outline-none focus:border-[#a3ff12]"
+                        >
+                          <option value="4x12 Vintage" className="bg-[#13161a]">4x12 Vintage Celestion V30</option>
+                          <option value="2x12 Open Back" className="bg-[#13161a]">2x12 Open Back Fender Tweed</option>
+                          <option value="1x12 Tweed" className="bg-[#13161a]">1x12 Studio Direct Amp</option>
+                        </select>
+                      </div>
+                    );
+                  }
+
+                  const numVal = val as number;
+                  const isDb = key === "threshold";
+                  const isMs = key === "time" || key === "attack" || key === "release";
+                  const isHz = key === "rate";
+
+                  return (
+                    <div key={key} className="space-y-2 bg-black/20 p-4 rounded-2xl border border-white/5">
+                      <div className="flex justify-between items-center text-xs font-mono text-zinc-400">
+                        <span className="uppercase tracking-wider">{key}</span>
+                        <span className="text-white font-bold bg-white/5 px-2 py-1 rounded-lg">
+                          {numVal}
+                          {isDb ? " dB" : isMs ? " ms" : isHz ? " Hz" : "%"}
+                        </span>
+                      </div>
+
+                      <input
+                        type="range"
+                        min={key === "threshold" ? -70 : key === "rate" ? 0.2 : 0}
+                        max={key === "threshold" ? 0 : key === "time" ? 1000 : key === "rate" ? 5 : 100}
+                        step={key === "rate" ? 0.1 : 1}
+                        value={numVal}
+                        onChange={(e) =>
+                          handleParamChange(
+                            activePedal.id,
+                            key,
+                            key === "rate" ? parseFloat(e.target.value) : parseInt(e.target.value, 10)
+                          )
+                        }
+                        className="w-full h-2 bg-[#181c22] rounded-lg appearance-none cursor-pointer accent-[#a3ff12] mt-2"
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* User Presets Vault Row */}

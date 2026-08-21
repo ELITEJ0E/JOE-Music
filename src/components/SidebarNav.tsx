@@ -37,9 +37,8 @@ export const SIDEBAR_ITEMS: {
   { id: "chord-dictionary", label: "Chord Library", icon: BookOpen },
   { id: "fretboard", label: "Scales", icon: Grid },
   { id: "tone-studio", label: "Tone Studio", icon: Sliders },
-  { id: "looper", label: "Looper", icon: Repeat },
   { id: "practice", label: "Practice Studio", icon: Target },
-  { id: "recordings", label: "Recordings", icon: Mic },
+  { id: "studio", label: "Studio", icon: Mic },
   { id: "presets", label: "Presets", icon: Layers },
 ];
 

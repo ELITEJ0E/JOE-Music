@@ -19,9 +19,9 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
 }) => {
   const tabs = [
     { id: "tuner" as WorkstationMode, label: "Tuner", icon: SlidersHorizontal },
-    { id: "recordings" as WorkstationMode, label: "Library", icon: FolderOpen },
-    { id: "chords-ai" as WorkstationMode, label: "Studio", icon: Sliders },
-    { id: "looper" as WorkstationMode, label: "Loop", icon: Repeat },
+    { id: "studio" as WorkstationMode, label: "Studio", icon: Sliders },
+    { id: "chords-ai" as WorkstationMode, label: "Chords", icon: FolderOpen },
+    { id: "tone-studio" as WorkstationMode, label: "Tones", icon: Repeat },
     { id: "home" as WorkstationMode, label: "More", icon: MoreHorizontal },
   ];
 

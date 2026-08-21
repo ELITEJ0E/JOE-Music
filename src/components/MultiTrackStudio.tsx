@@ -54,10 +54,14 @@ import { AudioClipView } from "./daw/AudioClipView";
 import { TrackHeader } from "./daw/TrackHeader";
 import { ClipInspector } from "./daw/ClipInspector";
 import { ProjectsModal } from "./daw/ProjectsModal";
+import { LooperStation } from "./LooperStation";
 
 const DEFAULT_PROJECT_ID = "project-default-session";
 
+type StudioTab = "timeline" | "looper" | "mixer" | "projects";
+
 export const MultiTrackStudio: React.FC = () => {
+  const [activeTab, setActiveTab] = useState<StudioTab>("timeline");
   const [project, setProject] = useState<DAWProject>({
     id: DEFAULT_PROJECT_ID,
     name: "Guitar Studio Session",
@@ -1205,8 +1209,27 @@ export const MultiTrackStudio: React.FC = () => {
         </div>
       </header>
 
-      {/* MAIN TRANSPORT BAR */}
-      <div className="bg-[#12151e] border border-white/10 rounded-2xl p-3 sm:px-6 flex flex-wrap items-center justify-between gap-4 shadow-lg">
+      {/* Studio Navigation Tabs */}
+      <div className="flex flex-wrap items-center gap-2 border-b border-white/5 pb-2 px-2">
+        {(["timeline", "looper", "mixer", "projects"] as const).map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={`px-5 py-2.5 rounded-xl text-xs font-mono font-bold transition-all capitalize cursor-pointer ${
+              activeTab === tab
+                ? "bg-[#a3ff12]/15 text-[#a3ff12] border border-[#a3ff12]/30 shadow-[0_0_15px_rgba(163,255,18,0.1)]"
+                : "bg-white/5 text-zinc-400 border border-transparent hover:text-white hover:bg-white/10"
+            }`}
+          >
+            {tab === "timeline" ? "Tracks / Timeline" : tab}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === "timeline" && (
+        <>
+          {/* MAIN TRANSPORT BAR */}
+          <div className="bg-[#12151e] border border-white/10 rounded-2xl p-3 sm:px-6 flex flex-wrap items-center justify-between gap-4 shadow-lg">
         {/* Playback & Record Controls */}
         <div className="flex items-center gap-2 sm:gap-3">
           {/* Rewind */}
@@ -1487,6 +1510,36 @@ export const MultiTrackStudio: React.FC = () => {
           })}
         </div>
       </div>
+        </>
+      )}
+
+      {activeTab === "looper" && (
+        <div className="bg-[#0b0e14] border border-white/10 rounded-2xl shadow-2xl p-2 min-h-[500px]">
+          <LooperStation />
+        </div>
+      )}
+
+      {activeTab === "mixer" && (
+        <div className="bg-[#0b0e14] border border-white/10 rounded-2xl shadow-2xl p-8 min-h-[500px] flex flex-col items-center justify-center">
+           <Sliders className="w-12 h-12 text-zinc-600 mb-4" />
+           <p className="text-zinc-400 font-mono text-sm">Mixer Board coming soon.</p>
+        </div>
+      )}
+
+      {activeTab === "projects" && (
+        <div className="bg-[#0b0e14] border border-white/10 rounded-2xl shadow-2xl min-h-[500px] overflow-hidden">
+          <ProjectsModal
+            inline={true}
+            currentProject={project}
+            savedProjects={savedProjects}
+            onClose={() => setActiveTab("timeline")}
+            onSelectProject={handleSelectProject}
+            onDeleteProject={handleDeleteProject}
+            onNewProject={handleNewProject}
+            onSaveAs={handleSaveAs}
+          />
+        </div>
+      )}
 
       {/* CLIP INSPECTOR MODAL */}
       {inspectingClip && (
@@ -1509,7 +1562,7 @@ export const MultiTrackStudio: React.FC = () => {
         />
       )}
 
-      {/* PROJECTS LIBRARY MODAL */}
+      {/* PROJECTS LIBRARY MODAL (for top button) */}
       {isProjectsModalOpen && (
         <ProjectsModal
           currentProject={project}

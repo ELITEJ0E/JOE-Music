@@ -290,6 +290,6 @@ export type WorkstationMode =
   | "multi-track"
   | "rhythm"
   | "practice"
-  | "recordings"
+  | "studio"
   | "presets"
   | "devices";

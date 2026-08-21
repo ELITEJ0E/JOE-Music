@@ -106,16 +106,7 @@ export default function App() {
               {activeMode === "multi-track" && <MultiTrackStudio />}
               {activeMode === "rhythm" && <DrumMetronome />}
               {activeMode === "practice" && <PracticeStudio />}
-              {activeMode === "recordings" && (
-                <div className="md:hidden">
-                  <MobileRecordingsView onSelectMode={handleSelectMode} />
-                </div>
-              )}
-              {activeMode === "recordings" && (
-                <div className="hidden md:block">
-                  <MultiTrackStudio />
-                </div>
-              )}
+              {activeMode === "studio" && <MultiTrackStudio />}
               {activeMode === "presets" && (
                 <PresetsLibraryView
                   onSelectTonePreset={handleSelectTonePreset}
