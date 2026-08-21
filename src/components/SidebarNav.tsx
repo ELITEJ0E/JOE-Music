@@ -30,7 +30,7 @@ export const SIDEBAR_ITEMS: {
   icon: React.ElementType;
 }[] = [
   { id: "home", label: "Home", icon: Home },
-  { id: "songs", label: "Songs", icon: Music },
+  { id: "songs", label: "Joel's Songs", icon: Music },
   { id: "chords-ai", label: "Chord Finder", icon: LayoutGrid },
   { id: "tuner", label: "Tuner", icon: SlidersHorizontal },
   { id: "chord-dictionary", label: "Chord Library", icon: BookOpen },

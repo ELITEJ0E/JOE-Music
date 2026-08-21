@@ -1,5 +1,5 @@
 export interface SunoPlaylistMeta {
-  id: string; // The Suno Playlist UUID
+  id: string;
   title: string;
   description: string;
   category: string;
@@ -32,29 +32,35 @@ export interface SunoPlaylistResponse {
   totalTracks: number;
 }
 
-// User's specific Suno playlists configuration
+// Joel's specific playlists configuration
+export const SUNO_PLAYLIST_ALIASES: Record<string, string> = {
+  "7b5e949e-1d72-4685-9c7f-0fa5e5668190": "ff247038-e0ae-4778-989d-0529e575027b",
+  "c013a793-e48c-47af-8451-fdfddf8405ca": "627c2d15-0cca-4c07-91b3-5f203c981e6e",
+  "e3d7a82b-4567-4a89-9b12-8812cfa89012": "34ac065b-e68e-4dfa-9780-00c49bae047a",
+};
+
 export const MY_SUNO_PLAYLISTS: SunoPlaylistMeta[] = [
   {
-    id: "7b5e949e-1d72-4685-9c7f-0fa5e5668190",
-    title: "My Top Suno Tracks",
-    description: "Original AI music tracks, guitar riffs, and hits",
-    category: "Featured",
-    coverImage: "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=600&q=80"
+    id: "ff247038-e0ae-4778-989d-0529e575027b",
+    title: "Joel's Originals",
+    description: "Original songs, pop funk rhythms, and exclusive compositions",
+    category: "Originals",
+    coverImage: "https://cdn2.suno.ai/1bc7ee09-ee52-487a-85c7-568e961bbc3d.jpeg"
   },
   {
-    id: "c013a793-e48c-47af-8451-fdfddf8405ca",
+    id: "627c2d15-0cca-4c07-91b3-5f203c981e6e",
     title: "Worship & Praise",
-    description: "Uplifting spiritual acoustic melodies & arrangements",
+    description: "Uplifting spiritual acoustic melodies & worship arrangements",
     category: "Worship",
-    coverImage: "https://images.unsplash.com/photo-1510915361894-db8b60106cb1?w=600&q=80"
+    coverImage: "https://cdn2.suno.ai/7697a8ed-b029-451b-b54f-e5ba5b947890.jpeg"
   },
   {
-    id: "e3d7a82b-4567-4a89-9b12-8812cfa89012",
-    title: "Chill & Ambient",
-    description: "Relaxing atmospheric guitar vibes & lo-fi chord progressions",
-    category: "Chill",
-    coverImage: "https://images.unsplash.com/photo-1614113489855-66422ad300a4?w=600&q=80"
+    id: "34ac065b-e68e-4dfa-9780-00c49bae047a",
+    title: "Upcoming Releases",
+    description: "Fresh tracks, guitar vibes, and synth-pop arrangements",
+    category: "Upcoming",
+    coverImage: "https://cdn2.suno.ai/1efe9cb2-dd3b-47c4-b0ad-c8efa5e4e139.jpeg"
   }
 ];
 
-export const MY_PLAYLIST_CATEGORIES = ["All", "Featured", "Worship", "Chill"];
+export const MY_PLAYLIST_CATEGORIES = ["All", "Originals", "Worship", "Upcoming"];

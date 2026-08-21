@@ -34,7 +34,7 @@ export const ALL_NAV_ITEMS: NavItem[] = [
   { id: "chords-ai", label: "Chords", icon: LayoutGrid },
   { id: "studio", label: "Studio", icon: Mic },
   { id: "tone-studio", label: "Tone", icon: Sliders },
-  { id: "songs", label: "Songs", icon: Music },
+  { id: "songs", label: "Joel's Songs", icon: Music },
   { id: "chord-dictionary", label: "Chord Library", icon: BookOpen },
   { id: "fretboard", label: "Scales", icon: Grid },
   { id: "practice", label: "Practice", icon: Target },

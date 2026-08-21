@@ -166,174 +166,443 @@ Provide a concise, practical, high-value guitar instruction response. Mention sp
     }
   });
 
-  // Suno Playlist API Proxy Integration
-  // Fetches playlist data directly from Suno's public API: https://studio-api.prod.suno.com/api/playlist/{playlist_id}/?page={page}
+  // Suno Playlist API Proxy Integration (Joelify Architecture)
+  // Multi-tier resolver: Primary API -> Studio API -> Next.js RSC Scraper -> Proxy Scrapers -> Fallbacks
+  const PLAYLIST_ALIASES: Record<string, string> = {
+    "7b5e949e-1d72-4685-9c7f-0fa5e5668190": "ff247038-e0ae-4778-989d-0529e575027b",
+    "c013a793-e48c-47af-8451-fdfddf8405ca": "627c2d15-0cca-4c07-91b3-5f203c981e6e",
+    "e3d7a82b-4567-4a89-9b12-8812cfa89012": "34ac065b-e68e-4dfa-9780-00c49bae047a",
+  };
+
+  const extractRSCClips = (html: string) => {
+    let foundClips: any[] = [];
+    let foundName = "My Suno Playlist";
+
+    if (!html || typeof html !== "string") return { foundClips, foundName };
+
+    const nameMatch = html.match(/<title>([^<]+)<\/title>/i);
+    if (nameMatch && nameMatch[1]) {
+      const raw = nameMatch[1].replace(/ - Suno/i, "").replace(/ \| Suno/i, "").trim();
+      if (raw && !raw.includes("Page Not Found") && !raw.includes("Suno")) {
+        foundName = raw;
+      }
+    }
+
+    const payloads: string[] = [];
+    let idx = 0;
+    while (true) {
+      const pushIdx = html.indexOf("__next_f.push(", idx);
+      if (pushIdx === -1) break;
+
+      const startIdx = pushIdx + "__next_f.push(".length;
+      let parenCount = 1;
+      let inString = false;
+      let stringChar = "";
+      let isEscaped = false;
+      let foundEnd = -1;
+
+      for (let i = startIdx; i < html.length; i++) {
+        const char = html[i];
+        if (inString) {
+          if (isEscaped) {
+            isEscaped = false;
+          } else if (char === "\\") {
+            isEscaped = true;
+          } else if (char === stringChar) {
+            inString = false;
+          }
+        } else {
+          if (char === '"' || char === "'") {
+            inString = true;
+            stringChar = char;
+            isEscaped = false;
+          } else if (char === "(") {
+            parenCount++;
+          } else if (char === ")") {
+            parenCount--;
+            if (parenCount === 0) {
+              foundEnd = i;
+              break;
+            }
+          }
+        }
+      }
+
+      if (foundEnd !== -1) {
+        const argumentStr = html.substring(startIdx, foundEnd).trim();
+        try {
+          const arr = JSON.parse(argumentStr);
+          if (Array.isArray(arr) && typeof arr[1] === "string") {
+            payloads.push(arr[1]);
+          }
+        } catch (e) {
+          const strMatch = argumentStr.match(/^\[\s*\d+\s*,\s*"([\s\S]*)"\s*\]$/);
+          if (strMatch) {
+            try {
+              const decoded = JSON.parse(`"${strMatch[1]}"`);
+              payloads.push(decoded);
+            } catch (err) {
+              let s = strMatch[1]
+                .replace(/\\"/g, '"')
+                .replace(/\\n/g, "\n")
+                .replace(/\\r/g, "\r")
+                .replace(/\\t/g, "\t")
+                .replace(/\\\\/g, "\\");
+              payloads.push(s);
+            }
+          }
+        }
+        idx = foundEnd + 1;
+      } else {
+        idx = pushIdx + 1;
+      }
+    }
+
+    const combinedDecodedText = payloads.join("");
+
+    if (combinedDecodedText) {
+      const playlistClipsIdx = combinedDecodedText.indexOf('"playlist_clips":');
+      if (playlistClipsIdx !== -1) {
+        const startArrIdx = combinedDecodedText.indexOf("[", playlistClipsIdx);
+        if (startArrIdx !== -1) {
+          let bracketCount = 0;
+          for (let i = startArrIdx; i < combinedDecodedText.length; i++) {
+            if (combinedDecodedText[i] === "[") bracketCount++;
+            else if (combinedDecodedText[i] === "]") {
+              bracketCount--;
+              if (bracketCount === 0) {
+                const arrayStr = combinedDecodedText.substring(startArrIdx, i + 1);
+                try {
+                  const arr = JSON.parse(arrayStr);
+                  if (Array.isArray(arr) && arr.length > 0) {
+                    foundClips = arr.map((item: any) => item.clip || item).filter(Boolean);
+                  }
+                } catch (e) {}
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      if (foundClips.length === 0) {
+        const clipsIdx = combinedDecodedText.indexOf('"clips":');
+        if (clipsIdx !== -1) {
+          const startArrIdx = combinedDecodedText.indexOf("[", clipsIdx);
+          if (startArrIdx !== -1) {
+            let bracketCount = 0;
+            for (let i = startArrIdx; i < combinedDecodedText.length; i++) {
+              if (combinedDecodedText[i] === "[") bracketCount++;
+              else if (combinedDecodedText[i] === "]") {
+                bracketCount--;
+                if (bracketCount === 0) {
+                  const arrayStr = combinedDecodedText.substring(startArrIdx, i + 1);
+                  try {
+                    const arr = JSON.parse(arrayStr);
+                    if (Array.isArray(arr) && arr.length > 0) {
+                      foundClips = arr.map((item: any) => item.clip || item).filter(Boolean);
+                    }
+                  } catch (e) {}
+                  break;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    return { foundClips, foundName };
+  };
+
   app.get("/api/suno-playlist", async (req, res) => {
-    const playlistId = (req.query.id || req.query.playlist_id || "7b5e949e-1d72-4685-9c7f-0fa5e5668190") as string;
+    let rawId = ((req.query.id || req.query.playlist_id || "ff247038-e0ae-4778-989d-0529e575027b") as string).trim();
     const page = parseInt((req.query.page as string) || "1", 10);
+
+    // Resolve aliases (e.g. placeholder IDs to real Joelify IDs)
+    const targetId = PLAYLIST_ALIASES[rawId] || rawId;
 
     // Set CORS and Cache-Control headers
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Cache-Control", "public, max-age=180, s-maxage=300");
 
+    const browserHeaders = {
+      "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      "Accept": "application/json, text/plain, */*",
+      "Accept-Language": "en-US,en;q=0.9",
+      "Referer": "https://suno.com/",
+      "Origin": "https://suno.com"
+    };
+
+    let foundData: any = null;
+
+    // Step 1: Direct Suno Studio Prod API (Proven Joelify Endpoint)
     try {
-      const sunoUrl = `https://studio-api.prod.suno.com/api/playlist/${encodeURIComponent(playlistId)}/?page=${page}`;
-      
+      const prodApiUrl = `https://studio-api.prod.suno.com/api/playlist/${encodeURIComponent(targetId)}/?page=${page}`;
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 6000);
-
-      const response = await fetch(sunoUrl, {
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-          "Accept": "application/json, text/plain, */*",
-          "Accept-Language": "en-US,en;q=0.9",
-          "Referer": "https://suno.com/",
-          "Origin": "https://suno.com"
-        },
-        signal: controller.signal
-      });
-
+      const response = await fetch(prodApiUrl, { headers: browserHeaders, signal: controller.signal });
       clearTimeout(timeout);
 
       if (response.ok) {
-        const data = await response.json();
-        
-        const rawClips = data.playlist_clips || data.clips || data.items || [];
-        const playlistTitle = data.name || data.title || "Suno AI Guitar Showcase";
-        const playlistDesc = data.description || "Curated showcase of high-fidelity AI guitar compositions.";
-        const playlistImage = data.image_url || data.image_large_url || "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=600&q=80";
-        const userDisplayName = data.user_display_name || data.user?.display_name || data.created_by || "Suno Creator";
-        const totalTracks = data.num_total_results || data.total_clips || rawClips.length || 0;
-        const hasMore = Boolean(data.has_more ?? (rawClips.length >= 20));
-
-        const tracks = rawClips.map((item: any) => {
-          const clip = item.clip || item;
-          const tagsStr = clip.metadata?.tags || clip.tags || "";
-          const tags = typeof tagsStr === "string"
-            ? tagsStr.split(",").map((t: string) => t.trim()).filter(Boolean)
-            : Array.isArray(tagsStr) ? tagsStr : ["Guitar", "AI"];
-
-          return {
-            id: clip.id || `suno-${Math.random().toString(36).slice(2, 9)}`,
-            title: clip.title || "Untitled Guitar Composition",
-            artist: clip.display_name || clip.handle || clip.artist || userDisplayName || "Suno AI",
-            album: clip.album || playlistTitle,
-            duration: typeof clip.duration === "number" && clip.duration > 0 ? Math.round(clip.duration) : 185,
-            audioUrl: clip.audio_url || clip.audioUrl || "",
-            videoUrl: clip.video_url || clip.videoUrl,
-            imageUrl: clip.image_large_url || clip.image_url || clip.imageUrl || playlistImage,
-            lyrics: clip.metadata?.prompt || clip.prompt || clip.lyrics || "[Instrumental Guitar Theme with Melodic Progression]",
-            tags: tags,
-            createdAt: clip.created_at || clip.createdAt || new Date().toISOString(),
-            playCount: clip.play_count ?? clip.playCount ?? Math.floor(Math.random() * 5000 + 500),
-            upvoteCount: clip.upvote_count ?? clip.upvoteCount ?? Math.floor(Math.random() * 300 + 20),
-            // Compatibility aliases
-            audio_url: clip.audio_url || clip.audioUrl || "",
-            image_url: clip.image_large_url || clip.image_url || clip.imageUrl || playlistImage,
-            created_at: clip.created_at || clip.createdAt || new Date().toISOString(),
-          };
-        });
-
-        // If valid tracks returned from live API, return them
-        if (tracks.length > 0) {
-          return res.json({
-            id: playlistId,
-            title: playlistTitle,
-            description: playlistDesc,
-            imageUrl: playlistImage,
-            userDisplayName: userDisplayName,
-            tracks: tracks,
-            totalTracks: totalTracks,
-            hasMore: hasMore
-          });
+        const json = await response.json();
+        const clips = json.playlist_clips || json.clips || [];
+        if (clips.length > 0 || json.name) {
+          foundData = json;
         }
       }
-    } catch (err: any) {
-      console.warn(`Suno API fetch failed for playlist ${playlistId}, generating rich fallback:`, err?.message);
+    } catch (e: any) {
+      console.warn(`studio-api.prod.suno.com attempt failed for ${targetId}:`, e?.message);
+    }
+
+    // Step 2: Direct Suno Studio AI API
+    if (!foundData) {
+      try {
+        const studioAiUrl = `https://studio-api.suno.ai/api/playlist/${encodeURIComponent(targetId)}/?page=${page}`;
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5000);
+        const response = await fetch(studioAiUrl, { headers: browserHeaders, signal: controller.signal });
+        clearTimeout(timeout);
+
+        if (response.ok) {
+          const json = await response.json();
+          const clips = json.playlist_clips || json.clips || [];
+          if (clips.length > 0 || json.name) {
+            foundData = json;
+          }
+        }
+      } catch (e: any) {
+        console.warn(`studio-api.suno.ai attempt failed for ${targetId}:`, e?.message);
+      }
+    }
+
+    // Step 3: Direct Suno.com Next.js RSC HTML Scraper
+    if (!foundData) {
+      try {
+        const pageUrl = `https://suno.com/playlist/${targetId}`;
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5000);
+        const response = await fetch(pageUrl, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.5"
+          },
+          signal: controller.signal
+        });
+        clearTimeout(timeout);
+
+        if (response.ok) {
+          const html = await response.text();
+          const { foundClips, foundName } = extractRSCClips(html);
+          if (foundClips.length > 0) {
+            foundData = {
+              name: foundName,
+              playlist_clips: foundClips,
+              num_total_results: foundClips.length,
+            };
+          }
+        }
+      } catch (e: any) {
+        console.warn(`Direct scraper failed for ${targetId}:`, e?.message);
+      }
+    }
+
+    // Step 4: Proxy Fallback Scrapers (Joelify proxy pipeline)
+    if (!foundData) {
+      const proxies = [
+        {
+          name: "AllOrigins",
+          url: (uid: string) => `https://api.allorigins.win/get?url=${encodeURIComponent(`https://suno.com/playlist/${uid}`)}`,
+          parse: (data: any) => data?.contents
+        },
+        {
+          name: "CodeTabs",
+          url: (uid: string) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(`https://suno.com/playlist/${uid}`)}`,
+          parse: (data: any) => (typeof data === "string" ? data : JSON.stringify(data))
+        },
+        {
+          name: "CorsProxyIO",
+          url: (uid: string) => `https://corsproxy.io/?url=${encodeURIComponent(`https://suno.com/playlist/${uid}`)}`,
+          parse: (data: any) => (typeof data === "string" ? data : JSON.stringify(data))
+        }
+      ];
+
+      for (const proxy of proxies) {
+        try {
+          const fetchUrl = proxy.url(targetId);
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 6000);
+          const resProxy = await fetch(fetchUrl, { signal: controller.signal });
+          clearTimeout(timeout);
+
+          if (!resProxy.ok) continue;
+
+          let rawData: any;
+          const contentType = resProxy.headers.get("content-type") || "";
+          if (contentType.includes("application/json")) {
+            rawData = await resProxy.json();
+          } else {
+            rawData = await resProxy.text();
+          }
+
+          const html = proxy.parse(rawData);
+          if (html && typeof html === "string") {
+            const { foundClips, foundName } = extractRSCClips(html);
+            if (foundClips.length > 0) {
+              foundData = {
+                name: foundName,
+                playlist_clips: foundClips,
+                num_total_results: foundClips.length,
+              };
+              console.log(`Proxy ${proxy.name} successfully resolved ${foundClips.length} tracks.`);
+              break;
+            }
+          }
+        } catch (err: any) {
+          console.warn(`Proxy ${proxy.name} error:`, err?.message);
+        }
+      }
+    }
+
+    // Step 5: Process extracted data if available
+    if (foundData) {
+      const rawClips = foundData.playlist_clips || foundData.clips || foundData.items || [];
+      const playlistTitle = foundData.name || foundData.title || "Joel's Originals";
+      const playlistDesc = foundData.description || "Original tracks and musical compositions by ELITEJOE.";
+      const playlistImage = foundData.image_url || foundData.image_large_url || "https://cdn2.suno.ai/1bc7ee09-ee52-487a-85c7-568e961bbc3d.jpeg";
+      const userDisplayName = foundData.user_display_name || foundData.user?.display_name || foundData.created_by || "ELITEJOE";
+      const totalTracks = foundData.num_total_results || foundData.total_clips || rawClips.length || 0;
+      const hasMore = Boolean(foundData.has_more ?? (rawClips.length >= 20));
+
+      const tracks = rawClips.map((item: any) => {
+        const clip = item.clip || item;
+        const tagsStr = clip.metadata?.tags || clip.tags || clip.display_tags || "";
+        const tags = typeof tagsStr === "string"
+          ? tagsStr.split(",").map((t: string) => t.trim()).filter(Boolean)
+          : Array.isArray(tagsStr) ? tagsStr : ["Guitar", "Original"];
+
+        const clipId = clip.id || clip.clip_id || `trk-${Math.random().toString(36).slice(2, 9)}`;
+        const audioUrl = clip.audio_url || clip.audioUrl || `https://cdn1.suno.ai/${clipId}.mp3`;
+        const rawImg = clip.image_large_url || clip.image_url || clip.imageUrl;
+        const imageUrl = rawImg || `https://cdn2.suno.ai/image_${clipId}.jpeg`;
+
+        const durationVal = typeof clip.metadata?.duration === "number"
+          ? Math.round(clip.metadata.duration)
+          : typeof clip.duration === "number" && clip.duration > 0
+          ? Math.round(clip.duration)
+          : 185;
+
+        return {
+          id: clipId,
+          title: clip.title || "Untitled Composition",
+          artist: clip.display_name || clip.handle || userDisplayName || "ELITEJOE",
+          album: clip.album || playlistTitle,
+          duration: durationVal,
+          audioUrl: audioUrl,
+          videoUrl: clip.video_url || clip.videoUrl || null,
+          imageUrl: imageUrl,
+          lyrics: clip.metadata?.prompt || clip.metadata?.text || clip.prompt || clip.lyrics || "[Instrumental Audio Track]",
+          tags: tags,
+          createdAt: clip.created_at || clip.createdAt || new Date().toISOString(),
+          playCount: clip.play_count ?? clip.playCount ?? 1250,
+          upvoteCount: clip.upvote_count ?? clip.upvoteCount ?? 88,
+          // Compatibility aliases
+          audio_url: audioUrl,
+          image_url: imageUrl,
+          created_at: clip.created_at || clip.createdAt || new Date().toISOString(),
+        };
+      });
+
+      if (tracks.length > 0) {
+        return res.json({
+          id: rawId,
+          title: playlistTitle,
+          name: playlistTitle,
+          description: playlistDesc,
+          imageUrl: playlistImage,
+          userDisplayName: userDisplayName,
+          tracks: tracks,
+          totalTracks: totalTracks,
+          hasMore: hasMore
+        });
+      }
     }
 
     // High quality resilient fallback playlist dataset with real playable audio
     const fallbackAudioSamples = [
       {
-        title: "Neon Horizon Lead Solo",
-        artist: "NeonShredder",
-        duration: 184,
-        audioUrl: "https://cdn.pixabay.com/download/audio/2022/10/18/audio_31c2730ebb.mp3",
-        imageUrl: "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&q=80",
-        tags: ["Synthwave", "Guitar Solo", "E-Minor", "Neo-Classical"],
-        lyrics: "[Electric Guitar Solo]\n(Fast sweep picking arpeggios over synth pads)\n[Verse 1]\nThrough the neon lights we ride\nEchoes on the cyber tide\n[Chorus]\nRaise your strings up to the sky\nLet the roaring harmonics fly!"
+        title: "红唇转圈",
+        artist: "ELITEJOE",
+        duration: 185,
+        audioUrl: "https://cdn1.suno.ai/bd216e5e-4604-48e2-ac6e-7f1698044908.mp3",
+        imageUrl: "https://cdn2.suno.ai/1bc7ee09-ee52-487a-85c7-568e961bbc3d.jpeg",
+        tags: ["Pop Funk", "Phonk-Pop", "154 BPM", "Clean Bass"],
+        lyrics: "[Intro]\n靠近一点 别眨眼\n我在这边 看清楚点"
       },
       {
-        title: "Acoustic Sunsets in DADGAD",
-        artist: "FolkMasterAI",
-        duration: 215,
-        audioUrl: "https://cdn.pixabay.com/download/audio/2022/01/18/audio_d0a13f69d2.mp3",
-        imageUrl: "https://images.unsplash.com/photo-1510915361894-db8b60106cb1?w=500&q=80",
-        tags: ["Acoustic", "Fingerstyle", "Folk", "Campfire"],
-        lyrics: "[Instrumental Intro with Cedar Top Resonance]\n[Verse 1]\nGolden embers by the lake\nEvery strum a memory we make\n[Outro]\nGentle natural harmonics fading on the 12th fret"
+        title: "Light It Up Tonight",
+        artist: "ELITEJOE",
+        duration: 210,
+        audioUrl: "https://cdn1.suno.ai/269a9621-677f-4864-8193-4b2265cd73cc.mp3",
+        imageUrl: "https://cdn2.suno.ai/cdea3ba4-5f38-4462-968f-1fb74ba5ac92.jpeg",
+        tags: ["Electronic", "Synth Pop", "Driving Groove"],
+        lyrics: "[Verse 1]\nNeon lights across the floor\nMoving close and wanting more"
       },
       {
-        title: "Heavy Djent Riffs 99",
-        artist: "CyberMetal AI",
-        duration: 142,
-        audioUrl: "https://cdn.pixabay.com/download/audio/2022/03/15/audio_c8b81cf714.mp3",
-        imageUrl: "https://images.unsplash.com/photo-1598508544476-0b168e3766ce?w=500&q=80",
-        tags: ["Metal", "Djent", "Drop D", "Polyrhythm"],
-        lyrics: "[Heavy Drop Tuned 8-String Chug]\n0-0-0-1-0-0-0-1-0-3-0-1\n[Breakdown]\nPure sonic crunch with high gain gate!"
+        title: "You Were There",
+        artist: "ELITEJOE",
+        duration: 231,
+        audioUrl: "https://cdn1.suno.ai/37bc2d3a-a30d-4d27-9ca4-d8f727463931.mp3",
+        imageUrl: "https://cdn2.suno.ai/7697a8ed-b029-451b-b54f-e5ba5b947890.jpeg",
+        tags: ["Worship", "Acoustic Anthem", "Piano Intro", "Emotional"],
+        lyrics: "[Intro]\nOh… Yeah…\nI was searching through the quiet and the storm\nYou were there to keep me warm"
       },
       {
-        title: "Late Night Neo-Soul Chords",
-        artist: "VelvetLicks",
-        duration: 198,
-        audioUrl: "https://cdn.pixabay.com/download/audio/2022/05/27/audio_1808fbf07a.mp3",
-        imageUrl: "https://images.unsplash.com/photo-1465847899084-d164df4dedc6?w=500&q=80",
-        tags: ["Neo-Soul", "Jazz Chords", "Maj9", "Mellow"],
-        lyrics: "[Muted Clean Stratocaster with Warm Chorus]\nCmaj9 - Am9 - Dm9 - G13\nSliding double stops and thumb hammer-ons"
-      },
-      {
-        title: "Midnight Blues Odyssey",
-        artist: "BluesKing99",
+        title: "Blink Twice",
+        artist: "ELITEJOE",
         duration: 230,
-        audioUrl: "https://cdn.pixabay.com/download/audio/2021/08/09/audio_88424c1045.mp3",
-        imageUrl: "https://images.unsplash.com/photo-1525201548942-d8732f6617a0?w=500&q=80",
-        tags: ["Texas Blues", "Overdrive", "Pentatonic", "Bends"],
-        lyrics: "[12-Bar Slow Blues in A]\nWoke up this morning, my guitar was singing loud\nBending strings till the sun broke through the cloud"
+        audioUrl: "https://cdn1.suno.ai/6234dc9e-ba8b-46f6-a071-67ade0b1da8c.mp3",
+        imageUrl: "https://cdn2.suno.ai/1efe9cb2-dd3b-47c4-b0ad-c8efa5e4e139.jpeg",
+        tags: ["K-Pop", "J-Pop Fusion", "124 BPM", "B Major"],
+        lyrics: "[Intro]\n(Ooh-ah)\nYeah yeah\nBlink twice\nBlink twice"
       },
       {
-        title: "Chillhop Lo-Fi Study Chords",
-        artist: "LoFiGuitarist",
-        duration: 165,
-        audioUrl: "https://cdn.pixabay.com/download/audio/2022/03/10/audio_c3508496e7.mp3",
-        imageUrl: "https://images.unsplash.com/photo-1614113489855-66422ad300a4?w=500&q=80",
-        tags: ["Lo-Fi", "Chill", "Vinyl Crackle", "Jazz"],
-        lyrics: "[Relaxed Vinyl Warble with 7th Chords]\nPerfect for late night guitar study & chord transition practice"
+        title: "Sweetheart Pulse",
+        artist: "ELITEJOE",
+        duration: 198,
+        audioUrl: "https://cdn1.suno.ai/aff5c48b-1c9a-48e1-8f3a-75e6dc9b6165.mp3",
+        imageUrl: "https://cdn2.suno.ai/image_aff5c48b-1c9a-48e1-8f3a-75e6dc9b6165.jpeg",
+        tags: ["R&B", "Melodic", "Warm Bass"],
+        lyrics: "[Verse 1]\nEvery heartbeat keeping time\nKnowing that you are truly mine"
       }
     ];
 
     const fallbackTracks = fallbackAudioSamples.map((sample, idx) => ({
-      id: `${playlistId}-trk-${idx + 1}`,
+      id: `${targetId}-trk-${idx + 1}`,
       title: sample.title,
       artist: sample.artist,
-      album: "Suno AI Guitar Selection",
+      album: "Joel's Music",
       duration: sample.duration,
       audioUrl: sample.audioUrl,
       imageUrl: sample.imageUrl,
       lyrics: sample.lyrics,
       tags: sample.tags,
       createdAt: new Date(Date.now() - idx * 86400000).toISOString(),
-      playCount: 1420 + idx * 310,
-      upvoteCount: 125 + idx * 28,
+      playCount: 1820 + idx * 310,
+      upvoteCount: 145 + idx * 28,
       audio_url: sample.audioUrl,
       image_url: sample.imageUrl,
       created_at: new Date(Date.now() - idx * 86400000).toISOString()
     }));
 
     res.json({
-      id: playlistId,
-      title: "Featured Suno Guitar Playlist",
-      description: "Curated AI generated guitar tracks, anthems, solos, and backing tracks ready for instant import.",
-      imageUrl: "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=600&q=80",
-      userDisplayName: "Suno Community",
+      id: rawId,
+      title: "Joel's Originals",
+      name: "Joel's Originals",
+      description: "Original songs and guitar compositions by ELITEJOE.",
+      imageUrl: "https://cdn2.suno.ai/1bc7ee09-ee52-487a-85c7-568e961bbc3d.jpeg",
+      userDisplayName: "ELITEJOE",
       tracks: fallbackTracks,
       totalTracks: fallbackTracks.length,
       hasMore: false
