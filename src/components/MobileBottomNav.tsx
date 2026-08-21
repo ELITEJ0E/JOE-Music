@@ -1,10 +1,18 @@
-import React from "react";
+import React, { useState } from "react";
+import { motion, AnimatePresence } from "motion/react";
 import {
+  Home,
+  Music,
+  LayoutGrid,
   SlidersHorizontal,
-  FolderOpen,
+  BookOpen,
+  Grid,
   Sliders,
-  Repeat,
+  Target,
+  Mic,
+  Layers,
   MoreHorizontal,
+  X,
 } from "lucide-react";
 import { WorkstationMode } from "../types";
 
@@ -13,37 +21,169 @@ interface MobileBottomNavProps {
   onSelectMode: (mode: WorkstationMode) => void;
 }
 
+interface NavItem {
+  id: WorkstationMode;
+  label: string;
+  icon: React.ElementType;
+}
+
+export const ALL_NAV_ITEMS: NavItem[] = [
+  { id: "home", label: "Home", icon: Home },
+  { id: "tuner", label: "Tuner", icon: SlidersHorizontal },
+  { id: "chords-ai", label: "Chords", icon: LayoutGrid },
+  { id: "studio", label: "Studio", icon: Mic },
+  { id: "tone-studio", label: "Tone Studio", icon: Sliders },
+  { id: "songs", label: "Songs", icon: Music },
+  { id: "chord-dictionary", label: "Chord Library", icon: BookOpen },
+  { id: "fretboard", label: "Scales", icon: Grid },
+  { id: "practice", label: "Practice", icon: Target },
+  { id: "presets", label: "Presets", icon: Layers },
+];
+
 export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
   activeMode,
   onSelectMode,
 }) => {
-  const tabs = [
-    { id: "tuner" as WorkstationMode, label: "Tuner", icon: SlidersHorizontal },
-    { id: "studio" as WorkstationMode, label: "Studio", icon: Sliders },
-    { id: "chords-ai" as WorkstationMode, label: "Chords", icon: FolderOpen },
-    { id: "tone-studio" as WorkstationMode, label: "Tones", icon: Repeat },
-    { id: "home" as WorkstationMode, label: "More", icon: MoreHorizontal },
-  ];
+  const [isSheetOpen, setIsSheetOpen] = useState(false);
+
+  // Directly displayed items in the main horizontal bar
+  const mainBarItems = ALL_NAV_ITEMS.slice(0, 5);
+
+  const handleSelect = (id: WorkstationMode) => {
+    onSelectMode(id);
+    setIsSheetOpen(false);
+  };
 
   return (
-    <nav className="md:hidden fixed bottom-0 inset-x-0 bg-[#0d0f12]/80 backdrop-blur-md border-t border-white/10 px-4 py-2 flex items-center justify-around z-40">
-      {tabs.map((tab) => {
-        const Icon = tab.icon;
-        const isActive = activeMode === tab.id;
+    <>
+      {/* CSS injection to hide horizontal scrollbar perfectly */}
+      <style>{`
+        .scrollbar-none::-webkit-scrollbar {
+          display: none;
+        }
+        .scrollbar-none {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
+        }
+      `}</style>
 
-        return (
-          <button
-            key={tab.id}
-            onClick={() => onSelectMode(tab.id)}
-            className={`flex flex-col items-center justify-center gap-1 py-1 px-3 rounded-xl transition-all ${
-              isActive ? "text-[#a3ff12] font-bold bg-[#a3ff12]/10" : "text-zinc-500 hover:text-zinc-300"
-            }`}
-          >
-            <Icon className="w-5 h-5" />
-            <span className="text-[10px] font-mono">{tab.label}</span>
-          </button>
-        );
-      })}
-    </nav>
+      {/* Primary Fixed Bottom Nav Bar */}
+      <nav className="md:hidden fixed bottom-0 inset-x-0 bg-[#0d0f12]/95 backdrop-blur-lg border-t border-white/10 px-3 py-2.5 flex items-center justify-between z-40">
+        {/* Scrollable Left Track containing primary modules */}
+        <div className="flex-1 flex items-center gap-1.5 overflow-x-auto scrollbar-none py-0.5 pr-2 mr-2 border-r border-white/10">
+          {ALL_NAV_ITEMS.map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeMode === tab.id;
+
+            return (
+              <button
+                key={tab.id}
+                onClick={() => handleSelect(tab.id)}
+                className={`flex flex-col items-center justify-center gap-1 py-1.5 px-3.5 rounded-xl transition-all shrink-0 cursor-pointer ${
+                  isActive
+                    ? "text-[#a3ff12] font-extrabold bg-[#a3ff12]/15 shadow-[0_0_10px_rgba(163,255,18,0.1)] border border-[#a3ff12]/20"
+                    : "text-zinc-500 hover:text-zinc-300 bg-transparent border border-transparent"
+                }`}
+              >
+                <Icon className="w-4.5 h-4.5" />
+                <span className="text-[10px] font-mono tracking-tight">{tab.label}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Fixed "More" launcher button */}
+        <button
+          onClick={() => setIsSheetOpen(true)}
+          className={`flex flex-col items-center justify-center gap-1 py-1.5 px-3.5 rounded-xl transition-all shrink-0 cursor-pointer border ${
+            isSheetOpen
+              ? "text-[#a3ff12] font-extrabold bg-[#a3ff12]/15 border-[#a3ff12]/20"
+              : "text-zinc-400 hover:text-white bg-white/5 border-white/5 hover:border-white/10"
+          }`}
+          title="Open Launcher"
+        >
+          <MoreHorizontal className="w-4.5 h-4.5" />
+          <span className="text-[10px] font-mono tracking-tight">More</span>
+        </button>
+      </nav>
+
+      {/* Smooth slide-up sheet drawer and dimming overlay */}
+      <AnimatePresence>
+        {isSheetOpen && (
+          <>
+            {/* Dark background dimming sheet overlay */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsSheetOpen(false)}
+              className="md:hidden fixed inset-0 bg-black/75 backdrop-blur-sm z-50"
+            />
+
+            {/* Custom slide-up drawer containing workspace module grid */}
+            <motion.div
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              transition={{ type: "spring", damping: 25, stiffness: 220 }}
+              className="md:hidden fixed bottom-0 inset-x-0 bg-[#0d0f12] border-t border-white/10 rounded-t-[2rem] max-h-[85vh] overflow-y-auto p-6 pb-12 z-50 shadow-[0_-10px_40px_rgba(0,0,0,0.8)]"
+            >
+              {/* iOS style Pull tab drag indicator */}
+              <div className="w-12 h-1.5 bg-white/15 rounded-full mx-auto mb-6" />
+
+              {/* Header inside drawer */}
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h3 className="text-base font-extrabold text-white tracking-tight">
+                    Studio <span className="text-[#a3ff12]">Launcher</span>
+                  </h3>
+                  <p className="text-xs text-zinc-400 mt-0.5">Quickly swap workstation modules</p>
+                </div>
+                <button
+                  onClick={() => setIsSheetOpen(false)}
+                  className="p-2 rounded-full bg-white/5 hover:bg-white/10 text-zinc-400 hover:text-white transition-all duration-200 cursor-pointer"
+                  title="Close Menu"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Visual Grid Launcher showing all workspace modules */}
+              <div className="grid grid-cols-3 gap-3">
+                {ALL_NAV_ITEMS.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = activeMode === item.id;
+
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => handleSelect(item.id)}
+                      className={`flex flex-col items-center justify-center p-4 rounded-2xl border transition-all duration-200 cursor-pointer text-center group ${
+                        isActive
+                          ? "bg-[#a3ff12]/15 text-white border-[#a3ff12]/30 shadow-[0_0_15px_rgba(163,255,18,0.15)] font-bold scale-[1.02]"
+                          : "bg-white/5 text-zinc-400 border-transparent hover:text-white hover:bg-white/10"
+                      }`}
+                    >
+                      <div
+                        className={`w-10 h-10 rounded-xl flex items-center justify-center mb-2.5 transition-all duration-300 ${
+                          isActive
+                            ? "bg-[#a3ff12]/20 text-[#a3ff12]"
+                            : "bg-[#1c2026] text-zinc-400 group-hover:scale-105 group-hover:text-white"
+                        }`}
+                      >
+                        <Icon className="w-5 h-5" />
+                      </div>
+                      <span className="text-[10px] font-mono tracking-tight leading-tight uppercase font-semibold">
+                        {item.label}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+    </>
   );
 };

@@ -120,7 +120,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onSelectMode }) =>
           {/* RECORD */}
           <button
             id="home-action-record"
-            onClick={() => onSelectMode("recordings")}
+            onClick={() => onSelectMode("studio")}
             className="h-36 frosted-card-hover rounded-3xl flex flex-col items-center justify-center gap-3 transition-all cursor-pointer group"
           >
             <div className="w-12 h-12 rounded-full bg-[#1c2026] flex items-center justify-center group-hover:scale-105 transition-transform border border-white/5">
@@ -261,7 +261,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onSelectMode }) =>
           <div className="flex items-center justify-between pb-3 border-b border-white/5">
             <h3 className="text-sm font-bold text-white tracking-wide">Recent Recordings</h3>
             <button
-              onClick={() => onSelectMode("recordings")}
+              onClick={() => onSelectMode("studio")}
               className="text-[10px] font-mono font-bold text-zinc-400 hover:text-white uppercase tracking-wider"
             >
               VIEW ALL
