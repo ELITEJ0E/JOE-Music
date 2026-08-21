@@ -20,6 +20,8 @@ import { WorkstationMode } from "../types";
 interface MobileBottomNavProps {
   activeMode: WorkstationMode;
   onSelectMode: (mode: WorkstationMode) => void;
+  onInstallApp?: () => void;
+  isInstalled?: boolean;
 }
 
 interface NavItem {
@@ -44,6 +46,8 @@ export const ALL_NAV_ITEMS: NavItem[] = [
 export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
   activeMode,
   onSelectMode,
+  onInstallApp,
+  isInstalled,
 }) => {
   const [isSheetOpen, setIsSheetOpen] = useState(false);
 
@@ -204,11 +208,21 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
               {/* Mobile Launcher PWA download button bottom drawer */}
               <div className="mt-8 pt-6 border-t border-white/5">
                 <button
-                  onClick={() => alert("Guitar Studio is PWA ready and installed.")}
-                  className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-[#a3ff12]/10 to-[#a3ff12]/5 hover:from-[#a3ff12]/15 hover:to-[#a3ff12]/10 border border-[#a3ff12]/30 flex items-center justify-center space-x-2 text-[#a3ff12] font-bold shadow-[0_0_15px_rgba(163,255,18,0.05)] cursor-pointer"
+                  id="btn-mobile-install-pwa"
+                  onClick={() => {
+                    setIsSheetOpen(false);
+                    onInstallApp?.();
+                  }}
+                  className={`w-full py-3.5 rounded-2xl border flex items-center justify-center space-x-2 font-bold cursor-pointer transition-all ${
+                    isInstalled
+                      ? "bg-white/5 border-white/10 text-zinc-300"
+                      : "bg-gradient-to-r from-[#a3ff12]/10 to-[#a3ff12]/5 hover:from-[#a3ff12]/15 hover:to-[#a3ff12]/10 border-[#a3ff12]/30 text-[#a3ff12] shadow-[0_0_15px_rgba(163,255,18,0.05)]"
+                  }`}
                 >
                   <Download className="w-4.5 h-4.5" />
-                  <span className="text-xs font-mono font-bold uppercase tracking-wider">Install App on Mobile</span>
+                  <span className="text-xs font-mono font-bold uppercase tracking-wider">
+                    {isInstalled ? "App Installed (PWA)" : "Install App on Mobile"}
+                  </span>
                 </button>
               </div>
             </motion.div>

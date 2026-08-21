@@ -1,0 +1,63 @@
+{
+  "name": "JOE Studio - Professional Guitar Workstation",
+  "short_name": "JOE Studio",
+  "description": "Professional Guitar Workstation featuring Chromatic Tuner, AI Chord Extractor, Suno Playlists, 8-Track DAW, Looper, and Real-time DSP Tone Studio.",
+  "start_url": "/",
+  "id": "/",
+  "display": "standalone",
+  "background_color": "#0c0e12",
+  "theme_color": "#0c0e12",
+  "orientation": "any",
+  "categories": ["music", "audio", "utilities", "productivity"],
+  "icons": [
+    {
+      "src": "/pwa-icon-192.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-icon-512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-icon-512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Tuner",
+      "short_name": "Tuner",
+      "description": "Open Chromatic Guitar Tuner",
+      "url": "/?mode=tuner"
+    },
+    {
+      "name": "Chord AI",
+      "short_name": "Chords",
+      "description": "Extract chords and voicings",
+      "url": "/?mode=chords-ai"
+    },
+    {
+      "name": "Studio DAW",
+      "short_name": "DAW",
+      "description": "Open 8-Track Recording Studio",
+      "url": "/?mode=studio"
+    },
+    {
+      "name": "Joel's Songs",
+      "short_name": "Songs",
+      "description": "Browse and play Suno playlists",
+      "url": "/?mode=songs"
+    }
+  ]
+}

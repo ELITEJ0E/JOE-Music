@@ -9,6 +9,8 @@ import {
   Settings,
   Volume2,
   Mic,
+  Download,
+  CheckCircle2,
 } from "lucide-react";
 import { audioEngine } from "../audio/audioContext";
 
@@ -16,12 +18,16 @@ interface TopHeaderBarProps {
   onOpenSettings: () => void;
   onOpenDevices: () => void;
   onOpenMetronome?: () => void;
+  onInstallApp?: () => void;
+  isInstalled?: boolean;
 }
 
 export const TopHeaderBar: React.FC<TopHeaderBarProps> = ({
   onOpenSettings,
   onOpenDevices,
   onOpenMetronome,
+  onInstallApp,
+  isInstalled,
 }) => {
   const [searchVal, setSearchVal] = useState("");
 
@@ -41,6 +47,29 @@ export const TopHeaderBar: React.FC<TopHeaderBarProps> = ({
 
       {/* Right Corner: Device Connected Pill, Icons, Avatar */}
       <div className="flex items-center space-x-3 ml-auto">
+        {/* PWA Install Button */}
+        {onInstallApp && (
+          <button
+            id="btn-header-install-pwa"
+            onClick={onInstallApp}
+            className={`flex items-center space-x-2 px-3 py-1.5 rounded-xl border text-xs font-mono font-bold transition-all cursor-pointer ${
+              isInstalled
+                ? "bg-white/5 border-white/10 text-zinc-400 hover:text-white"
+                : "bg-[#a3ff12]/10 hover:bg-[#a3ff12]/20 border-[#a3ff12]/30 text-[#a3ff12] hover:text-white shadow-[0_0_12px_rgba(163,255,18,0.1)]"
+            }`}
+            title={isInstalled ? "JOE Studio Installed as Standalone App" : "Install JOE Studio as Desktop App"}
+          >
+            {isInstalled ? (
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+            ) : (
+              <Download className="w-3.5 h-3.5" />
+            )}
+            <span className="hidden lg:inline uppercase tracking-wider">
+              {isInstalled ? "App Active" : "Install App"}
+            </span>
+          </button>
+        )}
+
         {/* LAVA ME PLAY CONNECTED Pill */}
         <div
           onClick={onOpenDevices}

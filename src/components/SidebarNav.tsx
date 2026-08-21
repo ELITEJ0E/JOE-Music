@@ -22,6 +22,8 @@ interface SidebarNavProps {
   onSelectMode: (mode: WorkstationMode) => void;
   onOpenSettings: () => void;
   onOpenDevices: () => void;
+  onInstallApp?: () => void;
+  isInstalled?: boolean;
 }
 
 export const SIDEBAR_ITEMS: {
@@ -46,6 +48,8 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({
   onSelectMode,
   onOpenSettings,
   onOpenDevices,
+  onInstallApp,
+  isInstalled,
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
 
@@ -142,12 +146,19 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({
         >
           <div className="flex items-center justify-center">
             <button
-              onClick={() => alert("Guitar Studio is PWA ready and installed.")}
-              className="w-full flex items-center justify-center space-x-2 py-2.5 px-3 rounded-xl bg-[#a3ff12]/5 hover:bg-[#a3ff12]/15 border border-[#a3ff12]/20 hover:border-[#a3ff12]/40 text-[#a3ff12] hover:text-white transition-all cursor-pointer font-bold duration-300 shadow-[0_0_10px_rgba(163,255,18,0.05)]"
-              title="Install App"
+              id="btn-sidebar-install-pwa"
+              onClick={onInstallApp}
+              className={`w-full flex items-center justify-center space-x-2 py-2.5 px-3 rounded-xl border transition-all cursor-pointer font-bold duration-300 ${
+                isInstalled
+                  ? "bg-white/5 border-white/10 text-zinc-400 hover:text-white"
+                  : "bg-[#a3ff12]/5 hover:bg-[#a3ff12]/15 border-[#a3ff12]/20 hover:border-[#a3ff12]/40 text-[#a3ff12] hover:text-white shadow-[0_0_10px_rgba(163,255,18,0.05)]"
+              }`}
+              title={isInstalled ? "App Installed (PWA)" : "Install App"}
             >
               <Download className="w-4 h-4 shrink-0" />
-              <span className="text-xs font-mono font-bold uppercase tracking-wider">Install Desktop App</span>
+              <span className="text-xs font-mono font-bold uppercase tracking-wider">
+                {isInstalled ? "App Installed" : "Install Desktop App"}
+              </span>
             </button>
           </div>
         </div>

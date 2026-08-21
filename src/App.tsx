@@ -22,8 +22,10 @@ import { PresetsLibraryView } from "./components/PresetsLibraryView";
 import { MobileRecordingsView } from "./components/MobileRecordingsView";
 import { DeviceSettingsModal } from "./components/DeviceSettingsModal";
 import { SongsLibraryView, SunoSong } from "./components/SongsLibraryView";
+import { PWAInstallModal } from "./components/PWAInstallModal";
+import { usePWAInstall } from "./hooks/usePWAInstall";
 import { WorkstationMode, TonePreset } from "./types";
-import { Radio, Settings, User } from "lucide-react";
+import { Radio, Settings, User, Download } from "lucide-react";
 
 export default function App() {
   const [activeMode, setActiveMode] = useState<WorkstationMode>("home");
@@ -31,6 +33,35 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
   const [isDevicesOpen, setIsDevicesOpen] = useState<boolean>(false);
   const [importedSong, setImportedSong] = useState<SunoSong | null>(null);
+
+  const {
+    isInstalled,
+    isIOS,
+    platform,
+    hasPrompt,
+    isInstallModalOpen,
+    openInstallModal,
+    closeInstallModal,
+    promptInstall,
+  } = usePWAInstall();
+
+  // Read URL search params on initial mount for PWA shortcuts (e.g. ?mode=tuner)
+  useEffect(() => {
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const modeParam = urlParams.get("mode") as WorkstationMode;
+      const validModes: WorkstationMode[] = [
+        "home", "songs", "chords-ai", "tuner", "chord-dictionary",
+        "fretboard", "scales", "tone-studio", "looper", "multi-track",
+        "rhythm", "practice", "studio", "presets"
+      ];
+      if (modeParam && validModes.includes(modeParam)) {
+        setActiveMode(modeParam);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
 
   const handleSelectMode = (mode: WorkstationMode) => {
     setActiveMode(mode);
@@ -67,16 +98,29 @@ export default function App() {
             </span>
           </div>
 
-          <div className="flex items-center space-x-2.5">
+          <div className="flex items-center space-x-2">
+            {!isInstalled && (
+              <button
+                id="btn-mobile-header-pwa"
+                onClick={promptInstall}
+                className="px-2.5 py-1 rounded-lg bg-[#a3ff12]/15 border border-[#a3ff12]/30 text-[#a3ff12] flex items-center gap-1 text-xs font-mono font-bold"
+                title="Install App"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Install</span>
+              </button>
+            )}
             <button
               onClick={() => setIsDevicesOpen(true)}
               className="p-1.5 rounded-lg bg-[#14171c] text-zinc-300"
+              title="Wireless & Devices"
             >
               <Radio className="w-4 h-4" />
             </button>
             <button
               onClick={() => setIsSettingsOpen(true)}
               className="p-1.5 rounded-lg bg-[#14171c] text-zinc-300"
+              title="Settings"
             >
               <Settings className="w-4 h-4" />
             </button>
@@ -95,6 +139,8 @@ export default function App() {
               onSelectMode={handleSelectMode}
               onOpenSettings={() => setIsSettingsOpen(true)}
               onOpenDevices={() => setIsDevicesOpen(true)}
+              onInstallApp={promptInstall}
+              isInstalled={isInstalled}
             />
           </div>
 
@@ -106,6 +152,8 @@ export default function App() {
                 onOpenSettings={() => setIsSettingsOpen(true)}
                 onOpenDevices={() => setIsDevicesOpen(true)}
                 onOpenMetronome={() => handleSelectMode("rhythm")}
+                onInstallApp={promptInstall}
+                isInstalled={isInstalled}
               />
             </div>
 
@@ -142,7 +190,12 @@ export default function App() {
         </div>
 
         {/* Mobile Bottom Fixed Navigation */}
-        <MobileBottomNav activeMode={activeMode} onSelectMode={handleSelectMode} />
+        <MobileBottomNav
+          activeMode={activeMode}
+          onSelectMode={handleSelectMode}
+          onInstallApp={promptInstall}
+          isInstalled={isInstalled}
+        />
 
         {/* Device Settings Modal */}
         <DeviceSettingsModal
@@ -151,6 +204,17 @@ export default function App() {
             setIsSettingsOpen(false);
             setIsDevicesOpen(false);
           }}
+        />
+
+        {/* PWA Install Modal */}
+        <PWAInstallModal
+          isOpen={isInstallModalOpen}
+          onClose={closeInstallModal}
+          onInstall={promptInstall}
+          hasPrompt={hasPrompt}
+          isInstalled={isInstalled}
+          isIOS={isIOS}
+          platform={platform}
         />
       </div>
     </ErrorBoundary>

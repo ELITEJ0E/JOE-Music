@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" width="192" height="192">
+  <defs>
+    <linearGradient id="bg-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#141820"/>
+      <stop offset="50%" stop-color="#0c0e12"/>
+      <stop offset="100%" stop-color="#07080a"/>
+    </linearGradient>
+    <linearGradient id="neon-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#c4ff4d"/>
+      <stop offset="100%" stop-color="#a3ff12"/>
+    </linearGradient>
+    <filter id="neon-glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="0" stdDeviation="4" flood-color="#a3ff12" flood-opacity="0.4"/>
+    </filter>
+  </defs>
+  
+  <!-- Background with rounded squircle -->
+  <rect width="192" height="192" rx="42" fill="url(#bg-grad)"/>
+  <rect x="2" y="2" width="188" height="188" rx="40" fill="none" stroke="#ffffff" stroke-opacity="0.08" stroke-width="2"/>
+  
+  <!-- Audio Waveform & Guitar Riff Graphic -->
+  <g filter="url(#neon-glow)">
+    <!-- Equalizer bars / Wave shape -->
+    <path d="M38 96h18l14-38 22 76 18-48 16 28 14-18h14" 
+          stroke="url(#neon-grad)" 
+          stroke-width="10" 
+          stroke-linecap="round" 
+          stroke-linejoin="round" 
+          fill="none"/>
+          
+    <!-- Dynamic sound wave indicators -->
+    <circle cx="92" cy="134" r="5" fill="#a3ff12"/>
+    <circle cx="70" cy="58" r="5" fill="#c4ff4d"/>
+    <circle cx="126" cy="114" r="4" fill="#a3ff12"/>
+  </g>
+</svg>
