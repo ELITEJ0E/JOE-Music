@@ -35,8 +35,8 @@ export const SIDEBAR_ITEMS: {
   { id: "tuner", label: "Tuner", icon: SlidersHorizontal },
   { id: "chord-dictionary", label: "Chord Library", icon: BookOpen },
   { id: "fretboard", label: "Scales", icon: Grid },
-  { id: "tone-studio", label: "Tone Studio", icon: Sliders },
-  { id: "practice", label: "Practice Studio", icon: Target },
+  { id: "tone-studio", label: "Tone", icon: Sliders },
+  { id: "practice", label: "Practice", icon: Target },
   { id: "studio", label: "Studio", icon: Mic },
   { id: "presets", label: "Presets", icon: Layers },
 ];

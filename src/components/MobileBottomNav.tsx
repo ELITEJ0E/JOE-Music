@@ -32,7 +32,7 @@ export const ALL_NAV_ITEMS: NavItem[] = [
   { id: "tuner", label: "Tuner", icon: SlidersHorizontal },
   { id: "chords-ai", label: "Chords", icon: LayoutGrid },
   { id: "studio", label: "Studio", icon: Mic },
-  { id: "tone-studio", label: "Tone Studio", icon: Sliders },
+  { id: "tone-studio", label: "Tone", icon: Sliders },
   { id: "songs", label: "Songs", icon: Music },
   { id: "chord-dictionary", label: "Chord Library", icon: BookOpen },
   { id: "fretboard", label: "Scales", icon: Grid },

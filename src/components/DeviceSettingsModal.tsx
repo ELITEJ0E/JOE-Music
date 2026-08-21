@@ -27,7 +27,7 @@ export const DeviceSettingsModal: React.FC<DeviceSettingsModalProps> = ({
   isOpen,
   onClose,
 }) => {
-  const [activeTab, setActiveTab] = useState<"audio" | "hardware" | "midi">("audio");
+  const [activeTab, setActiveTab] = useState<"hardware" | "audio" | "midi">("hardware");
   const [audioInputDevices, setAudioInputDevices] = useState<MediaDeviceInfo[]>([]);
   const [audioOutputDevices, setAudioOutputDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedInputId, setSelectedInputId] = useState<string>(audioEngine.getInputDeviceId());
@@ -38,9 +38,46 @@ export const DeviceSettingsModal: React.FC<DeviceSettingsModalProps> = ({
   const [inputDb, setInputDb] = useState<number>(-100);
   const [isPlayingTestTone, setIsPlayingTestTone] = useState<boolean>(false);
   const [isMonitoring, setIsMonitoring] = useState<boolean>(audioEngine.getIsMonitoring());
+  const [freeboostEnabled, setFreeboostEnabled] = useState<boolean>(true);
+  const [freeboostEffect, setFreeboostEffect] = useState<"Reverb" | "Delay" | "Chorus" | "Overdrive">("Reverb");
 
   const stopToneRef = useRef<(() => void) | null>(null);
   const meterAnimRef = useRef<number | null>(null);
+
+  // Handle ESC key press to close dialog
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isOpen, onClose]);
+
+  // Handle browser popstate / back button navigation
+  useEffect(() => {
+    if (!isOpen) return;
+
+    window.history.pushState({ modal: "lava-me-device-dialog" }, "");
+
+    const handlePopState = () => {
+      onClose();
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+      if (window.history.state?.modal === "lava-me-device-dialog") {
+        window.history.back();
+      }
+    };
+  }, [isOpen, onClose]);
 
   useEffect(() => {
     if (isOpen) {
@@ -107,30 +144,57 @@ export const DeviceSettingsModal: React.FC<DeviceSettingsModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-in fade-in duration-150">
-      <div className="frosted-card rounded-3xl w-full max-w-2xl overflow-hidden shadow-2xl space-y-5 p-6 border border-white/10 max-h-[90vh] flex flex-col">
+    <div
+      onClick={(e) => {
+        if (e.target === e.currentTarget) {
+          onClose();
+        }
+      }}
+      className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-3 sm:p-5 animate-in fade-in duration-150"
+    >
+      <div className="frosted-card rounded-3xl w-full max-w-3xl overflow-hidden shadow-2xl space-y-4 p-5 sm:p-6 border border-white/10 max-h-[92vh] flex flex-col">
         {/* Modal Header */}
         <div className="flex items-center justify-between border-b border-white/5 pb-4 shrink-0">
           <div className="flex items-center space-x-2.5">
             <Guitar className="w-5 h-5 text-[#a3ff12]" />
-            <h3 className="font-mono font-bold text-sm text-white tracking-tight">
-              AUDIO DEVICES & HARDWARE WORKFLOW
-            </h3>
+            <div>
+              <h3 className="font-mono font-bold text-sm sm:text-base text-white tracking-tight flex items-center gap-2">
+                LAVA ME PLAY <span className="text-[#a3ff12]">& AUDIO DEVICES</span>
+              </h3>
+              <p className="text-[10px] sm:text-xs text-zinc-400 font-mono">
+                Smart guitar touchscreen link, FreeBoost™ DSP & low-latency USB streaming
+              </p>
+            </div>
           </div>
 
-          <button
-            onClick={onClose}
-            className="text-zinc-300 hover:text-white font-mono text-xs px-3.5 py-1.5 bg-white/5 rounded-xl border border-white/5 hover:border-[#a3ff12]/40 transition-all cursor-pointer"
-          >
-            DONE
-          </button>
+          <div className="flex items-center gap-2">
+            <span className="hidden sm:inline-block text-[10px] font-mono text-zinc-500 bg-white/5 px-2 py-1 rounded-md border border-white/5">
+              Esc to close
+            </span>
+            <button
+              onClick={onClose}
+              className="text-zinc-300 hover:text-white font-mono text-xs px-3.5 py-1.5 bg-white/5 rounded-xl border border-white/5 hover:border-[#a3ff12]/40 transition-all cursor-pointer"
+            >
+              DONE
+            </button>
+          </div>
         </div>
 
         {/* Tab Navigation */}
-        <div className="flex space-x-2 shrink-0 border-b border-white/5 pb-3">
+        <div className="flex space-x-2 shrink-0 border-b border-white/5 pb-2.5 overflow-x-auto">
+          <button
+            onClick={() => setActiveTab("hardware")}
+            className={`px-4 py-2 rounded-xl font-mono text-xs font-bold transition-all cursor-pointer shrink-0 ${
+              activeTab === "hardware"
+                ? "bg-[#a3ff12] text-black shadow-[0_0_12px_rgba(163,255,18,0.4)]"
+                : "bg-white/5 text-zinc-400 hover:text-white"
+            }`}
+          >
+            Lava Me Play Smart Link
+          </button>
           <button
             onClick={() => setActiveTab("audio")}
-            className={`px-4 py-2 rounded-xl font-mono text-xs font-bold transition-all cursor-pointer ${
+            className={`px-4 py-2 rounded-xl font-mono text-xs font-bold transition-all cursor-pointer shrink-0 ${
               activeTab === "audio"
                 ? "bg-[#a3ff12] text-black shadow-[0_0_12px_rgba(163,255,18,0.4)]"
                 : "bg-white/5 text-zinc-400 hover:text-white"
@@ -139,18 +203,8 @@ export const DeviceSettingsModal: React.FC<DeviceSettingsModalProps> = ({
             Audio I/O & Latency
           </button>
           <button
-            onClick={() => setActiveTab("hardware")}
-            className={`px-4 py-2 rounded-xl font-mono text-xs font-bold transition-all cursor-pointer ${
-              activeTab === "hardware"
-                ? "bg-[#a3ff12] text-black shadow-[0_0_12px_rgba(163,255,18,0.4)]"
-                : "bg-white/5 text-zinc-400 hover:text-white"
-            }`}
-          >
-            Lava Me Play & USB
-          </button>
-          <button
             onClick={() => setActiveTab("midi")}
-            className={`px-4 py-2 rounded-xl font-mono text-xs font-bold transition-all cursor-pointer ${
+            className={`px-4 py-2 rounded-xl font-mono text-xs font-bold transition-all cursor-pointer shrink-0 ${
               activeTab === "midi"
                 ? "bg-[#a3ff12] text-black shadow-[0_0_12px_rgba(163,255,18,0.4)]"
                 : "bg-white/5 text-zinc-400 hover:text-white"
@@ -161,7 +215,118 @@ export const DeviceSettingsModal: React.FC<DeviceSettingsModalProps> = ({
         </div>
 
         {/* Tab Content */}
-        <div className="overflow-y-auto space-y-5 pr-1">
+        <div className="overflow-y-auto space-y-4 pr-1">
+          {/* LAVA ME PLAY HARDWARE TAB WITH IMAGE */}
+          {activeTab === "hardware" && (
+            <div className="space-y-4">
+              <div className="relative rounded-2xl bg-gradient-to-br from-zinc-900 via-[#12151a] to-[#0d0f12] border border-white/10 p-4 sm:p-6 overflow-hidden shadow-xl">
+                <div className="flex flex-col md:flex-row items-center gap-6">
+                  {/* Visual Guitar Showcase using user's uploaded/generated LAVA ME PLAY Pink image */}
+                  <div className="relative w-44 sm:w-56 h-64 sm:h-72 rounded-2xl bg-[#08090b] border border-white/10 flex items-center justify-center p-3 shadow-2xl shrink-0 overflow-hidden group">
+                    <img
+                      src="/LAVA_ME_PLAY_Pink_1.webp"
+                      alt="LAVA ME PLAY Smart Acoustic Guitar"
+                      referrerPolicy="no-referrer"
+                      className="w-full h-full object-contain drop-shadow-[0_10px_20px_rgba(0,0,0,0.8)] transition-transform duration-300 group-hover:scale-105"
+                      onError={(e) => {
+                        // Fallback to jpg if needed
+                        (e.target as HTMLImageElement).src = "/lava_me_play.jpg";
+                      }}
+                    />
+                    
+                    {/* Floating Smart Badges */}
+                    <div className="absolute top-2.5 left-2.5 bg-black/80 backdrop-blur-md border border-[#a3ff12]/40 rounded-full px-2 py-0.5 flex items-center space-x-1.5 shadow-md">
+                      <div className="w-1.5 h-1.5 rounded-full bg-[#a3ff12] animate-pulse" />
+                      <span className="text-[9px] font-mono font-bold text-[#a3ff12]">HILAVA 2.0</span>
+                    </div>
+
+                    <div className="absolute bottom-2.5 right-2.5 bg-black/80 backdrop-blur-md border border-white/15 rounded-lg px-2 py-0.5 text-[9px] font-mono text-zinc-300">
+                      3.5" Touchscreen
+                    </div>
+                  </div>
+
+                  {/* Hardware Status & Controls */}
+                  <div className="flex-1 space-y-3 w-full">
+                    <div className="flex items-center justify-between border-b border-white/5 pb-2">
+                      <div>
+                        <div className="text-xs font-mono font-bold text-white flex items-center gap-2">
+                          LAVA ME PLAY (Pastel Blush Pink)
+                          <span className="text-[9px] font-mono text-[#a3ff12] bg-[#a3ff12]/10 px-1.5 py-0.5 rounded border border-[#a3ff12]/30 font-bold">
+                            LINKED
+                          </span>
+                        </div>
+                        <div className="text-[10px] font-mono text-zinc-400 mt-0.5">
+                          High-Pressure Laminate • 4-MASS Acoustic Structure
+                        </div>
+                      </div>
+                      <div className="flex items-center text-xs font-mono text-emerald-400">
+                        <Wifi className="w-3.5 h-3.5 mr-1" />
+                        <span>Connected</span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+                      <div className="bg-white/5 p-2.5 rounded-xl border border-white/5">
+                        <div className="text-[9px] text-zinc-400 uppercase">PREAMP & ACTUATOR</div>
+                        <div className="font-bold text-[#a3ff12] mt-0.5">FreeBoost™ 3.0 DSP</div>
+                      </div>
+                      <div className="bg-white/5 p-2.5 rounded-xl border border-white/5">
+                        <div className="text-[9px] text-zinc-400 uppercase">USB AUDIO STREAM</div>
+                        <div className="font-bold text-white mt-0.5">24-Bit / 48 kHz High-Z</div>
+                      </div>
+                      <div className="bg-white/5 p-2.5 rounded-xl border border-white/5">
+                        <div className="text-[9px] text-zinc-400 uppercase">INTERNAL EFFECTS</div>
+                        <div className="font-bold text-white mt-0.5">Reverb, Delay, Chorus, OD</div>
+                      </div>
+                      <div className="bg-white/5 p-2.5 rounded-xl border border-white/5">
+                        <div className="text-[9px] text-zinc-400 uppercase">ROUNDTRIP LATENCY</div>
+                        <div className="font-bold text-[#a3ff12] mt-0.5">~{latencyMs} ms</div>
+                      </div>
+                    </div>
+
+                    {/* FreeBoost quick toggle & interactive control */}
+                    <div className="bg-white/5 p-3 rounded-xl border border-white/5 space-y-2">
+                      <div className="flex items-center justify-between text-xs font-mono">
+                        <span className="text-zinc-300 font-bold flex items-center gap-1.5">
+                          <Zap className="w-3.5 h-3.5 text-[#a3ff12]" />
+                          FreeBoost™ Acoustic Pickup Actuator
+                        </span>
+                        <button
+                          onClick={() => setFreeboostEnabled(!freeboostEnabled)}
+                          className={`px-2.5 py-1 rounded-lg text-[10px] font-bold font-mono transition-all cursor-pointer ${
+                            freeboostEnabled
+                              ? "bg-[#a3ff12] text-black shadow-[0_0_8px_rgba(163,255,18,0.3)]"
+                              : "bg-white/10 text-zinc-400 hover:text-white"
+                          }`}
+                        >
+                          {freeboostEnabled ? "ACTIVE (AMPLIFIED BODY)" : "BYPASS"}
+                        </button>
+                      </div>
+
+                      {/* Effect selector on touchscreen */}
+                      <div className="flex items-center gap-1.5 pt-1">
+                        {(["Reverb", "Delay", "Chorus", "Overdrive"] as const).map((fx) => (
+                          <button
+                            key={fx}
+                            onClick={() => setFreeboostEffect(fx)}
+                            className={`flex-1 py-1 rounded-lg text-[10px] font-mono transition-all cursor-pointer text-center ${
+                              freeboostEffect === fx
+                                ? "bg-white/15 text-[#a3ff12] border border-[#a3ff12]/40 font-bold"
+                                : "bg-white/5 text-zinc-400 hover:text-zinc-200 border border-transparent"
+                            }`}
+                          >
+                            {fx}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* AUDIO I/O & LATENCY TAB */}
           {activeTab === "audio" && (
             <div className="space-y-4">
               {/* Input Device Selector */}
@@ -187,7 +352,7 @@ export const DeviceSettingsModal: React.FC<DeviceSettingsModalProps> = ({
                       </option>
                     ))
                   ) : (
-                    <option value="default" className="bg-[#12151a]">Default System Microphone / Interface</option>
+                    <option value="default" className="bg-[#12151a]">Default System Microphone / Lava USB Interface</option>
                   )}
                 </select>
               </div>
@@ -271,61 +436,7 @@ export const DeviceSettingsModal: React.FC<DeviceSettingsModalProps> = ({
             </div>
           )}
 
-          {activeTab === "hardware" && (
-            <div className="space-y-4">
-              <div className="relative rounded-2xl bg-gradient-to-br from-zinc-900 via-[#12151a] to-black border border-white/10 p-5 overflow-hidden shadow-xl">
-                <div className="flex flex-col md:flex-row items-center gap-6">
-                  {/* Visual Guitar Mockup */}
-                  <div className="relative w-48 h-56 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center p-3 shadow-inner">
-                    <div className="relative w-full h-full flex flex-col items-center justify-between py-2">
-                      <div className="w-1.5 h-16 bg-gradient-to-b from-amber-700 to-amber-900 rounded-full" />
-                      
-                      <div className="w-32 h-20 bg-black/90 rounded-xl border border-white/20 p-2 shadow-lg flex flex-col justify-between relative overflow-hidden">
-                        <div className="flex items-center justify-between text-[9px] font-mono text-zinc-400">
-                          <span className="text-[#a3ff12] font-bold">LAVA FREEBOOST</span>
-                          <span className="flex items-center"><Wifi className="w-2.5 h-2.5 text-[#a3ff12] mr-0.5" /> 100%</span>
-                        </div>
-                        <div className="flex items-center justify-around py-1">
-                          <div className="w-7 h-7 rounded-lg bg-white/10 flex items-center justify-center text-[10px] font-mono text-white">TUNER</div>
-                          <div className="w-7 h-7 rounded-lg bg-[#a3ff12] text-black font-bold flex items-center justify-center text-[10px]">72</div>
-                          <div className="w-7 h-7 rounded-lg bg-white/10 flex items-center justify-center text-[10px] font-mono text-white">FX</div>
-                        </div>
-                        <div className="text-[8px] font-mono text-zinc-500 text-center tracking-wider">
-                          JOE STUDIO LINKED
-                        </div>
-                      </div>
-
-                      <div className="w-8 h-4 rounded-full bg-white/10 border border-white/20" />
-                    </div>
-                  </div>
-
-                  {/* Hardware Status Details */}
-                  <div className="flex-1 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-mono text-zinc-400">DEVICE MODEL</span>
-                      <span className="text-xs font-mono font-bold text-white">Lava Me Play / USB High-Z Interface</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-mono text-zinc-400">PREAMP & DSP</span>
-                      <span className="text-xs font-mono font-bold text-[#a3ff12]">FreeBoost™ 3.0 Real-Time DSP</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-mono text-zinc-400">CONNECTION</span>
-                      <span className="text-xs font-mono font-bold text-emerald-400 flex items-center">
-                        <CheckCircle2 className="w-3.5 h-3.5 mr-1 text-emerald-400" />
-                        USB Audio Class 2.0 / WebAudio Stream
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-mono text-zinc-400">ROUNDTRIP LATENCY</span>
-                      <span className="text-xs font-mono font-bold text-[#a3ff12]">{latencyMs} ms</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
+          {/* MIDI TAB */}
           {activeTab === "midi" && (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
@@ -364,7 +475,7 @@ export const DeviceSettingsModal: React.FC<DeviceSettingsModalProps> = ({
           <div>
             <div className="font-bold text-white flex items-center">
               <Zap className="w-3.5 h-3.5 text-[#a3ff12] mr-1.5" />
-              JOE Studio Hardware Integration
+              LAVA & High-Z Studio DSP Integration
             </div>
             <div className="text-[10px] text-zinc-400 mt-0.5">
               Zero-latency audio routing & tone processing active

@@ -55,10 +55,11 @@ import { TrackHeader } from "./daw/TrackHeader";
 import { ClipInspector } from "./daw/ClipInspector";
 import { ProjectsModal } from "./daw/ProjectsModal";
 import { LooperStation } from "./LooperStation";
+import { DrumMetronome } from "./DrumMetronome";
 
 const DEFAULT_PROJECT_ID = "project-default-session";
 
-type StudioTab = "timeline" | "looper" | "mixer" | "projects";
+type StudioTab = "timeline" | "looper" | "drums" | "mixer" | "projects";
 
 export const MultiTrackStudio: React.FC = () => {
   const [activeTab, setActiveTab] = useState<StudioTab>("timeline");
@@ -1211,7 +1212,7 @@ export const MultiTrackStudio: React.FC = () => {
 
       {/* Studio Navigation Tabs */}
       <div className="flex flex-wrap items-center gap-2 border-b border-white/5 pb-2 px-2">
-        {(["timeline", "looper", "mixer", "projects"] as const).map((tab) => (
+        {(["timeline", "looper", "drums", "mixer", "projects"] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -1221,7 +1222,15 @@ export const MultiTrackStudio: React.FC = () => {
                 : "bg-white/5 text-zinc-400 border border-transparent hover:text-white hover:bg-white/10"
             }`}
           >
-            {tab === "timeline" ? "Tracks / Timeline" : tab}
+            {tab === "timeline"
+              ? "Tracks / Timeline"
+              : tab === "looper"
+              ? "Looper Station"
+              : tab === "drums"
+              ? "Drum Machine & Metronome"
+              : tab === "mixer"
+              ? "Mixer Console"
+              : "Projects"}
           </button>
         ))}
       </div>
@@ -1516,6 +1525,12 @@ export const MultiTrackStudio: React.FC = () => {
       {activeTab === "looper" && (
         <div className="bg-[#0b0e14] border border-white/10 rounded-2xl shadow-2xl p-2 min-h-[500px]">
           <LooperStation />
+        </div>
+      )}
+
+      {activeTab === "drums" && (
+        <div className="bg-[#0b0e14] border border-white/10 rounded-2xl shadow-2xl p-4 min-h-[500px]">
+          <DrumMetronome />
         </div>
       )}
 
