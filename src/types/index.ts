@@ -38,10 +38,13 @@ export interface ChordVoicing {
   fingers?: (number | 0)[]; // 1: Index, 2: Middle, 3: Ring, 4: Pinky, 0: Open/None
   barre?: { fret: number; fromString: number; toString: number };
   baseFret?: number;
+  position?: number;
   notes: string[];
   intervals?: string[];
   cagedShape?: "C" | "A" | "G" | "E" | "D";
   difficulty?: "Beginner" | "Intermediate" | "Advanced";
+  voicingType?: "exact" | "simplified" | "generated" | "none";
+  voicingConfidence?: number;
 }
 
 export interface ScaleDefinition {
@@ -80,7 +83,7 @@ export interface ChordSegment {
   detectionConfidence?: number;
   voicingConfidence?: number;
   displayChord?: string;
-  voicingType?: "exact" | "simplified" | "none";
+  voicingType?: "exact" | "simplified" | "generated" | "none";
   simplificationReason?: string;
   voicing?: ChordVoicing | null;
 }
@@ -141,7 +144,9 @@ export interface SongAnalysis {
 }
 
 export interface SavedSong extends SongAnalysis {
-  audioBlob: Blob;
+  audioBlob?: Blob;
+  lastPlayedAt?: number;
+  savedAt?: number;
 }
 
 export type PedalType =

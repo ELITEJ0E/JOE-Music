@@ -36,7 +36,8 @@ NOTE_NAMES.forEach((root, rootIdx) => {
       rootIdx: rootIdx,
       quality: qual.q,
       label: root + qual.label,
-      profile: profile
+      profile: profile,
+      intervals: qual.p
     });
   });
 });
@@ -430,30 +431,223 @@ self.onmessage = function (e) {
       const endTime = Math.max(startTime + 0.15, snappedEndTime);
       currentStartTime = endTime;
 
-      // Estimate Bass for this segment
-      const sumBassChroma = new Float32Array(12);
+      // Extract Mean Chroma and Mean Bass Chroma for the segment
+      const numSegFrames = seg.endFrame - seg.startFrame + 1;
+      const meanChroma = new Float32Array(12);
+      const meanBassChroma = new Float32Array(12);
+      
       for (let f = seg.startFrame; f <= seg.endFrame; f++) {
-        for (let k = 0; k < 12; k++) sumBassChroma[k] += bassChromagram[f][k];
-      }
-      let bestBass = state.rootIdx;
-      let maxB = 0;
-      for (let k = 0; k < 12; k++) {
-        if (sumBassChroma[k] > maxB) { maxB = sumBassChroma[k]; bestBass = k; }
+        for (let k = 0; k < 12; k++) {
+          meanChroma[k] += chromagram[f][k];
+          meanBassChroma[k] += bassChromagram[f][k];
+        }
       }
       
-      const rawBassNote = NOTE_NAMES[bestBass];
-      const hasSignificantSlashBass = (rawBassNote !== state.root && (sumBassChroma[bestBass] / (sumBassChroma[state.rootIdx] + 1e-6)) > 1.2);
+      let maxC = 0, maxB = 0;
+      for (let k = 0; k < 12; k++) {
+        meanChroma[k] /= numSegFrames;
+        meanBassChroma[k] /= numSegFrames;
+        if (meanChroma[k] > maxC) maxC = meanChroma[k];
+        if (meanBassChroma[k] > maxB) maxB = meanBassChroma[k];
+      }
+      // Normalize to 0-1 for evidence scoring
+      for (let k = 0; k < 12; k++) {
+        meanChroma[k] = maxC > 0 ? meanChroma[k] / maxC : 0;
+        meanBassChroma[k] = maxB > 0 ? meanBassChroma[k] / maxB : 0;
+      }
+
+      // Evidence-Aware Scoring Function
+      const scoreCandidate = (candidate) => {
+        const root = candidate.rootIdx;
+        const intervals = candidate.intervals;
+        const q = candidate.quality;
+        let chordToneStrength = 0;
+        let missingTonePenalty = 0;
+        
+        let thirdEvidence = 0;
+        let hasThird = false;
+
+        // Define essential tones that MUST be present for complex chords
+        let definingIntervals = [];
+        if (q === "min") definingIntervals = [3];
+        else if (q === "maj") definingIntervals = [4];
+        else if (q === "7") definingIntervals = [10];
+        else if (q === "maj7") definingIntervals = [11];
+        else if (q === "min7") definingIntervals = [10, 3];
+        else if (q === "sus2") definingIntervals = [2];
+        else if (q === "add9") definingIntervals = [2, 4];
+        else if (q === "sus4") definingIntervals = [5];
+        else if (q === "dim") definingIntervals = [3, 6];
+        else if (q === "dim7") definingIntervals = [3, 6, 9];
+        else if (q === "aug") definingIntervals = [4, 8];
+
+        let missingTones = [];
+        let toneEvidence = {};
+
+        for (let interval of intervals) {
+            const pc = (root + interval) % 12;
+            const strength = meanChroma[pc];
+            chordToneStrength += strength;
+            toneEvidence[NOTE_NAMES[pc]] = Number(strength.toFixed(2));
+            
+            if (interval === 3 || interval === 4) {
+              thirdEvidence = strength;
+              hasThird = true;
+            }
+
+            // Weak evidence threshold
+            if (strength < 0.25) {
+                missingTones.push(NOTE_NAMES[pc]);
+                missingTonePenalty += (0.25 - strength); // base penalty
+                
+                if (definingIntervals.includes(interval)) {
+                    missingTonePenalty += 1.5; // Massive penalty for missing defining tone
+                }
+            }
+            
+            // Sus4 anti-evidence: Penalize if major 3rd is strong
+            if (q === "sus4" && interval === 5) {
+                const major3rdPC = (root + 4) % 12;
+                if (meanChroma[major3rdPC] > 0.35) {
+                    missingTonePenalty += meanChroma[major3rdPC] * 1.5;
+                }
+            }
+        }
+        
+        chordToneStrength /= intervals.length;
+
+        // Complexity penalty: Prefer simpler triads over extensions unless heavily supported
+        let complexityPenalty = 0;
+        if (["maj", "min", "5"].includes(q)) complexityPenalty = 0.0;
+        else if (["sus2", "sus4", "aug", "dim"].includes(q)) complexityPenalty = 0.05;
+        else if (["6", "m6", "7"].includes(q)) complexityPenalty = 0.08;
+        else if (["maj7", "min7", "dim7"].includes(q)) complexityPenalty = 0.12;
+        else if (["add9", "9", "maj9", "m9"].includes(q)) complexityPenalty = 0.20;
+        else complexityPenalty = 0.25;
+
+        const rootStrength = meanChroma[root];
+        const finalScore = chordToneStrength - missingTonePenalty - complexityPenalty + (rootStrength * 0.1);
+        
+        return {
+            candidate,
+            score: finalScore,
+            chordToneStrength,
+            missingTones,
+            toneEvidence,
+            complexityPenalty,
+            thirdEvidence: hasThird ? thirdEvidence : 0,
+            requiredTones: intervals.map(i => NOTE_NAMES[(root + i) % 12])
+        };
+      };
+
+      // Score all templates against this segment's averaged chroma
+      const scoredCandidates = CHORD_STATES.map(c => scoreCandidate(c));
+      
+      // Step 1: Initial sort by score
+      scoredCandidates.sort((a, b) => b.score - a.score);
+      
+      // Step 2: Post-process power chords vs triads
+      let winner = scoredCandidates[0];
+      
+      if (winner.candidate.quality === "5") {
+         // Find best major/minor triads for this root
+         const root = winner.candidate.rootIdx;
+         const bestMajor = scoredCandidates.find(c => c.candidate.rootIdx === root && c.candidate.quality === "maj");
+         const bestMinor = scoredCandidates.find(c => c.candidate.rootIdx === root && c.candidate.quality === "min");
+         
+         const majorScore = bestMajor ? bestMajor.score : -Infinity;
+         const minorScore = bestMinor ? bestMinor.score : -Infinity;
+         const bestTriadScore = Math.max(majorScore, minorScore);
+         
+         // Evaluate third presence (maj3 or min3)
+         const pcMaj3 = (root + 4) % 12;
+         const pcMin3 = (root + 3) % 12;
+         const actualThirdEvidence = Math.max(meanChroma[pcMaj3], meanChroma[pcMin3]);
+         
+         const POWER_CHORD_MARGIN = 0.15;
+         const POWER_CHORD_ABSENCE_THRESHOLD = 0.25;
+         
+         // If third is moderately present OR the score margin isn't huge, fallback to the best triad
+         if (actualThirdEvidence >= POWER_CHORD_ABSENCE_THRESHOLD || winner.score <= bestTriadScore + POWER_CHORD_MARGIN) {
+             if (majorScore >= minorScore && bestMajor) {
+                 winner = bestMajor;
+             } else if (bestMinor) {
+                 winner = bestMinor;
+             }
+             // Re-sort so winner is at index 0 for consistency
+             scoredCandidates.splice(scoredCandidates.indexOf(winner), 1);
+             scoredCandidates.unshift(winner);
+         }
+      }
+      
+      const alt = scoredCandidates[1];
+
+      // Bass / Slash Chord Logic
+      let bestBassNote = NOTE_NAMES[winner.candidate.rootIdx];
+      let maxBassEv = 0;
+      let maxBassIdx = winner.candidate.rootIdx;
+      for (let k = 0; k < 12; k++) {
+        if (meanBassChroma[k] > maxBassEv) { 
+          maxBassEv = meanBassChroma[k]; 
+          maxBassIdx = k; 
+        }
+      }
+      
+      const rootBassEv = meanBassChroma[winner.candidate.rootIdx] + 1e-6;
+      
+      // Strict Slash Chord Conditions
+      let applySlash = false;
+      if (maxBassIdx !== winner.candidate.rootIdx) {
+          const bassRatio = maxBassEv / rootBassEv;
+          const bassIsChordTone = winner.candidate.intervals.some(interval => (winner.candidate.rootIdx + interval) % 12 === maxBassIdx);
+          
+          // If the strong bass note is already a chord tone (e.g. the 3rd or 5th),
+          // it must be OVERWHELMINGLY dominant to force a slash chord.
+          // Otherwise, it's just normal harmonic content in the bass register.
+          if (bassIsChordTone) {
+              if (bassRatio > 2.0 && maxBassEv > 0.6) {
+                  applySlash = true;
+              }
+          } else {
+              // Non-chord tone bass needs solid evidence
+              if (bassRatio > 1.4 && maxBassEv > 0.4) {
+                 applySlash = true;
+              }
+          }
+      }
+      
+      if (applySlash) {
+          bestBassNote = NOTE_NAMES[maxBassIdx];
+      }
+
 
       // Use structured normalization
       const norm = normalizeChord({
-        root: state.root,
-        quality: state.quality,
-        bass: hasSignificantSlashBass ? rawBassNote : undefined
+        root: winner.candidate.root,
+        quality: winner.candidate.quality,
+        bass: bestBassNote !== winner.candidate.root ? bestBassNote : undefined
       }, estimatedKey);
 
+      // Recompute confidence mapping
+      const confidence = Math.max(0, Math.min(99, Math.round(winner.score * 100)));
       const midFrame = Math.floor((seg.startFrame + seg.endFrame) / 2);
-      const sim = cosineSimilarity(chromagram[midFrame], state.profile);
-      const confidence = Math.min(99, Math.round(sim * 100));
+      const stability = Math.min(99, Math.round(cosineSimilarity(chromagram[midFrame], winner.candidate.profile) * 95 + 5));
+
+      const diag = {
+        detectedChord: norm.canonicalLabel,
+        topAlternative: alt ? alt.candidate.label : "none",
+        detectedScore: Number(winner.score.toFixed(3)),
+        alternativeScore: alt ? Number(alt.score.toFixed(3)) : 0,
+        scoreMargin: alt ? Number((winner.score - alt.score).toFixed(3)) : 0,
+        requiredTones: winner.requiredTones,
+        toneEvidence: winner.toneEvidence,
+        missingTones: winner.missingTones,
+        complexityPenalty: winner.complexityPenalty,
+        thirdEvidence: Number(winner.thirdEvidence.toFixed(3)),
+        slashBassEvidence: Number(maxBassEv.toFixed(3)),
+        slashBassRatio: maxBassIdx !== winner.candidate.rootIdx ? Number((maxBassEv / rootBassEv).toFixed(3)) : 1.0,
+        thirdStatus: winner.thirdEvidence >= 0.25 ? "MODERATE/STRONG" : "WEAK/ABSENT"
+      };
 
       finalSegments.push({
         id: `seg-${i}`,
@@ -467,9 +661,10 @@ self.onmessage = function (e) {
         rawStartTime: Number(rawStartTime.toFixed(3)),
         rawEndTime: Number(rawEndTime.toFixed(3)),
         confidence: confidence,
-        stability: Math.min(99, Math.round(sim * 95 + 5)),
+        stability: stability,
         beatStart: beats.find(b => Math.abs(b - startTime) < 0.2),
-        beatEnd: beats.find(b => Math.abs(b - endTime) < 0.2)
+        beatEnd: beats.find(b => Math.abs(b - endTime) < 0.2),
+        diagnostics: diag
       });
     }
 

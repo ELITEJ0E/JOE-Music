@@ -204,20 +204,25 @@ export async function loadPracticeLogs(): Promise<PracticeLog[]> {
 }
 
 export async function saveSongToDB(song: SavedSong): Promise<void> {
+  const songToSave: SavedSong = {
+    ...song,
+    savedAt: song.savedAt || Date.now(),
+    lastPlayedAt: song.lastPlayedAt || Date.now(),
+  };
   try {
     const db = await openDB();
     if (!db) {
-      const idx = memorySongs.findIndex((s) => s.id === song.id);
-      if (idx >= 0) memorySongs[idx] = song;
-      else memorySongs.push(song);
+      const idx = memorySongs.findIndex((s) => s.id === songToSave.id);
+      if (idx >= 0) memorySongs[idx] = songToSave;
+      else memorySongs.push(songToSave);
       return;
     }
     const tx = db.transaction(STORE_SONGS, "readwrite");
     const store = tx.objectStore(STORE_SONGS);
-    store.put(song);
+    store.put(songToSave);
   } catch (err) {
     console.warn("Failed to save song to DB:", err);
-    memorySongs.push(song);
+    memorySongs.push(songToSave);
   }
 }
 
@@ -225,14 +230,16 @@ export async function loadSongsFromDB(): Promise<SavedSong[]> {
   try {
     const db = await openDB();
     if (!db) {
-      return memorySongs;
+      return [...memorySongs].sort((a, b) => (b.lastPlayedAt || b.savedAt || 0) - (a.lastPlayedAt || a.savedAt || 0));
     }
     const tx = db.transaction(STORE_SONGS, "readonly");
     const store = tx.objectStore(STORE_SONGS);
     return new Promise((resolve) => {
       const req = store.getAll();
       req.onsuccess = () => {
-        resolve(req.result as SavedSong[]);
+        const list = (req.result as SavedSong[]) || [];
+        list.sort((a, b) => (b.lastPlayedAt || b.savedAt || 0) - (a.lastPlayedAt || a.savedAt || 0));
+        resolve(list);
       };
       req.onerror = () => resolve(memorySongs);
     });
@@ -255,5 +262,24 @@ export async function deleteSongFromDB(id: string): Promise<void> {
     store.delete(id);
   } catch (err) {
     console.warn("Failed to delete song:", err);
+  }
+}
+
+const LAST_PLAYED_SONG_KEY = "guitar_studio_last_played_song_id";
+
+export function saveLastPlayedSongId(id: string): void {
+  try {
+    localStorage.setItem(LAST_PLAYED_SONG_KEY, id);
+  } catch (err) {
+    console.warn("Failed to save last played song ID:", err);
+  }
+}
+
+export function getLastPlayedSongId(): string | null {
+  try {
+    return localStorage.getItem(LAST_PLAYED_SONG_KEY);
+  } catch (err) {
+    console.warn("Failed to get last played song ID:", err);
+    return null;
   }
 }

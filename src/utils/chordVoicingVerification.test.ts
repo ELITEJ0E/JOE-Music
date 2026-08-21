@@ -1,6 +1,8 @@
 import { ChordVoicing } from "../types";
 import { parseChordLabel, pitchClassOfNote, normalizeNoteSpelling } from "../audio/chordNormalizer";
 import { findChordByName, CHORD_DATABASE } from "../data/chordDatabase";
+import { resolveGuitarChord } from "../audio/guitarChordResolver";
+import { resolvePowerChord } from "../audio/powerChordResolver";
 
 // Standard tuning open string pitch classes (Low E to High E)
 const OPEN_STRING_PITCH_CLASSES = [4, 9, 2, 7, 11, 4]; // E, A, D, G, B, E
@@ -13,7 +15,7 @@ export interface VoicingVerificationResult {
   selectedFrets: string;
   actualPitchClasses: string[];
   missingChordTones: string[];
-  voicingType: "exact" | "simplified" | "none";
+  voicingType: "exact" | "simplified" | "generated" | "none";
   omissionReason?: string;
 }
 
@@ -21,6 +23,8 @@ export interface VoicingVerificationResult {
 function getRequiredIntervals(quality: string): number[] {
   const q = quality.toLowerCase();
   switch (q) {
+    case "5":
+      return [0, 7]; // Root, P5
     case "":
     case "maj":
     case "major":
@@ -83,11 +87,14 @@ export function verifyVoicingForChord(
   const requiredPcSet = new Set(intervals.map(iv => (rootPc + iv) % 12));
   const requiredPitchClasses = Array.from(requiredPcSet).map(pc => PITCH_NAMES[pc]);
 
-  // Find voicing: use override if provided, else lookup in database
+  // Find voicing: use override if provided, else lookup in resolver
   let voicing = voicingOverride;
+  let detectedVoicingType: "exact" | "simplified" | "generated" | "none" = "exact";
+
   if (!voicing) {
-    const found = findChordByName(chordLabel);
-    if (found) voicing = found;
+    const res = resolveGuitarChord(chordLabel);
+    voicing = res.voicing || undefined;
+    detectedVoicingType = res.voicingType;
   }
 
   if (!voicing) {
@@ -99,7 +106,7 @@ export function verifyVoicingForChord(
       actualPitchClasses: [],
       missingChordTones: requiredPitchClasses,
       voicingType: "none",
-      omissionReason: "No guitar voicing available in database"
+      omissionReason: "No guitar voicing available"
     };
   }
 
@@ -117,7 +124,9 @@ export function verifyVoicingForChord(
   const missingChordTones = missingPcs.map(pc => PITCH_NAMES[pc]);
   const isExact = missingChordTones.length === 0;
 
-  let voicingType: "exact" | "simplified" | "none" = isExact ? "exact" : "none";
+  let voicingType: "exact" | "simplified" | "generated" | "none" = isExact
+    ? (voicing.voicingType === "generated" || detectedVoicingType === "generated" ? "generated" : "exact")
+    : "none";
   let omissionReason: string | undefined = undefined;
 
   if (!isExact) {
@@ -154,7 +163,7 @@ export function runFinalVerificationTests() {
     {
       name: "2. Aadd9 (Looking up Aadd9 voicing)",
       chord: "Aadd9",
-      voicing: findChordByName("Aadd9") // Should be undefined or custom
+      voicing: undefined // Resolver should return none
     },
     {
       name: "3. Aadd9 evaluated with plain A voicing (x02220)",
@@ -180,6 +189,46 @@ export function runFinalVerificationTests() {
       name: "7. Csus4 evaluated with plain C voicing (x32010)",
       chord: "Csus4",
       voicing: cOpenVoicing
+    },
+    {
+      name: "8. A5 (Procedural power chord resolver)",
+      chord: "A5",
+      voicing: undefined // Should resolve to generated A5 [x, 0, 2, 2, x, x]
+    },
+    {
+      name: "9. B5 (Procedural power chord resolver)",
+      chord: "B5",
+      voicing: undefined // Should resolve to generated B5 [x, 2, 4, 4, x, x]
+    },
+    {
+      name: "10. C5 (Procedural power chord resolver)",
+      chord: "C5",
+      voicing: undefined // Should resolve to generated C5 [x, 3, 5, 5, x, x]
+    },
+    {
+      name: "11. D5 (Procedural power chord resolver)",
+      chord: "D5",
+      voicing: undefined // Should resolve to generated D5 [x, 5, 7, 7, x, x]
+    },
+    {
+      name: "12. E5 (Procedural power chord resolver)",
+      chord: "E5",
+      voicing: undefined // Should resolve to generated E5 [0, 2, 2, x, x, x]
+    },
+    {
+      name: "13. F5 (Procedural power chord resolver)",
+      chord: "F5",
+      voicing: undefined // Should resolve to generated F5 [1, 3, 3, x, x, x]
+    },
+    {
+      name: "14. G5 (Procedural power chord resolver)",
+      chord: "G5",
+      voicing: undefined // Should resolve to generated G5 [3, 5, 5, x, x, x]
+    },
+    {
+      name: "15. A5/C# (Slash power chord - must be rejected)",
+      chord: "A5/C#",
+      voicing: undefined // Should return none
     }
   ];
 

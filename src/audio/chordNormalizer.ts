@@ -108,80 +108,73 @@ export function normalizeNoteSpelling(rawNote: string, keyContext?: string): str
 /**
  * Normalizes raw quality strings into canonical vocabulary and display symbols.
  */
-export function normalizeQuality(rawQuality: string): { quality: CanonicalQuality; displaySymbol: string } {
+export function normalizeQuality(rawQuality: string): { quality: CanonicalQuality | "unknown"; displaySymbol: string; isValid: boolean } {
   const clean = (rawQuality || "").trim().toLowerCase();
 
   switch (clean) {
     case "":
     case "maj":
     case "major":
-      return { quality: "maj", displaySymbol: "" };
+      return { quality: "maj", displaySymbol: "", isValid: true };
     case "m":
     case "min":
     case "minor":
     case "-":
-      return { quality: "min", displaySymbol: "m" };
+      return { quality: "min", displaySymbol: "m", isValid: true };
     case "5":
     case "power":
-      return { quality: "5", displaySymbol: "5" };
+      return { quality: "5", displaySymbol: "5", isValid: true };
     case "dim":
     case "o":
-      return { quality: "dim", displaySymbol: "dim" };
+      return { quality: "dim", displaySymbol: "dim", isValid: true };
     case "dim7":
     case "o7":
-      return { quality: "dim7", displaySymbol: "dim7" };
+      return { quality: "dim7", displaySymbol: "dim7", isValid: true };
     case "min7b5":
     case "m7b5":
     case "half-dim":
     case "ø":
-      return { quality: "min7b5", displaySymbol: "m7b5" };
+      return { quality: "min7b5", displaySymbol: "m7b5", isValid: true };
     case "aug":
     case "+":
-      return { quality: "aug", displaySymbol: "aug" };
+      return { quality: "aug", displaySymbol: "aug", isValid: true };
     case "sus2":
-      return { quality: "sus2", displaySymbol: "sus2" };
+      return { quality: "sus2", displaySymbol: "sus2", isValid: true };
     case "sus4":
     case "sus":
-      return { quality: "sus4", displaySymbol: "sus4" };
+      return { quality: "sus4", displaySymbol: "sus4", isValid: true };
     case "6":
-      return { quality: "6", displaySymbol: "6" };
+      return { quality: "6", displaySymbol: "6", isValid: true };
     case "m6":
     case "min6":
-      return { quality: "m6", displaySymbol: "m6" };
+      return { quality: "m6", displaySymbol: "m6", isValid: true };
     case "7":
     case "dom7":
-      return { quality: "7", displaySymbol: "7" };
+      return { quality: "7", displaySymbol: "7", isValid: true };
     case "maj7":
     case "m7_maj":
     case "Δ7":
-      return { quality: "maj7", displaySymbol: "maj7" };
+      return { quality: "maj7", displaySymbol: "maj7", isValid: true };
     case "m7":
     case "min7":
     case "-7":
-      return { quality: "m7", displaySymbol: "m7" };
+      return { quality: "m7", displaySymbol: "m7", isValid: true };
     case "add9":
     case "add2":
-      return { quality: "add9", displaySymbol: "add9" };
+      return { quality: "add9", displaySymbol: "add9", isValid: true };
     case "9":
-      return { quality: "9", displaySymbol: "9" };
+      return { quality: "9", displaySymbol: "9", isValid: true };
     case "maj9":
-      return { quality: "maj9", displaySymbol: "maj9" };
+      return { quality: "maj9", displaySymbol: "maj9", isValid: true };
     case "m9":
     case "min9":
-      return { quality: "m9", displaySymbol: "m9" };
+      return { quality: "m9", displaySymbol: "m9", isValid: true };
     case "11":
-      return { quality: "11", displaySymbol: "11" };
+      return { quality: "11", displaySymbol: "11", isValid: true };
     case "13":
-      return { quality: "13", displaySymbol: "13" };
+      return { quality: "13", displaySymbol: "13", isValid: true };
     default:
-      // Fallback quality parsing
-      if (clean.startsWith("min") || clean.startsWith("m7") || clean.startsWith("-")) {
-        return { quality: "m7", displaySymbol: "m7" };
-      }
-      if (clean.startsWith("maj")) {
-        return { quality: "maj7", displaySymbol: "maj7" };
-      }
-      return { quality: "maj", displaySymbol: "" };
+      return { quality: "unknown", displaySymbol: "", isValid: false };
   }
 }
 
@@ -190,21 +183,45 @@ export function normalizeQuality(rawQuality: string): { quality: CanonicalQualit
  */
 export function normalizeChord(hypothesis: RawChordHypothesis, keyContext?: string): NormalizedChord {
   const normRoot = normalizeNoteSpelling(hypothesis.root, keyContext);
-  const { quality, displaySymbol } = normalizeQuality(hypothesis.quality);
+  
+  if (!normRoot || pitchClassOfNote(normRoot) === -1) {
+    return {
+      root: "",
+      quality: "maj",
+      qualitySymbol: "",
+      bass: undefined,
+      extensions: [],
+      canonicalLabel: "Unknown chord",
+      displayLabel: "Unknown chord",
+      isValid: false
+    };
+  }
+
+  const { quality, displaySymbol, isValid: isQualityValid } = normalizeQuality(hypothesis.quality);
+
+  if (!isQualityValid) {
+    return {
+      root: "",
+      quality: "maj",
+      qualitySymbol: "",
+      bass: undefined,
+      extensions: [],
+      canonicalLabel: "Unknown chord",
+      displayLabel: "Unknown chord",
+      isValid: false
+    };
+  }
 
   let normBass: string | undefined = undefined;
   if (hypothesis.bass) {
     const rawB = normalizeNoteSpelling(hypothesis.bass, keyContext);
-    // Validate Root/Bass pitch class relationship:
-    // If bass === root pitch class, do NOT display a slash chord (e.g. C/C -> C)
-    if (pitchClassOfNote(rawB) !== pitchClassOfNote(normRoot)) {
+    if (rawB && pitchClassOfNote(rawB) !== -1 && pitchClassOfNote(rawB) !== pitchClassOfNote(normRoot)) {
       normBass = rawB;
     }
   }
 
   const extensions = hypothesis.extensions || [];
   
-  // Format canonical label: ROOT + QUALITY_SYMBOL + "/" + BASS
   let label = `${normRoot}${displaySymbol}`;
   if (normBass) {
     label += `/${normBass}`;
@@ -212,7 +229,7 @@ export function normalizeChord(hypothesis: RawChordHypothesis, keyContext?: stri
 
   return {
     root: normRoot,
-    quality: quality,
+    quality: quality as CanonicalQuality,
     qualitySymbol: displaySymbol,
     bass: normBass,
     extensions,
