@@ -18,6 +18,70 @@ export interface VoicingConstraints {
   maxFret?: number;
 }
 
+// Canonical shape templates for common guitar chords (fret string representations)
+const CANONICAL_SHAPES: Record<string, { key: string; bonus: number }[]> = {
+  // Major
+  "B-maj": [
+    { key: "x,2,4,4,4,2", bonus: -5000 },
+    { key: "7,9,9,8,7,7", bonus: -4000 },
+  ],
+  "F-maj": [
+    { key: "1,3,3,2,1,1", bonus: -5000 },
+    { key: "x,8,10,10,10,8", bonus: -4000 },
+  ],
+  "C-maj": [
+    { key: "x,3,2,0,1,0", bonus: -5000 },
+    { key: "x,3,5,5,5,3", bonus: -3500 },
+    { key: "8,10,10,9,8,8", bonus: -3000 },
+  ],
+  "G-maj": [
+    { key: "3,2,0,0,0,3", bonus: -5000 },
+    { key: "3,2,0,0,3,3", bonus: -5000 },
+    { key: "3,5,5,4,3,3", bonus: -3500 },
+  ],
+  "D-maj": [
+    { key: "x,x,0,2,3,2", bonus: -5000 },
+    { key: "x,5,7,7,7,5", bonus: -3500 },
+  ],
+  "A-maj": [
+    { key: "x,0,2,2,2,0", bonus: -5000 },
+    { key: "5,7,7,6,5,5", bonus: -3500 },
+  ],
+  "E-maj": [
+    { key: "0,2,2,1,0,0", bonus: -5000 },
+    { key: "x,7,9,9,9,7", bonus: -3500 },
+  ],
+  // Minor
+  "A-min": [
+    { key: "x,0,2,2,1,0", bonus: -5000 },
+    { key: "5,7,7,5,5,5", bonus: -3500 },
+  ],
+  "E-min": [
+    { key: "0,2,2,0,0,0", bonus: -5000 },
+    { key: "x,7,9,9,8,7", bonus: -3500 },
+  ],
+  "C-min": [
+    { key: "x,3,5,5,4,3", bonus: -5000 },
+    { key: "8,10,10,8,8,8", bonus: -4000 },
+  ],
+  "D-min": [
+    { key: "x,x,0,2,3,1", bonus: -5000 },
+    { key: "x,5,7,7,6,5", bonus: -3500 },
+  ],
+  "B-min": [
+    { key: "x,2,4,4,3,2", bonus: -5000 },
+    { key: "7,9,9,7,7,7", bonus: -4000 },
+  ],
+  "F-min": [
+    { key: "1,3,3,1,1,1", bonus: -5000 },
+    { key: "x,8,10,10,9,8", bonus: -4000 },
+  ],
+  "G-min": [
+    { key: "3,5,5,3,3,3", bonus: -5000 },
+    { key: "x,10,12,12,11,10", bonus: -4000 },
+  ],
+};
+
 function getAllowedPitchClasses(chord: ChordDefinition): Set<PitchClass> {
   const pcs = new Set<PitchClass>();
   pcs.add(chord.root);
@@ -54,8 +118,6 @@ export function generateVoicings(chord: ChordDefinition, constraints: VoicingCon
   const seenFrets = new Set<string>();
 
   for (const bass of bassCandidates) {
-    // Determine fret windows
-    // Window can start from bass.fret - span to bass.fret
     let minWindowStart = Math.max(1, bass.fret - maxSpan + 1);
     let maxWindowStart = bass.fret === 0 ? 1 : bass.fret;
     
@@ -71,11 +133,9 @@ export function generateVoicings(chord: ChordDefinition, constraints: VoicingCon
           stringChoices.push([bass.fret]);
         } else {
           const choices: (number | "x")[] = ["x"];
-          // open string
           if (allowedPcs.has(getStringPitchClass(s, 0))) {
             choices.push(0);
           }
-          // fretted notes in window
           for (let f = windowStart; f <= windowEnd && f <= maxFret; f++) {
             if (allowedPcs.has(getStringPitchClass(s, f))) {
               choices.push(f);
@@ -85,7 +145,6 @@ export function generateVoicings(chord: ChordDefinition, constraints: VoicingCon
         }
       }
       
-      // Cartesian product of stringChoices
       const cartesian = (arr: (number | "x")[][]): (number | "x")[][] => {
         return arr.reduce(
           (a, b) => a.flatMap(d => b.map(e => [...d, e])),
@@ -100,7 +159,6 @@ export function generateVoicings(chord: ChordDefinition, constraints: VoicingCon
         if (seenFrets.has(key)) continue;
         seenFrets.add(key);
         
-        // Evaluate combination
         const voicing = evaluateCombination(frets, chord, requiredPcs, allowedPcs);
         if (voicing) {
           results.push(voicing);
@@ -119,13 +177,12 @@ function evaluateCombination(
   allowedPcs: Set<PitchClass>
 ): GeneratedVoicing | null {
   
-  // 1. Must contain all required pitch classes (for "exact"), 
-  // or at least root and 3rd/5th for "simplified"
   const presentPcs = new Set<PitchClass>();
   const notes: string[] = [];
   const intervals: string[] = [];
   
   let playedStrings = 0;
+  const isFlatContext = chord.rootName.includes("b") || chord.rootName === "F";
   
   for (let s = 0; s < 6; s++) {
     const f = frets[s];
@@ -133,12 +190,10 @@ function evaluateCombination(
       playedStrings++;
       const pc = getStringPitchClass(s, f);
       presentPcs.add(pc);
-      notes.push(getNoteName(pc));
+      notes.push(getNoteName(pc, isFlatContext));
       
-      // calculate interval text roughly
-      // We can do this better, but let's just put something simple
       let iv = (pc - chord.root + 12) % 12;
-      let ivText = iv === 0 ? "1" : iv === 3 || iv === 4 ? "3" : iv === 7 ? "5" : iv.toString();
+      let ivText = iv === 0 ? "1" : iv === 3 ? "b3" : iv === 4 ? "3" : iv === 7 ? "5" : iv.toString();
       intervals.push(ivText);
     } else {
       notes.push("x");
@@ -157,17 +212,14 @@ function evaluateCombination(
   if (missingCount === 0) {
     type = "exact";
   } else if (missingCount <= 1 && presentPcs.has(chord.root)) {
-    // simplified
     type = "simplified";
   } else {
     return null;
   }
   
-  // 2. Filter out impossible fingerings (more than 4 fingers)
   const { fingers, barre, fingerCount } = assignFingers(frets);
-  if (fingerCount > 4) return null; // impossible without thumb wrapping
+  if (fingerCount > 4) return null; // impossible standard fingering
   
-  // 3. Base fret
   const activeFrets = frets.filter(f => typeof f === "number" && f > 0) as number[];
   const minFret = activeFrets.length > 0 ? Math.min(...activeFrets) : 0;
   const maxFret = activeFrets.length > 0 ? Math.max(...activeFrets) : 0;
@@ -176,21 +228,19 @@ function evaluateCombination(
   if (maxFret <= 4) baseFret = 1;
   else if (baseFret === 0) baseFret = 1;
 
-  // Compute a score (lower is better)
+  const cagedShape = inferCagedShape(frets, chord.root, minFret);
+
+  // Score computation (lower is better)
   let score = 0;
   if (type === "simplified") score += 1000;
   
-  // Add penalty for higher frets
-  score += minFret * 5;
-  
-  // Add penalty for fret span
+  // Base fret & span penalty
+  score += minFret * 10;
   const span = maxFret - minFret;
-  score += span * 3;
+  score += span * 5;
+  score += fingerCount * 4;
   
-  // Add penalty for number of fingers
-  score += fingerCount * 2;
-  
-  // Add penalty for muted inner strings (skip)
+  // Penalty for muted inner strings (gaps)
   let foundMutedInside = false;
   let firstPlayed = -1;
   let lastPlayed = -1;
@@ -203,24 +253,36 @@ function evaluateCombination(
   for (let s = firstPlayed; s <= lastPlayed; s++) {
     if (frets[s] === "x") foundMutedInside = true;
   }
-  if (foundMutedInside) score += 50;
+  if (foundMutedInside) score += 200;
 
-  // Add penalty for bass note on higher strings
-  
   // Reward more played strings
-  score -= playedStrings * 5;
+  score -= playedStrings * 10;
   
   // Reward open strings
   const openStrings = frets.filter(f => f === 0).length;
-  score -= openStrings * 3;
+  score -= openStrings * 8;
 
   if (firstPlayed >= 0) {
-    score += firstPlayed * 5;
+    score += firstPlayed * 10;
   }
 
+  // Canonical Shape Overrides & Ranking
+  const chordLookupKey = `${chord.rootName}-${chord.quality}`;
+  const canonicalList = CANONICAL_SHAPES[chordLookupKey];
+  const fretKey = frets.join(",");
+  if (canonicalList) {
+    const match = canonicalList.find(c => c.key === fretKey);
+    if (match) {
+      score += match.bonus;
+    }
+  }
 
-  // CAGED shape inference
-  const cagedShape = inferCagedShape(frets, chord.root, minFret);
+  // Generic CAGED Barre Bonus
+  if (barre && playedStrings >= 5) {
+    score -= 1000; // Strongly favor clean 5-string and 6-string barre shapes
+  } else if (openStrings > 0 && playedStrings >= 4 && minFret === 0) {
+    score -= 800; // Strongly favor clean open position chords
+  }
 
   return {
     frets,
@@ -235,108 +297,131 @@ function evaluateCombination(
   };
 }
 
-function assignFingers(frets: (number | "x")[]): { fingers: (number | 0)[], barre?: { fret: number, fromString: number, toString: number }, fingerCount: number } {
-  // Simplistic finger assignment
-  const fingers: (number | 0)[] = [0,0,0,0,0,0];
-  const activeFrets = frets.map((f, i) => ({ string: i, fret: f })).filter(f => typeof f.fret === "number" && f.fret > 0) as {string: number, fret: number}[];
+function assignFingers(frets: (number | "x")[]): { 
+  fingers: (number | 0)[]; 
+  barre?: { fret: number; fromString: number; toString: number }; 
+  fingerCount: number 
+} {
+  const fingers: (number | 0)[] = [0, 0, 0, 0, 0, 0];
   
-  if (activeFrets.length === 0) return { fingers, fingerCount: 0 };
+  const playedIndices: number[] = [];
+  let hasOpen = false;
   
-  // Check for barre
-  const fretCounts = new Map<number, number>();
-  for (const af of activeFrets) fretCounts.set(af.fret, (fretCounts.get(af.fret) || 0) + 1);
-  
-  let bestBarreFret = -1;
-  let maxCount = 0;
-  for (const [f, count] of fretCounts.entries()) {
-    if (count > 1 && count > maxCount) {
-      // Must be the lowest fret among active frets to be a reasonable barre usually
-      const isLowest = f === Math.min(...activeFrets.map(x => x.fret));
-      if (isLowest) {
-        maxCount = count;
-        bestBarreFret = f;
-      }
+  for (let i = 0; i < 6; i++) {
+    if (frets[i] !== "x") {
+      playedIndices.push(i);
+      if (frets[i] === 0) hasOpen = true;
     }
   }
-  
-  let barre = undefined;
+
+  if (playedIndices.length === 0) return { fingers, fingerCount: 0 };
+
+  const firstPlayed = Math.min(...playedIndices);
+  const lastPlayed = Math.max(...playedIndices);
+
+  const activeFretted = playedIndices
+    .filter(i => typeof frets[i] === "number" && (frets[i] as number) > 0)
+    .map(i => ({ string: i, fret: frets[i] as number }));
+
+  if (activeFretted.length === 0) {
+    return { fingers, fingerCount: 0 };
+  }
+
+  const minFret = Math.min(...activeFretted.map(f => f.fret));
+  const stringsAtMinFret = activeFretted.filter(f => f.fret === minFret).map(f => f.string);
+
+  let barre: { fret: number; fromString: number; toString: number } | undefined = undefined;
   let fingerCount = 0;
-  let remainingFrets = activeFrets;
-  
-  if (bestBarreFret > 0 && maxCount >= 2) {
-    const barreStrings = activeFrets.filter(af => af.fret === bestBarreFret).map(af => af.string);
-    const fromString = Math.min(...barreStrings);
-    const toString = Math.max(...barreStrings);
-    barre = { fret: bestBarreFret, fromString, toString };
-    fingerCount++; // index finger used for barre
-    
-    // Assign finger 1 to all barre strings
-    for (const af of activeFrets) {
-      if (af.fret === bestBarreFret) {
-        fingers[af.string] = 1;
+
+  let isBarre = false;
+  // A true barre cannot have open strings sounding between the outer played strings
+  if (!hasOpen && minFret > 0) {
+    if (
+      stringsAtMinFret.length >= 2 ||
+      (stringsAtMinFret.includes(firstPlayed) && stringsAtMinFret.includes(lastPlayed))
+    ) {
+      isBarre = true;
+    }
+  }
+
+  if (isBarre) {
+    barre = {
+      fret: minFret,
+      fromString: firstPlayed,
+      toString: lastPlayed
+    };
+    fingerCount++; // finger 1 used for barre
+
+    for (let s = firstPlayed; s <= lastPlayed; s++) {
+      if (frets[s] === minFret) {
+        fingers[s] = 1;
       }
     }
-    remainingFrets = activeFrets.filter(af => af.fret !== bestBarreFret);
   }
-  
-  // Sort remaining frets by fret number, then string number
-  remainingFrets.sort((a, b) => {
+
+  const remaining = activeFretted.filter(f => !isBarre || f.fret > minFret);
+  remaining.sort((a, b) => {
     if (a.fret !== b.fret) return a.fret - b.fret;
     return a.string - b.string;
   });
-  
-  let currentFinger = barre ? 2 : 1;
-  for (const af of remainingFrets) {
-    if (currentFinger > 4) {
-      fingerCount++; // Exceeded fingers
+
+  let nextFinger = isBarre ? 2 : 1;
+  for (const item of remaining) {
+    if (nextFinger <= 4) {
+      fingers[item.string] = nextFinger;
+      fingerCount++;
+      nextFinger++;
     } else {
-      fingers[af.string] = currentFinger;
-      currentFinger++;
       fingerCount++;
     }
   }
-  
-  // For 'x', we can just use 0, wait, 'x' isn't in activeFrets.
-  // So they remain 0.
-  
+
   return { fingers, barre, fingerCount };
 }
 
 function inferCagedShape(frets: (number | "x")[], root: PitchClass, minFret: number): "C" | "A" | "G" | "E" | "D" | undefined {
-  // Simple heuristic based on the bass string and shape of the root
-  // 6th string root -> E or G
-  // 5th string root -> A or C
-  // 4th string root -> D
-  
-  // Let's find roots
-  const roots = [];
-  for (let s=0; s<6; s++) {
+  const roots: { string: number; fret: number }[] = [];
+  for (let s = 0; s < 6; s++) {
     const f = frets[s];
     if (f !== "x") {
       const pc = getStringPitchClass(s, f);
-      if (pc === root) roots.push({string: s, fret: f});
+      if (pc === root) {
+        roots.push({ string: s, fret: f });
+      }
     }
   }
-  
+
   if (roots.length === 0) return undefined;
-  
+
   const lowestRoot = roots[0];
-  if (lowestRoot.string === 0) { // 6th string
-    // If there's a root on 1st/6th string, it's usually E shape if fret is lowest in chord
+
+  if (lowestRoot.string === 0) { // 6th string root
+    if (frets[1] !== "x" && (frets[1] as number) > lowestRoot.fret) {
+      return "E";
+    }
     if (lowestRoot.fret === minFret || lowestRoot.fret === minFret + 1) return "E";
     return "G";
   }
-  if (lowestRoot.string === 1) { // 5th string
-    if (lowestRoot.fret === minFret || lowestRoot.fret === minFret + 1) return "A";
+
+  if (lowestRoot.string === 1) { // 5th string root
+    if (lowestRoot.fret === minFret || lowestRoot.fret <= minFret + 1) {
+      return "A";
+    }
     return "C";
   }
-  if (lowestRoot.string === 2) { // 4th string
+
+  if (lowestRoot.string === 2) { // 4th string root
     return "D";
   }
-  
+
+  if (lowestRoot.string === 3) { // 3rd string root
+    return "C";
+  }
+
   return undefined;
 }
 
 function rankVoicings(voicings: GeneratedVoicing[]): GeneratedVoicing[] {
   return voicings.sort((a, b) => a.score - b.score);
 }
+

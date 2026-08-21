@@ -14,7 +14,7 @@ export function frequencyToNoteInfo(
   cents: number;
   targetFreq: number;
 } {
-  if (!freq || freq < 20 || freq > 5000) {
+  if (!freq || freq < 30 || freq > 5000) {
     return { note: "--", octave: 0, cents: 0, targetFreq: 0 };
   }
 
@@ -39,8 +39,8 @@ export function frequencyToNoteInfo(
 export function detectPitch(
   buffer: Float32Array,
   sampleRate: number,
-  minFreq: number = 60, // Low B / Drop A guitar
-  maxFreq: number = 1000 // High frets
+  minFreq: number = 40, // Low B / Drop A bass and guitar
+  maxFreq: number = 1200 // High frets
 ): { frequency: number; clarity: number } | null {
   const bufferSize = buffer.length;
 
@@ -52,13 +52,13 @@ export function detectPitch(
   const rms = Math.sqrt(sumSquares / bufferSize);
 
   // Noise gate threshold: guitar signal must have sufficient energy
-  if (rms < 0.012) {
+  if (rms < 0.008) {
     return null;
   }
 
   // 2. Compute Autocorrelation with Difference function (YIN-style)
   const minPeriod = Math.floor(sampleRate / maxFreq);
-  const maxPeriod = Math.floor(sampleRate / minFreq);
+  const maxPeriod = Math.min(bufferSize - 1, Math.floor(sampleRate / minFreq));
 
   // Autocorrelation buffer
   const correlations = new Float32Array(maxPeriod + 1);
@@ -108,7 +108,7 @@ export function detectPitch(
   }
   const clarity = zeroLagPower > 0 ? Math.min(1, Math.max(0, maxCorr / zeroLagPower)) : 0;
 
-  if (clarity < 0.35 || frequency < minFreq || frequency > maxFreq) {
+  if (clarity < 0.30 || frequency < minFreq || frequency > maxFreq) {
     return null;
   }
 
@@ -139,7 +139,7 @@ export function analyzePitchFrame(
   targetTuningFrequencies.forEach((targetF, idx) => {
     const calibratedTarget = targetF * freqRatio;
     const diff = Math.abs(frequency - calibratedTarget);
-    if (diff < minDiff && diff < calibratedTarget * 0.18) {
+    if (diff < minDiff && diff < calibratedTarget * 0.22) {
       minDiff = diff;
       stringIndex = idx;
     }

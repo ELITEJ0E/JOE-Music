@@ -1,7 +1,22 @@
-import React, { useState, useEffect } from "react";
-import { Sliders, Radio, Mic, Zap, Guitar, Wifi, BatteryCharging, CheckCircle2, RefreshCw } from "lucide-react";
+import React, { useState, useEffect, useRef } from "react";
+import {
+  Sliders,
+  Radio,
+  Mic,
+  Zap,
+  Guitar,
+  Wifi,
+  BatteryCharging,
+  CheckCircle2,
+  RefreshCw,
+  Speaker,
+  Volume2,
+  Activity,
+  Headphones,
+} from "lucide-react";
 import { audioEngine } from "../audio/audioContext";
 import { midiManager, MidiDevice } from "../audio/midiManager";
+import { guitarSynth } from "../audio/guitarSynth";
 
 interface DeviceSettingsModalProps {
   isOpen: boolean;
@@ -12,29 +27,82 @@ export const DeviceSettingsModal: React.FC<DeviceSettingsModalProps> = ({
   isOpen,
   onClose,
 }) => {
-  const [activeTab, setActiveTab] = useState<"hardware" | "audio" | "midi">("hardware");
-  const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
-  const [selectedDeviceId, setSelectedDeviceId] = useState<string>("");
+  const [activeTab, setActiveTab] = useState<"audio" | "hardware" | "midi">("audio");
+  const [audioInputDevices, setAudioInputDevices] = useState<MediaDeviceInfo[]>([]);
+  const [audioOutputDevices, setAudioOutputDevices] = useState<MediaDeviceInfo[]>([]);
+  const [selectedInputId, setSelectedInputId] = useState<string>(audioEngine.getInputDeviceId());
+  const [selectedOutputId, setSelectedOutputId] = useState<string>(audioEngine.getOutputDeviceId());
   const [midiDevices, setMidiDevices] = useState<MidiDevice[]>([]);
   const [sampleRate, setSampleRate] = useState<number>(48000);
   const [latencyMs, setLatencyMs] = useState<number>(4.2);
-  const [isConnected, setIsConnected] = useState<boolean>(true);
-  const [isTestingStream, setIsTestingStream] = useState<boolean>(false);
+  const [inputDb, setInputDb] = useState<number>(-100);
+  const [isPlayingTestTone, setIsPlayingTestTone] = useState<boolean>(false);
+  const [isMonitoring, setIsMonitoring] = useState<boolean>(audioEngine.getIsMonitoring());
+
+  const stopToneRef = useRef<(() => void) | null>(null);
+  const meterAnimRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (isOpen) {
-      if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
-        navigator.mediaDevices.enumerateDevices().then((devices) => {
-          const inputs = devices.filter((d) => d.kind === "audioinput");
-          setAudioDevices(inputs);
-          if (inputs.length > 0) setSelectedDeviceId(inputs[0].deviceId);
-        });
-      }
+      audioEngine.getAudioDevices().then(({ inputs, outputs }) => {
+        setAudioInputDevices(inputs);
+        setAudioOutputDevices(outputs);
+      });
 
-      setSampleRate(audioEngine.getContext().sampleRate);
+      const ctx = audioEngine.getContext();
+      setSampleRate(ctx.sampleRate);
+      const baseLat = (ctx as any).baseLatency || 0.003;
+      const outLat = (ctx as any).outputLatency || 0.002;
+      setLatencyMs(Number(((baseLat + outLat) * 1000 + 1.2).toFixed(1)));
       setMidiDevices(midiManager.getDevices());
+      setIsMonitoring(audioEngine.getIsMonitoring());
+
+      const pollMeter = () => {
+        const lvl = audioEngine.getInputLevel();
+        setInputDb(lvl.db);
+        meterAnimRef.current = requestAnimationFrame(pollMeter);
+      };
+      meterAnimRef.current = requestAnimationFrame(pollMeter);
+    } else {
+      if (meterAnimRef.current) cancelAnimationFrame(meterAnimRef.current);
+      if (stopToneRef.current) {
+        stopToneRef.current();
+        setIsPlayingTestTone(false);
+      }
     }
+
+    return () => {
+      if (meterAnimRef.current) cancelAnimationFrame(meterAnimRef.current);
+      if (stopToneRef.current) stopToneRef.current();
+    };
   }, [isOpen]);
+
+  const handleInputChange = async (deviceId: string) => {
+    setSelectedInputId(deviceId);
+    await audioEngine.setInputDevice(deviceId);
+  };
+
+  const handleOutputChange = async (deviceId: string) => {
+    setSelectedOutputId(deviceId);
+    await audioEngine.setOutputDevice(deviceId);
+  };
+
+  const handleToggleTestTone = () => {
+    if (isPlayingTestTone) {
+      if (stopToneRef.current) stopToneRef.current();
+      setIsPlayingTestTone(false);
+    } else {
+      const stopFn = guitarSynth.playReferenceTone(440, 4);
+      stopToneRef.current = stopFn;
+      setIsPlayingTestTone(true);
+      setTimeout(() => setIsPlayingTestTone(false), 4000);
+    }
+  };
+
+  const handleToggleMonitoring = async () => {
+    const nextState = await audioEngine.toggleMonitoring();
+    setIsMonitoring(nextState);
+  };
 
   if (!isOpen) return null;
 
@@ -46,7 +114,7 @@ export const DeviceSettingsModal: React.FC<DeviceSettingsModalProps> = ({
           <div className="flex items-center space-x-2.5">
             <Guitar className="w-5 h-5 text-[#a3ff12]" />
             <h3 className="font-mono font-bold text-sm text-white tracking-tight">
-              JOE STUDIO & LAVA ME PLAY HARDWARE LINK
+              AUDIO DEVICES & HARDWARE WORKFLOW
             </h3>
           </div>
 
@@ -61,28 +129,28 @@ export const DeviceSettingsModal: React.FC<DeviceSettingsModalProps> = ({
         {/* Tab Navigation */}
         <div className="flex space-x-2 shrink-0 border-b border-white/5 pb-3">
           <button
-            onClick={() => setActiveTab("hardware")}
-            className={`px-4 py-2 rounded-xl font-mono text-xs font-bold transition-all ${
-              activeTab === "hardware"
-                ? "bg-[#a3ff12] text-black shadow-[0_0_12px_rgba(163,255,18,0.4)]"
-                : "bg-white/5 text-zinc-400 hover:text-white"
-            }`}
-          >
-            Lava Me Play Hardware
-          </button>
-          <button
             onClick={() => setActiveTab("audio")}
-            className={`px-4 py-2 rounded-xl font-mono text-xs font-bold transition-all ${
+            className={`px-4 py-2 rounded-xl font-mono text-xs font-bold transition-all cursor-pointer ${
               activeTab === "audio"
                 ? "bg-[#a3ff12] text-black shadow-[0_0_12px_rgba(163,255,18,0.4)]"
                 : "bg-white/5 text-zinc-400 hover:text-white"
             }`}
           >
-            Audio I/O & DSP
+            Audio I/O & Latency
+          </button>
+          <button
+            onClick={() => setActiveTab("hardware")}
+            className={`px-4 py-2 rounded-xl font-mono text-xs font-bold transition-all cursor-pointer ${
+              activeTab === "hardware"
+                ? "bg-[#a3ff12] text-black shadow-[0_0_12px_rgba(163,255,18,0.4)]"
+                : "bg-white/5 text-zinc-400 hover:text-white"
+            }`}
+          >
+            Lava Me Play & USB
           </button>
           <button
             onClick={() => setActiveTab("midi")}
-            className={`px-4 py-2 rounded-xl font-mono text-xs font-bold transition-all ${
+            className={`px-4 py-2 rounded-xl font-mono text-xs font-bold transition-all cursor-pointer ${
               activeTab === "midi"
                 ? "bg-[#a3ff12] text-black shadow-[0_0_12px_rgba(163,255,18,0.4)]"
                 : "bg-white/5 text-zinc-400 hover:text-white"
@@ -94,24 +162,125 @@ export const DeviceSettingsModal: React.FC<DeviceSettingsModalProps> = ({
 
         {/* Tab Content */}
         <div className="overflow-y-auto space-y-5 pr-1">
+          {activeTab === "audio" && (
+            <div className="space-y-4">
+              {/* Input Device Selector */}
+              <div className="space-y-2">
+                <label className="text-xs font-mono text-zinc-400 flex items-center justify-between">
+                  <span className="flex items-center">
+                    <Mic className="w-3.5 h-3.5 text-[#a3ff12] mr-1.5" />
+                    Audio Input Hardware Source
+                  </span>
+                  <span className="text-[10px] text-zinc-500 font-mono">
+                    {audioInputDevices.length} Detected
+                  </span>
+                </label>
+                <select
+                  value={selectedInputId}
+                  onChange={(e) => handleInputChange(e.target.value)}
+                  className="w-full bg-[#0a0c0e]/80 text-xs font-mono text-white border border-white/10 rounded-xl px-3 py-2.5 focus:outline-none focus:border-[#a3ff12]/50 cursor-pointer"
+                >
+                  {audioInputDevices.length > 0 ? (
+                    audioInputDevices.map((dev) => (
+                      <option key={dev.deviceId} value={dev.deviceId} className="bg-[#12151a]">
+                        {dev.label || `Audio Input (${dev.deviceId.slice(0, 8)}...)`}
+                      </option>
+                    ))
+                  ) : (
+                    <option value="default" className="bg-[#12151a]">Default System Microphone / Interface</option>
+                  )}
+                </select>
+              </div>
+
+              {/* Output Device Selector */}
+              <div className="space-y-2">
+                <label className="text-xs font-mono text-zinc-400 flex items-center justify-between">
+                  <span className="flex items-center">
+                    <Speaker className="w-3.5 h-3.5 text-[#a3ff12] mr-1.5" />
+                    Audio Output Destination
+                  </span>
+                  <span className="text-[10px] text-zinc-500 font-mono">
+                    {audioOutputDevices.length} Detected
+                  </span>
+                </label>
+                <select
+                  value={selectedOutputId}
+                  onChange={(e) => handleOutputChange(e.target.value)}
+                  className="w-full bg-[#0a0c0e]/80 text-xs font-mono text-white border border-white/10 rounded-xl px-3 py-2.5 focus:outline-none focus:border-[#a3ff12]/50 cursor-pointer"
+                >
+                  {audioOutputDevices.length > 0 ? (
+                    audioOutputDevices.map((dev) => (
+                      <option key={dev.deviceId} value={dev.deviceId} className="bg-[#12151a]">
+                        {dev.label || `Audio Output (${dev.deviceId.slice(0, 8)}...)`}
+                      </option>
+                    ))
+                  ) : (
+                    <option value="default" className="bg-[#12151a]">Default System Audio Output / Headphones</option>
+                  )}
+                </select>
+              </div>
+
+              {/* Real-time Hardware Telemetry */}
+              <div className="grid grid-cols-3 gap-3 p-4 rounded-xl bg-white/5 border border-white/5">
+                <div>
+                  <div className="text-[10px] font-mono text-zinc-500 uppercase tracking-wider">SAMPLE RATE</div>
+                  <div className="font-mono font-bold text-sm text-[#a3ff12] mt-0.5">
+                    {sampleRate} Hz
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[10px] font-mono text-zinc-500 uppercase tracking-wider">EST. LATENCY</div>
+                  <div className="font-mono font-bold text-sm text-[#a3ff12] mt-0.5">
+                    ~{latencyMs} ms
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[10px] font-mono text-zinc-500 uppercase tracking-wider">INPUT LEVEL</div>
+                  <div className="font-mono font-bold text-sm text-white mt-0.5">
+                    {inputDb > -90 ? `${inputDb.toFixed(1)} dB` : "-- dB"}
+                  </div>
+                </div>
+              </div>
+
+              {/* Audio Test & Monitoring Row */}
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  onClick={handleToggleTestTone}
+                  className={`p-3 rounded-xl border flex items-center justify-center space-x-2 text-xs font-mono transition-all cursor-pointer ${
+                    isPlayingTestTone
+                      ? "bg-[#a3ff12] text-black border-[#a3ff12] font-bold"
+                      : "bg-white/5 hover:bg-white/10 text-white border-white/10"
+                  }`}
+                >
+                  <Volume2 className="w-4 h-4" />
+                  <span>{isPlayingTestTone ? "Playing 440Hz Test Tone..." : "Play 440Hz Test Tone"}</span>
+                </button>
+
+                <button
+                  onClick={handleToggleMonitoring}
+                  className={`p-3 rounded-xl border flex items-center justify-center space-x-2 text-xs font-mono transition-all cursor-pointer ${
+                    isMonitoring
+                      ? "bg-[#a3ff12]/20 text-[#a3ff12] border-[#a3ff12] font-bold shadow-[0_0_15px_rgba(163,255,18,0.25)]"
+                      : "bg-white/5 hover:bg-white/10 text-zinc-300 border-white/10"
+                  }`}
+                >
+                  <Headphones className="w-4 h-4" />
+                  <span>{isMonitoring ? "Monitoring: ON" : "Monitoring: OFF"}</span>
+                </button>
+              </div>
+            </div>
+          )}
+
           {activeTab === "hardware" && (
             <div className="space-y-4">
-              {/* Visual Hardware Preview Card mirroring user photo */}
               <div className="relative rounded-2xl bg-gradient-to-br from-zinc-900 via-[#12151a] to-black border border-white/10 p-5 overflow-hidden shadow-xl">
-                <div className="absolute top-0 right-0 w-64 h-64 bg-[#a3ff12]/10 rounded-full blur-3xl pointer-events-none" />
-                
                 <div className="flex flex-col md:flex-row items-center gap-6">
-                  {/* Visual Guitar Mockup representing the Lava Me Play photo */}
-                  <div className="relative w-48 h-56 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center p-3 shadow-inner group">
-                    <div className="absolute inset-0 bg-gradient-to-tr from-white/5 to-transparent rounded-2xl" />
-                    
-                    {/* Guitar Body Silhouette & Touchscreen Mockup */}
+                  {/* Visual Guitar Mockup */}
+                  <div className="relative w-48 h-56 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center p-3 shadow-inner">
                     <div className="relative w-full h-full flex flex-col items-center justify-between py-2">
                       <div className="w-1.5 h-16 bg-gradient-to-b from-amber-700 to-amber-900 rounded-full" />
                       
-                      {/* Embedded Touchscreen Representation matching image */}
                       <div className="w-32 h-20 bg-black/90 rounded-xl border border-white/20 p-2 shadow-lg flex flex-col justify-between relative overflow-hidden">
-                        <div className="absolute inset-0 bg-[#a3ff12]/5 pointer-events-none" />
                         <div className="flex items-center justify-between text-[9px] font-mono text-zinc-400">
                           <span className="text-[#a3ff12] font-bold">LAVA FREEBOOST</span>
                           <span className="flex items-center"><Wifi className="w-2.5 h-2.5 text-[#a3ff12] mr-0.5" /> 100%</span>
@@ -134,92 +303,23 @@ export const DeviceSettingsModal: React.FC<DeviceSettingsModalProps> = ({
                   <div className="flex-1 space-y-3">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-mono text-zinc-400">DEVICE MODEL</span>
-                      <span className="text-xs font-mono font-bold text-white">Lava Me Play (Smart Acoustic)</span>
+                      <span className="text-xs font-mono font-bold text-white">Lava Me Play / USB High-Z Interface</span>
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-mono text-zinc-400">PREAMP & DSP</span>
-                      <span className="text-xs font-mono font-bold text-[#a3ff12]">FreeBoost™ 3.0 Active</span>
+                      <span className="text-xs font-mono font-bold text-[#a3ff12]">FreeBoost™ 3.0 Real-Time DSP</span>
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-mono text-zinc-400">CONNECTION</span>
                       <span className="text-xs font-mono font-bold text-emerald-400 flex items-center">
                         <CheckCircle2 className="w-3.5 h-3.5 mr-1 text-emerald-400" />
-                        Wireless 2.4GHz / USB Audio I/O
+                        USB Audio Class 2.0 / WebAudio Stream
                       </span>
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-mono text-zinc-400">ROUNDTRIP LATENCY</span>
-                      <span className="text-xs font-mono font-bold text-[#a3ff12]">{latencyMs} ms (Studio Grade)</span>
+                      <span className="text-xs font-mono font-bold text-[#a3ff12]">{latencyMs} ms</span>
                     </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-mono text-zinc-400">GUITAR BATTERY</span>
-                      <span className="text-xs font-mono font-bold text-white flex items-center">
-                        <BatteryCharging className="w-3.5 h-3.5 mr-1 text-[#a3ff12]" />
-                        100% (Charging via USB-C)
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Hardware Actions */}
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  onClick={() => {
-                    setIsTestingStream(true);
-                    setTimeout(() => setIsTestingStream(false), 2000);
-                  }}
-                  className="p-3.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center space-x-2 text-xs font-mono text-white transition-all cursor-pointer"
-                >
-                  <RefreshCw className={`w-4 h-4 text-[#a3ff12] ${isTestingStream ? "animate-spin" : ""}`} />
-                  <span>{isTestingStream ? "Calibrating Audio..." : "Test Audio Stream & Sync"}</span>
-                </button>
-                <button
-                  onClick={() => alert("Lava Me Play Touchscreen Mirrored to JOE Studio Session!")}
-                  className="p-3.5 rounded-xl bg-[#a3ff12]/10 hover:bg-[#a3ff12]/20 border border-[#a3ff12]/30 flex items-center justify-center space-x-2 text-xs font-mono text-[#a3ff12] font-bold transition-all cursor-pointer"
-                >
-                  <Zap className="w-4 h-4" />
-                  <span>Mirror Touchscreen UI</span>
-                </button>
-              </div>
-            </div>
-          )}
-
-          {activeTab === "audio" && (
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <label className="text-xs font-mono text-zinc-400 flex items-center">
-                  <Mic className="w-3.5 h-3.5 text-[#a3ff12] mr-1.5" />
-                  Audio Input Hardware Source
-                </label>
-                <select
-                  value={selectedDeviceId}
-                  onChange={(e) => setSelectedDeviceId(e.target.value)}
-                  className="w-full bg-[#0a0c0e]/80 text-xs font-mono text-white border border-white/10 rounded-xl px-3 py-2.5 focus:outline-none focus:border-[#a3ff12]/50"
-                >
-                  {audioDevices.length > 0 ? (
-                    audioDevices.map((dev) => (
-                      <option key={dev.deviceId} value={dev.deviceId}>
-                        {dev.label || `Audio Input (${dev.deviceId.slice(0, 8)}...)`}
-                      </option>
-                    ))
-                  ) : (
-                    <option value="">Lava Me Play Built-in Audio Interface</option>
-                  )}
-                </select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3 p-4 rounded-xl bg-white/5 border border-white/5">
-                <div>
-                  <div className="text-[10px] font-mono text-zinc-500 uppercase tracking-wider">SAMPLE RATE</div>
-                  <div className="font-mono font-bold text-sm text-[#a3ff12] mt-0.5">
-                    {sampleRate} Hz (24-bit)
-                  </div>
-                </div>
-                <div>
-                  <div className="text-[10px] font-mono text-zinc-500 uppercase tracking-wider">BUFFER LATENCY</div>
-                  <div className="font-mono font-bold text-sm text-[#a3ff12] mt-0.5">
-                    ~{latencyMs} ms
                   </div>
                 </div>
               </div>
@@ -231,7 +331,7 @@ export const DeviceSettingsModal: React.FC<DeviceSettingsModalProps> = ({
               <div className="flex items-center justify-between">
                 <label className="text-xs font-mono text-zinc-400 flex items-center">
                   <Radio className="w-3.5 h-3.5 text-sky-400 mr-1.5" />
-                  Connected MIDI Controllers & Pedals
+                  Connected MIDI Controllers & Expression Pedals
                 </label>
                 <span className="text-[10px] font-mono text-sky-400 font-bold">
                   {midiDevices.length} Connected
@@ -251,7 +351,7 @@ export const DeviceSettingsModal: React.FC<DeviceSettingsModalProps> = ({
                   ))
                 ) : (
                   <div className="text-xs font-mono text-zinc-500 py-1">
-                    No external MIDI hardware detected. Plug in any USB/Bluetooth MIDI pedal or keyboard.
+                    No external MIDI hardware detected. Plug in any USB/Bluetooth MIDI pedal or keyboard to map stomp buttons.
                   </div>
                 )}
               </div>
@@ -267,7 +367,7 @@ export const DeviceSettingsModal: React.FC<DeviceSettingsModalProps> = ({
               JOE Studio Hardware Integration
             </div>
             <div className="text-[10px] text-zinc-400 mt-0.5">
-              Zero-latency audio routing & FreeBoost 3.0 effects sync enabled
+              Zero-latency audio routing & tone processing active
             </div>
           </div>
         </div>
@@ -275,4 +375,3 @@ export const DeviceSettingsModal: React.FC<DeviceSettingsModalProps> = ({
     </div>
   );
 };
-

@@ -24,7 +24,10 @@ export function parseChordSymbol(symbol: string): ParseResult {
 
   try {
     const chord = buildChord(rootName, qualityAlias, bassName);
-    return { isValid: true, chord, symbol: symbol.trim() };
+    const formattedSymbol = chord.bassName 
+      ? `${chord.rootName}${qualityAlias}/${chord.bassName}`
+      : symbol.trim();
+    return { isValid: true, chord, symbol: formattedSymbol };
   } catch (e) {
     return { isValid: false };
   }

@@ -11,8 +11,13 @@ import {
   Check,
   Disc,
   ArrowRight,
+  ArrowLeft,
   Zap,
   Radio,
+  Headphones,
+  Sliders,
+  HelpCircle,
+  Activity,
 } from "lucide-react";
 import { pedalboardDsp } from "../audio/pedalboardDsp";
 import { audioEngine } from "../audio/audioContext";
@@ -26,7 +31,12 @@ export const ToneStudio: React.FC = () => {
   const [pedals, setPedals] = useState<PedalConfig[]>(DEFAULT_TONE_PRESETS[0].pedals);
   const [isLiveMic, setIsLiveMic] = useState<boolean>(audioEngine.getIsMicActive());
   const [isMonitoring, setIsMonitoring] = useState<boolean>(audioEngine.getIsMonitoring());
+  const [inputGainVal, setInputGainVal] = useState<number>(100);
+  const [masterVolVal, setMasterVolVal] = useState<number>(85);
   const [saveSuccess, setSaveSuccess] = useState<boolean>(false);
+  const [inputDb, setInputDb] = useState<number>(-100);
+  const [masterDb, setMasterDb] = useState<number>(-100);
+  const [latencyMs, setLatencyMs] = useState<number>(4.2);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const animRef = useRef<number | null>(null);
@@ -36,9 +46,18 @@ export const ToneStudio: React.FC = () => {
     pedalboardDsp.init();
     loadPresetsFromDB().then((loaded) => {
       if (loaded.length > 0) {
-        setPresets(loaded);
+        setPresets((prev) => {
+          const ids = new Set(loaded.map((l) => l.id));
+          return [...loaded, ...prev.filter((p) => !ids.has(p.id))];
+        });
       }
     });
+
+    const ctx = audioEngine.getContext();
+    const baseLatency = (ctx as any).baseLatency || 0.003;
+    const outputLatency = (ctx as any).outputLatency || 0.002;
+    const calcLatency = Number(((baseLatency + outputLatency) * 1000 + 1.2).toFixed(1));
+    setLatencyMs(calcLatency > 0 ? calcLatency : 4.2);
 
     const unsubMic = audioEngine.subscribeMicStatus(setIsLiveMic);
     const unsubMon = audioEngine.subscribeMonitorStatus(setIsMonitoring);
@@ -55,42 +74,60 @@ export const ToneStudio: React.FC = () => {
     pedalboardDsp.applyPedalConfig(pedals);
   }, [pedals]);
 
-  // Audio visualizer loop for Tone Studio
+  // Audio visualizer and real-time dB meters loop
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
     let isMounted = true;
     let lastRenderTime = 0;
 
     const draw = (now: number) => {
       if (!isMounted) return;
 
-      if (now - lastRenderTime >= 33) {
+      if (now - lastRenderTime >= 30) {
         lastRenderTime = now;
+
+        // 1. Get real input dB
+        const inputLvl = audioEngine.getInputLevel();
+        setInputDb(inputLvl.db);
+
+        // 2. Get real master output dB and frequency spectrum
         const analyser = audioEngine.getMasterAnalyser();
         const bufferLength = analyser.frequencyBinCount;
         const dataArray = new Uint8Array(bufferLength);
         analyser.getByteFrequencyData(dataArray);
 
-        ctx.fillStyle = "rgba(10, 12, 14, 0.5)";
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        // Calculate master RMS
+        let sumSquares = 0;
+        for (let i = 0; i < bufferLength; i++) {
+          const norm = (dataArray[i] / 255);
+          sumSquares += norm * norm;
+        }
+        const masterRms = Math.sqrt(sumSquares / bufferLength);
+        const mDb = masterRms > 0.0001 ? 20 * Math.log10(masterRms) : -100;
+        setMasterDb(mDb);
 
-        const barWidth = canvas.width / 36;
-        let x = 0;
+        // 3. Draw mini frequency spectrum
+        if (canvas) {
+          const ctx = canvas.getContext("2d");
+          if (ctx) {
+            ctx.fillStyle = "rgba(10, 12, 14, 0.4)";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-        for (let i = 0; i < 36; i++) {
-          const binIndex = Math.floor(Math.pow(i / 36, 1.8) * (bufferLength / 3));
-          const value = dataArray[binIndex] || 0;
-          const percent = value / 255;
-          const height = percent * canvas.height;
+            const barWidth = canvas.width / 32;
+            let x = 0;
 
-          ctx.fillStyle = `rgba(163, 255, 18, ${0.25 + percent * 0.75})`;
-          ctx.fillRect(x, canvas.height - height, barWidth - 1.5, height);
+            for (let i = 0; i < 32; i++) {
+              const binIndex = Math.floor(Math.pow(i / 32, 1.8) * (bufferLength / 3));
+              const value = dataArray[binIndex] || 0;
+              const percent = value / 255;
+              const height = percent * canvas.height;
 
-          x += barWidth;
+              ctx.fillStyle = `rgba(163, 255, 18, ${0.2 + percent * 0.8})`;
+              ctx.fillRect(x, canvas.height - height, barWidth - 1.5, height);
+
+              x += barWidth;
+            }
+          }
         }
       }
 
@@ -116,6 +153,17 @@ export const ToneStudio: React.FC = () => {
     );
   };
 
+  const handleMovePedal = (index: number, direction: "left" | "right") => {
+    const targetIndex = direction === "left" ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= pedals.length) return;
+
+    const newPedals = [...pedals];
+    const temp = newPedals[index];
+    newPedals[index] = newPedals[targetIndex];
+    newPedals[targetIndex] = temp;
+    setPedals(newPedals);
+  };
+
   const handleParamChange = (pedalId: string, paramKey: string, val: number | string) => {
     setPedals((prev) =>
       prev.map((p) => {
@@ -133,6 +181,16 @@ export const ToneStudio: React.FC = () => {
     );
   };
 
+  const handleInputGainChange = (val: number) => {
+    setInputGainVal(val);
+    audioEngine.setInputGain(val / 100);
+  };
+
+  const handleMasterVolChange = (val: number) => {
+    setMasterVolVal(val);
+    audioEngine.setMasterVolume(val / 100);
+  };
+
   const toggleLiveMic = async () => {
     try {
       if (isLiveMic) {
@@ -141,12 +199,12 @@ export const ToneStudio: React.FC = () => {
         await audioEngine.acquireInput("tone-studio", { enableMonitoring: isMonitoring });
       }
     } catch (err) {
-      alert("Microphone permission required for guitar processing.");
+      alert("Microphone permission is required for real guitar tone processing.");
     }
   };
 
-  const toggleMonitoringOnly = () => {
-    audioEngine.toggleMonitoring();
+  const toggleMonitoring = async () => {
+    await audioEngine.toggleMonitoring();
   };
 
   const handleSaveCustomPreset = async () => {
@@ -157,12 +215,12 @@ export const ToneStudio: React.FC = () => {
       id: `custom-${Date.now()}`,
       name: customName,
       category: activePreset.category,
-      description: "User customized guitar rig.",
+      description: "User customized signal chain and DSP parameters.",
       pedals: JSON.parse(JSON.stringify(pedals)),
     };
 
     await savePresetToDB(newPreset);
-    setPresets((prev) => [...prev, newPreset]);
+    setPresets((prev) => [newPreset, ...prev]);
     setActivePreset(newPreset);
     setSaveSuccess(true);
     setTimeout(() => setSaveSuccess(false), 2000);
@@ -170,8 +228,8 @@ export const ToneStudio: React.FC = () => {
 
   return (
     <div id="panel-tone-studio" className="max-w-7xl mx-auto space-y-6 pb-12 animate-in fade-in duration-200">
-      {/* Tone Studio Header & Rig Selector */}
-      <div className="frosted-card rounded-3xl p-5 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
+      {/* Tone Studio Master Control Bar */}
+      <div className="frosted-card rounded-3xl p-5 flex flex-col xl:flex-row items-start xl:items-center justify-between gap-4">
         <div>
           <div className="flex items-center space-x-2.5">
             <SlidersHorizontal className="w-5 h-5 text-[#a3ff12]" />
@@ -179,16 +237,61 @@ export const ToneStudio: React.FC = () => {
               TONE STUDIO & DSP SIGNAL CHAIN
             </h2>
             <span className="text-[10px] font-mono font-bold bg-[#a3ff12]/10 text-[#a3ff12] px-2 py-0.5 rounded border border-[#a3ff12]/30">
-              64-BIT DSP
+              64-BIT DSP • {latencyMs}ms
             </span>
           </div>
           <p className="text-xs text-zinc-400 font-mono mt-1">
-            Real-time Waveshaper Distortion • Tube Tone Stack • Modulated Delay • Convolution Reverb
+            Reorderable modular pedalboard • Real-time waveshaping • Speaker IR convolution • Safe live monitoring
           </p>
         </div>
 
-        {/* Live Guitar Input Switch & Preset Saver */}
-        <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
+        {/* Level Controls & Live Hardware In */}
+        <div className="flex flex-wrap items-center gap-3.5 w-full xl:w-auto">
+          {/* Live In Level Meter */}
+          <div className="flex items-center space-x-2 bg-white/5 border border-white/5 px-3 py-1.5 rounded-xl">
+            <span className="text-[10px] font-mono text-zinc-400 font-bold">IN</span>
+            <div className="w-16 h-2 bg-black/50 rounded-full overflow-hidden flex items-center p-0.5">
+              <div
+                className="h-full rounded-full transition-all duration-75"
+                style={{
+                  width: `${Math.min(100, Math.max(0, (inputDb + 60) * 1.66))}%`,
+                  backgroundColor: inputDb > -6 ? "#ef4444" : inputDb > -18 ? "#eab308" : "#a3ff12",
+                }}
+              />
+            </div>
+            <span className="text-[9px] font-mono text-zinc-400">{inputDb > -90 ? `${inputDb.toFixed(0)}dB` : "--"}</span>
+          </div>
+
+          {/* Master Out Level Meter */}
+          <div className="flex items-center space-x-2 bg-white/5 border border-white/5 px-3 py-1.5 rounded-xl">
+            <span className="text-[10px] font-mono text-zinc-400 font-bold">OUT</span>
+            <div className="w-16 h-2 bg-black/50 rounded-full overflow-hidden flex items-center p-0.5">
+              <div
+                className="h-full rounded-full transition-all duration-75"
+                style={{
+                  width: `${Math.min(100, Math.max(0, (masterDb + 60) * 1.66))}%`,
+                  backgroundColor: masterDb > -3 ? "#ef4444" : masterDb > -12 ? "#eab308" : "#a3ff12",
+                }}
+              />
+            </div>
+            <span className="text-[9px] font-mono text-zinc-400">{masterDb > -90 ? `${masterDb.toFixed(0)}dB` : "--"}</span>
+          </div>
+
+          {/* Safe Live Monitoring Headphone Switch */}
+          <button
+            id="btn-tone-monitor"
+            onClick={toggleMonitoring}
+            className={`flex items-center space-x-1.5 px-3.5 py-2 rounded-xl text-xs font-mono font-bold transition-all border cursor-pointer ${
+              isMonitoring
+                ? "bg-[#a3ff12]/20 text-[#a3ff12] border-[#a3ff12] shadow-[0_0_15px_rgba(163,255,18,0.25)]"
+                : "bg-white/5 border-white/5 text-zinc-400 hover:text-white"
+            }`}
+            title="Listen to processed guitar tone live (Use headphones to avoid acoustic feedback)"
+          >
+            <Headphones className="w-3.5 h-3.5" />
+            <span>{isMonitoring ? "MONITOR ON" : "MONITOR OFF"}</span>
+          </button>
+
           {/* Live Mic Monitoring Button */}
           <button
             id="btn-tone-live-mic"
@@ -200,7 +303,7 @@ export const ToneStudio: React.FC = () => {
             }`}
           >
             {isLiveMic ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4 text-zinc-400" />}
-            <span>{isLiveMic ? "LIVE INPUT ACTIVE" : "ENABLE LIVE GUITAR IN"}</span>
+            <span>{isLiveMic ? "LIVE INPUT ACTIVE" : "ENABLE GUITAR IN"}</span>
           </button>
 
           {/* Save Preset */}
@@ -215,7 +318,7 @@ export const ToneStudio: React.FC = () => {
         </div>
       </div>
 
-      {/* Preset Category Bar */}
+      {/* Preset Category Selector */}
       <div className="flex items-center space-x-2 overflow-x-auto no-scrollbar pb-1">
         {presets.map((preset) => {
           const isSelected = activePreset.id === preset.id;
@@ -225,7 +328,7 @@ export const ToneStudio: React.FC = () => {
               onClick={() => handleSelectPreset(preset)}
               className={`px-4 py-2 rounded-xl text-xs font-mono transition-all whitespace-nowrap border cursor-pointer ${
                 isSelected
-                  ? "bg-white/10 text-[#a3ff12] border-[#a3ff12]/30 shadow-[0_0_15px_rgba(163,255,18,0.15)] font-bold"
+                  ? "bg-white/10 text-[#a3ff12] border-[#a3ff12]/40 shadow-[0_0_15px_rgba(163,255,18,0.15)] font-bold"
                   : "bg-white/5 text-zinc-400 border border-white/5 hover:text-white hover:border-zinc-700"
               }`}
             >
@@ -235,7 +338,7 @@ export const ToneStudio: React.FC = () => {
         })}
       </div>
 
-      {/* Active Rig Visualizer Canvas */}
+      {/* Active Rig Banner with Live Oscilloscope Canvas */}
       <div className="frosted-card rounded-3xl p-4 flex items-center justify-between dot-matrix-bg">
         <div className="flex items-center space-x-3">
           <Disc className="w-5 h-5 text-[#a3ff12] animate-spin" style={{ animationDuration: "6s" }} />
@@ -251,29 +354,66 @@ export const ToneStudio: React.FC = () => {
             </div>
           </div>
         </div>
-        <div className="w-48 h-10 bg-[#0a0c0e]/60 rounded-xl border border-white/5 overflow-hidden hidden sm:block">
-          <canvas ref={canvasRef} width={192} height={40} className="w-full h-full" />
+
+        {/* Sliders for Input Gain & Master Volume */}
+        <div className="hidden md:flex items-center space-x-6 pr-2">
+          <div className="space-y-1 w-28">
+            <div className="flex justify-between text-[10px] font-mono text-zinc-400">
+              <span>INPUT GAIN</span>
+              <span className="text-white font-bold">{inputGainVal}%</span>
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={200}
+              value={inputGainVal}
+              onChange={(e) => handleInputGainChange(parseInt(e.target.value, 10))}
+              className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-[#a3ff12]"
+            />
+          </div>
+
+          <div className="space-y-1 w-28">
+            <div className="flex justify-between text-[10px] font-mono text-zinc-400">
+              <span>MASTER VOL</span>
+              <span className="text-white font-bold">{masterVolVal}%</span>
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              value={masterVolVal}
+              onChange={(e) => handleMasterVolChange(parseInt(e.target.value, 10))}
+              className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-[#a3ff12]"
+            />
+          </div>
+
+          <div className="w-40 h-10 bg-[#0a0c0e]/80 rounded-xl border border-white/5 overflow-hidden">
+            <canvas ref={canvasRef} width={160} height={40} className="w-full h-full" />
+          </div>
         </div>
       </div>
 
-      {/* Connected Left-to-Right Signal Path Rack */}
+      {/* Reorderable Signal Chain Rack */}
       <div className="space-y-3">
         <div className="flex items-center justify-between text-xs font-mono text-zinc-400 px-1">
           <div className="flex items-center space-x-2">
             <span className="w-2 h-2 rounded-full bg-[#a3ff12]" />
             <span className="text-white font-bold">SIGNAL CHAIN</span>
-            <span className="text-zinc-500">• Left to right serial processing</span>
+            <span className="text-zinc-500">• Reorderable serial processing rack</span>
           </div>
           <div className="flex items-center space-x-2 text-[11px] text-zinc-500">
-            <span>IN: 24-bit 48kHz</span>
+            <span>IN: High-Z / Mic</span>
             <ArrowRight className="w-3.5 h-3.5 text-zinc-600" />
-            <span>OUT: Stereo Master</span>
+            <span>OUT: 24-bit Stereo Master</span>
           </div>
         </div>
 
-        {/* Horizontal Signal Flow Grid / Cards with Connecting Elements */}
+        {/* Signal Flow Cards with Reordering Arrows and Bypass */}
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
           {pedals.map((pedal, idx) => {
+            const isFirst = idx === 0;
+            const isLast = idx === pedals.length - 1;
+
             return (
               <div
                 key={pedal.id}
@@ -284,7 +424,7 @@ export const ToneStudio: React.FC = () => {
                     : "bg-white/5 border border-white/5 opacity-60"
                 }`}
               >
-                {/* Top Bar: Pedal Name, Stage Index & Bypass Switch */}
+                {/* Top Bar: Stage Index, Pedal Name, Move Buttons & Stomp Bypass */}
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center space-x-2.5">
                     {/* LED Indicator */}
@@ -308,18 +448,46 @@ export const ToneStudio: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Stomp Switch */}
-                  <button
-                    id={`btn-stomp-${pedal.id}`}
-                    onClick={() => handleTogglePedal(pedal.id)}
-                    className={`px-3 py-1 rounded-lg text-[11px] font-mono font-bold transition-all border cursor-pointer ${
-                      pedal.enabled
-                        ? "bg-[#a3ff12] text-black border-[#a3ff12] shadow-[0_0_12px_rgba(163,255,18,0.3)]"
-                        : "bg-white/5 text-zinc-400 border border-white/5 hover:text-white"
-                    }`}
-                  >
-                    {pedal.enabled ? "ACTIVE" : "BYPASS"}
-                  </button>
+                  <div className="flex items-center space-x-1.5">
+                    {/* Reorder Buttons */}
+                    <button
+                      disabled={isFirst}
+                      onClick={() => handleMovePedal(idx, "left")}
+                      className={`p-1 rounded-lg text-xs font-mono border transition-all ${
+                        isFirst
+                          ? "opacity-20 text-zinc-600 border-transparent cursor-not-allowed"
+                          : "bg-white/5 text-zinc-400 hover:text-white border-white/5 hover:border-white/20 cursor-pointer"
+                      }`}
+                      title="Move Left in Signal Chain"
+                    >
+                      <ArrowLeft className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      disabled={isLast}
+                      onClick={() => handleMovePedal(idx, "right")}
+                      className={`p-1 rounded-lg text-xs font-mono border transition-all ${
+                        isLast
+                          ? "opacity-20 text-zinc-600 border-transparent cursor-not-allowed"
+                          : "bg-white/5 text-zinc-400 hover:text-white border-white/5 hover:border-white/20 cursor-pointer"
+                      }`}
+                      title="Move Right in Signal Chain"
+                    >
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
+
+                    {/* Stomp Switch */}
+                    <button
+                      id={`btn-stomp-${pedal.id}`}
+                      onClick={() => handleTogglePedal(pedal.id)}
+                      className={`px-3 py-1 rounded-lg text-[11px] font-mono font-bold transition-all border cursor-pointer ${
+                        pedal.enabled
+                          ? "bg-[#a3ff12] text-black border-[#a3ff12] shadow-[0_0_12px_rgba(163,255,18,0.3)]"
+                          : "bg-white/5 text-zinc-400 border border-white/5 hover:text-white"
+                      }`}
+                    >
+                      {pedal.enabled ? "ACTIVE" : "BYPASS"}
+                    </button>
+                  </div>
                 </div>
 
                 {/* Rotary Knobs & Sliders */}
@@ -368,11 +536,11 @@ export const ToneStudio: React.FC = () => {
                           step={key === "rate" ? 0.1 : 1}
                           value={numVal}
                           onChange={(e) =>
-                             handleParamChange(
-                               pedal.id,
-                               key,
-                               key === "rate" ? parseFloat(e.target.value) : parseInt(e.target.value, 10)
-                             )
+                            handleParamChange(
+                              pedal.id,
+                              key,
+                              key === "rate" ? parseFloat(e.target.value) : parseInt(e.target.value, 10)
+                            )
                           }
                           className="w-full h-1.5 bg-[#181c22] rounded-lg appearance-none cursor-pointer accent-[#a3ff12]"
                         />
@@ -385,9 +553,11 @@ export const ToneStudio: React.FC = () => {
                 <div className="flex justify-between items-center mt-3 pt-2.5 border-t border-white/5 text-[10px] font-mono text-zinc-500">
                   <span className="flex items-center gap-1">
                     <span className="w-1.5 h-1.5 rounded-full bg-white/10" />
-                    IN
+                    STAGE 0{idx + 1}
                   </span>
-                  <span className="text-[#a3ff12]/70 uppercase font-semibold">STAGE 0{idx + 1}</span>
+                  <span className="text-[#a3ff12]/70 uppercase font-semibold">
+                    {pedal.enabled ? "IN-CHAIN" : "BYPASSED"}
+                  </span>
                   <span className="flex items-center gap-1">
                     OUT
                     <ArrowRight className="w-2.5 h-2.5 text-zinc-600" />

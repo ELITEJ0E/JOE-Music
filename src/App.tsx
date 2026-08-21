@@ -7,7 +7,6 @@ import React, { useState, useEffect } from "react";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { SidebarNav } from "./components/SidebarNav";
 import { TopHeaderBar } from "./components/TopHeaderBar";
-import { BottomStatusBar } from "./components/BottomStatusBar";
 import { MobileBottomNav } from "./components/MobileBottomNav";
 import { HomeDashboard } from "./components/HomeDashboard";
 import { TunerPanel } from "./components/TunerPanel";
@@ -124,9 +123,6 @@ export default function App() {
                 />
               )}
             </main>
-
-            {/* Desktop Persistent Bottom Status Bar */}
-            <BottomStatusBar />
           </div>
         </div>
 

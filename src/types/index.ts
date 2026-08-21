@@ -1,15 +1,4 @@
-export type TuningName =
-  | "Standard (EADGBE)"
-  | "Drop D (DADGBE)"
-  | "Double Drop D (DADGBD)"
-  | "DADGAD (Celtic)"
-  | "Open D (DADF#AD)"
-  | "Open G (DGDGBD)"
-  | "Open E (EBEG#BE)"
-  | "Half-Step Down (Eb Ab Db Gb Bb Eb)"
-  | "Full-Step Down (D G C F A D)"
-  | "Drop C (CGCFAD)"
-  | "B Standard / 7-String (BEADGBE)";
+export type TuningName = string;
 
 export interface GuitarTuning {
   name: TuningName;

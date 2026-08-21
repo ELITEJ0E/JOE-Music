@@ -102,8 +102,14 @@ export function buildChord(rootName: string, qualityAlias: string, bassName?: st
   const intervals = CHORD_QUALITIES[q] || CHORD_QUALITIES["maj"];
   
   let bass: PitchClass | undefined = undefined;
+  let normalizedBassName: string | undefined = undefined;
+
   if (bassName) {
     bass = getPitchClass(bassName);
+    // Determine harmonic context based on root name
+    // Flat context: root contains 'b' or is 'F' or 'C' in flat context
+    const isFlatContext = rootName.includes("b") || rootName === "F";
+    normalizedBassName = getNoteName(bass, isFlatContext);
   }
 
   return {
@@ -112,7 +118,7 @@ export function buildChord(rootName: string, qualityAlias: string, bassName?: st
     quality: q,
     intervals,
     bass,
-    bassName,
+    bassName: normalizedBassName,
     extensions: [],
     alterations: []
   };

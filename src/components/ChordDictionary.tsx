@@ -23,15 +23,25 @@ const QUALITIES = [
   "All",
   "Major",
   "Minor",
+  "5",
+  "dim",
+  "aug",
+  "sus2",
+  "sus4",
+  "6",
+  "m6",
   "7",
   "maj7",
-  "min7",
-  "sus4",
-  "sus2",
-  "add9",
+  "m7",
   "dim7",
-  "min7b5",
-  "aug",
+  "m7b5",
+  "add9",
+  "9",
+  "m9",
+  "maj9",
+  "11",
+  "m11",
+  "13",
 ];
 const CAGED_SHAPES = ["ALL", "C", "A", "G", "E", "D"];
 
@@ -206,7 +216,7 @@ export const ChordDictionary: React.FC = () => {
             </div>
           ) : (
             filteredChords.map((chord) => {
-              const isSelected = selectedChord.id === chord.id;
+              const isSelected = selectedChord?.id === chord.id;
               return (
                 <div
                   key={chord.id}
@@ -332,19 +342,7 @@ export const ChordDictionary: React.FC = () => {
             </div>
           )}
 
-          {/* Full Fretboard Map */}
-          {selectedChord && (
-            <div className="pt-4 border-t border-white/5">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-bold text-white font-mono">FRETBOARD MAP</h3>
-              </div>
-              <FretboardView 
-                chord={buildChord(selectedChord.root, selectedChord.quality)} 
-                fretsCount={15} 
-                showMode="chord" 
-              />
-            </div>
-          )}
+
 
           {/* Capo & Transposition & Strum Speed Bar */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
