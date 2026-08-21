@@ -181,6 +181,7 @@ export interface LooperTrack {
   id: string;
   name: string;
   buffer: AudioBuffer | null;
+  blob?: Blob;
   volume: number; // 0 to 1
   pan: number; // -1 to 1
   muted: boolean;
@@ -190,20 +191,63 @@ export interface LooperTrack {
   lengthSeconds: number;
 }
 
+export interface LooperSession {
+  id: string;
+  name: string;
+  bpm: number;
+  tracks: LooperTrack[];
+  updatedAt: number;
+}
+
+export type CountInSetting = "off" | "1bar" | "2bars";
+export type GridSnapSetting = "off" | "1bar" | "1/2" | "1/4" | "1/8" | "1/16" | "1beat";
+
+export interface AudioClip {
+  id: string;
+  name: string;
+  startTime: number; // Position on project timeline in seconds
+  duration: number; // Playable duration on timeline in seconds
+  trimStart: number; // Offset inside the raw audioBuffer (seconds)
+  audioBuffer: AudioBuffer | null;
+  audioBlob?: Blob;
+  waveformPeaks?: number[];
+  fadeInSec: number; // Fade-in ramp duration (seconds)
+  fadeOutSec: number; // Fade-out ramp duration (seconds)
+  gain: number; // Clip gain multiplier (1.0 = 0 dB)
+  color?: string;
+}
+
 export interface DAWTrack {
   id: string;
   name: string;
   color: string;
-  volume: number;
-  pan: number;
+  volume: number; // 0 to 1.5
+  pan: number; // -1 to 1
   muted: boolean;
   soloed: boolean;
-  audioBuffer: AudioBuffer | null;
+  armed?: boolean;
+  monitoring?: boolean;
+  clips: AudioClip[];
+  // Legacy / convenience fields
+  audioBuffer?: AudioBuffer | null;
   audioBlob?: Blob;
-  recording: boolean;
+  recording?: boolean;
   waveformPeaks?: number[];
-  startTime: number;
-  duration: number;
+  startTime?: number;
+  duration?: number;
+  inputSource?: "processed" | "dry";
+}
+
+export interface DAWProject {
+  id: string;
+  name: string;
+  bpm: number;
+  keySig: string;
+  timeSig: string;
+  tracks: DAWTrack[];
+  createdAt: number;
+  updatedAt: number;
+  tonePresetId?: string;
 }
 
 export interface AudioDevice {

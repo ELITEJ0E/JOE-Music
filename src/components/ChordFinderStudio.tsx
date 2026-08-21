@@ -350,13 +350,23 @@ export const ChordFinderStudio: React.FC = () => {
     }
   };
 
+  useEffect(() => {
+    return () => {
+      audioEngine.releaseInput("chord-finder");
+    };
+  }, []);
+
   const toggleLiveMic = async () => {
     if (isLiveMic) {
-      audioEngine.stopMicrophone();
+      audioEngine.releaseInput("chord-finder");
       setIsLiveMic(false);
     } else {
-      await audioEngine.startMicrophone();
-      setIsLiveMic(true);
+      try {
+        await audioEngine.acquireInput("chord-finder");
+        setIsLiveMic(true);
+      } catch (err) {
+        alert("Microphone permission required for live listening.");
+      }
     }
   };
 

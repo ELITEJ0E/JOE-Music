@@ -103,7 +103,7 @@ export default function App() {
               {activeMode === "fretboard" && <FretboardViewer mode="fretboard" />}
               {activeMode === "scales" && <FretboardViewer mode="scales" />}
               {activeMode === "tone-studio" && <ToneStudio />}
-              {activeMode === "looper" && <LooperStation />}
+              {activeMode === "looper" && <LooperStation onSelectMode={handleSelectMode} />}
               {activeMode === "multi-track" && <MultiTrackStudio />}
               {activeMode === "rhythm" && <DrumMetronome />}
               {activeMode === "practice" && <PracticeStudio />}

@@ -24,7 +24,8 @@ export const ToneStudio: React.FC = () => {
   const [presets, setPresets] = useState<TonePreset[]>(DEFAULT_TONE_PRESETS);
   const [activePreset, setActivePreset] = useState<TonePreset>(DEFAULT_TONE_PRESETS[0]);
   const [pedals, setPedals] = useState<PedalConfig[]>(DEFAULT_TONE_PRESETS[0].pedals);
-  const [isLiveMic, setIsLiveMic] = useState<boolean>(false);
+  const [isLiveMic, setIsLiveMic] = useState<boolean>(audioEngine.getIsMicActive());
+  const [isMonitoring, setIsMonitoring] = useState<boolean>(audioEngine.getIsMonitoring());
   const [saveSuccess, setSaveSuccess] = useState<boolean>(false);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -38,6 +39,15 @@ export const ToneStudio: React.FC = () => {
         setPresets(loaded);
       }
     });
+
+    const unsubMic = audioEngine.subscribeMicStatus(setIsLiveMic);
+    const unsubMon = audioEngine.subscribeMonitorStatus(setIsMonitoring);
+
+    return () => {
+      unsubMic();
+      unsubMon();
+      audioEngine.releaseInput("tone-studio");
+    };
   }, []);
 
   // Update DSP graph when pedal parameters change
@@ -124,9 +134,19 @@ export const ToneStudio: React.FC = () => {
   };
 
   const toggleLiveMic = async () => {
-    const nextState = !isLiveMic;
-    const res = await pedalboardDsp.toggleLiveMicMonitoring(nextState);
-    setIsLiveMic(res);
+    try {
+      if (isLiveMic) {
+        audioEngine.releaseInput("tone-studio");
+      } else {
+        await audioEngine.acquireInput("tone-studio", { enableMonitoring: isMonitoring });
+      }
+    } catch (err) {
+      alert("Microphone permission required for guitar processing.");
+    }
+  };
+
+  const toggleMonitoringOnly = () => {
+    audioEngine.toggleMonitoring();
   };
 
   const handleSaveCustomPreset = async () => {

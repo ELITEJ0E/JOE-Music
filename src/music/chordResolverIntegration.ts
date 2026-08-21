@@ -1,31 +1,12 @@
-// Dedicated Guitar Diagram Resolver for JOE-Music
-// Separates raw acoustic detection from guitarist playability & voicing confidence.
-
+import { GuitarVoicingResult, ResolveOptions } from "../audio/guitarChordResolver";
+import { parseChordLabel, NormalizedChord, RawChordHypothesis, normalizeChord } from "../audio/chordNormalizer";
+import { parseChordSymbol } from "./chordParser";
+import { generateVoicings, GeneratedVoicing } from "./chordVoicingGenerator";
+import { buildChord } from "./chordTheory";
 import { ChordVoicing } from "../types";
-import { parseChordLabel, normalizeChord, NormalizedChord, RawChordHypothesis } from "./chordNormalizer";
-import { resolvePowerChord } from "./powerChordResolver";
-import { parseChordSymbol } from "../music/chordParser";
-import { generateVoicings } from "../music/chordVoicingGenerator";
+import { resolvePowerChord } from "../audio/powerChordResolver";
 
-export interface GuitarVoicingResult {
-  detectedChord: string;        // e.g. "Cm7/Bb" or "B5"
-  displayChord: string;         // e.g. "Cm7/Bb" (exact), "B5" (generated), or "Cm7" (simplified)
-  voicing: ChordVoicing | null;  // The guitar voicing object or null if none
-  voicingType: "exact" | "simplified" | "generated" | "none";
-  detectionConfidence: number;  // Acoustic detection confidence (e.g. 87%)
-  voicingConfidence: number;    // Playability confidence (e.g. 98% exact, 90% generated, 80% simplified, 0% none)
-  bassNote?: string;            // e.g. "Bb"
-  hasExactSlashVoicing: boolean;
-  simplificationReason?: string;
-}
-
-export interface ResolveOptions {
-  keyContext?: string;
-  detectionConfidence?: number;
-  simplifyIfUnavailable?: boolean;
-}
-
-export function resolveGuitarChord(
+export function resolveGuitarChordProcedural(
   input: string | NormalizedChord | RawChordHypothesis,
   options: ResolveOptions = {}
 ): GuitarVoicingResult {
@@ -41,7 +22,6 @@ export function resolveGuitarChord(
     norm = normalizeChord(input as RawChordHypothesis, keyCtx);
   }
 
-  // 1. Invalid chord safety
   if (!norm.isValid || !norm.root) {
     return {
       detectedChord: "Unknown chord",
@@ -56,8 +36,6 @@ export function resolveGuitarChord(
   }
 
   const detectedLabel = norm.canonicalLabel;
-  
-  // Use new procedural parser
   const parsed = parseChordSymbol(detectedLabel);
   
   if (!parsed.isValid || !parsed.chord) {
@@ -73,12 +51,9 @@ export function resolveGuitarChord(
     };
   }
   
-  // Power chords handling using procedural powerChordResolver if we want to retain it,
-  // or use the generator. Since the old one worked fine for 5 chords, we can keep it
-  // or use the new procedural. Let's just use the procedural one if it gives good results,
-  // but wait, `resolvePowerChord` is specific and good for "B5". Let's use it for exact "5" match.
+  // Power chords
   if (parsed.chord.quality === "5") {
-      const pVoicing = resolvePowerChord(parsed.chord.rootName, parsed.chord.bassName);
+      const pVoicing = resolvePowerChord(parsed.chord.rootName);
       if (pVoicing) {
          return {
            detectedChord: detectedLabel,
@@ -87,13 +62,11 @@ export function resolveGuitarChord(
            voicingType: "generated",
            detectionConfidence: detectConf,
            voicingConfidence: 90,
-           hasExactSlashVoicing: false,
-           bassNote: parsed.chord.bassName
+           hasExactSlashVoicing: false
          };
       }
   }
 
-  // Generate voicings!
   const generated = generateVoicings(parsed.chord, { maxFretSpan: 4, maxFret: 15 });
   
   if (generated.length > 0) {
@@ -116,12 +89,11 @@ export function resolveGuitarChord(
     
     return {
       detectedChord: detectedLabel,
-      displayChord: best.type === "simplified" ? `${parsed.chord.rootName}${parsed.chord.quality}` : detectedLabel,
+      displayChord: best.type === "simplified" ? `${parsed.chord.rootName} ${parsed.chord.quality}` : detectedLabel,
       voicing,
       voicingType: best.type,
       detectionConfidence: detectConf,
       voicingConfidence: best.type === "exact" ? 95 : 70,
-      bassNote: parsed.chord.bassName,
       hasExactSlashVoicing: parsed.chord.bass !== undefined && best.type === "exact",
       simplificationReason: best.type === "simplified" ? "Simplified voicing used" : undefined
     };
@@ -135,7 +107,6 @@ export function resolveGuitarChord(
     detectionConfidence: detectConf,
     voicingConfidence: 0,
     hasExactSlashVoicing: false,
-    bassNote: parsed.chord.bassName,
     simplificationReason: "No playable voicing found"
   };
 }

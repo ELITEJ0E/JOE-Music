@@ -1,27 +1,35 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Repeat,
   Play,
   Square,
   Circle,
-  RotateCcw,
   Volume2,
-  VolumeX,
-  FastForward,
-  Mic,
   Trash2,
   Sliders,
   Sparkles,
-  Music,
-  Disc,
+  ArrowRight,
+  Save,
+  Check,
+  Share2,
+  Mic,
+  MicOff,
 } from "lucide-react";
 import { looperEngine } from "../audio/looperEngine";
-import { LooperTrack } from "../types";
+import { audioEngine } from "../audio/audioContext";
+import { LooperTrack, DAWProject, WorkstationMode } from "../types";
+import { saveProjectToDB, saveLooperSessionToDB } from "../utils/storage";
 
-export const LooperStation: React.FC = () => {
+interface LooperStationProps {
+  onSelectMode?: (mode: WorkstationMode) => void;
+}
+
+export const LooperStation: React.FC<LooperStationProps> = ({ onSelectMode }) => {
   const [tracks, setTracks] = useState<LooperTrack[]>(looperEngine.getTracks());
   const [status, setStatus] = useState(looperEngine.getStatus());
   const [progress, setProgress] = useState<number>(0);
+  const [isMicActive, setIsMicActive] = useState<boolean>(audioEngine.getIsMicActive());
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   useEffect(() => {
     const unsubState = looperEngine.subscribeState(() => {
@@ -30,12 +38,20 @@ export const LooperStation: React.FC = () => {
     });
 
     const unsubProg = looperEngine.subscribeProgress(setProgress);
+    const unsubMic = audioEngine.subscribeMicStatus(setIsMicActive);
 
     return () => {
       unsubState();
       unsubProg();
+      unsubMic();
+      audioEngine.releaseInput("looper-input");
     };
   }, []);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3000);
+  };
 
   const handleRecordButton = () => {
     if (status.isRecording) {
@@ -52,11 +68,100 @@ export const LooperStation: React.FC = () => {
   const handleClearAll = () => {
     if (confirm("Clear all recorded loop tracks?")) {
       looperEngine.clearAll();
+      showToast("All loop tracks cleared.");
     }
+  };
+
+  const handleToggleMic = async () => {
+    try {
+      if (isMicActive) {
+        audioEngine.releaseInput("looper-input");
+      } else {
+        await audioEngine.acquireInput("looper-input");
+      }
+    } catch (err) {
+      alert("Microphone permission required for guitar recording.");
+    }
+  };
+
+  const handleCommitSingleTrackToDAW = async (trackIdx: number) => {
+    const dawTrack = looperEngine.exportTrackAsDAWTrack(trackIdx);
+    if (!dawTrack) {
+      showToast("No audio in this loop layer to send.");
+      return;
+    }
+
+    const newProject: DAWProject = {
+      id: `project-loop-${Date.now()}`,
+      name: `Loop Take ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`,
+      bpm: 120,
+      keySig: "Am",
+      timeSig: "4/4",
+      tracks: [dawTrack],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    await saveProjectToDB(newProject);
+    showToast(`Layer "${tracks[trackIdx].name}" committed to Studio DAW!`);
+    if (onSelectMode) {
+      setTimeout(() => onSelectMode("multi-track"), 800);
+    }
+  };
+
+  const handleCommitAllToDAW = async () => {
+    const dawTracks = looperEngine.exportAllTracksAsDAWTracks();
+    if (dawTracks.length === 0) {
+      showToast("Record at least one loop layer before committing to DAW.");
+      return;
+    }
+
+    const newProject: DAWProject = {
+      id: `project-loop-session-${Date.now()}`,
+      name: `Loop Session (${dawTracks.length} Layers)`,
+      bpm: 120,
+      keySig: "Am",
+      timeSig: "4/4",
+      tracks: dawTracks,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    await saveProjectToDB(newProject);
+    showToast(`Committed ${dawTracks.length} loop layers to Studio DAW!`);
+    if (onSelectMode) {
+      setTimeout(() => onSelectMode("multi-track"), 800);
+    }
+  };
+
+  const handleSaveLooperSession = async () => {
+    const hasAudio = tracks.some((t) => t.buffer !== null);
+    if (!hasAudio) {
+      showToast("Record something before saving session.");
+      return;
+    }
+
+    await saveLooperSessionToDB({
+      id: `looper-sess-${Date.now()}`,
+      name: `Guitar Loop (${new Date().toLocaleDateString()})`,
+      bpm: 120,
+      tracks: [...tracks],
+      updatedAt: Date.now(),
+    });
+
+    showToast("Looper session saved to local library!");
   };
 
   return (
     <div id="panel-looper-station" className="max-w-7xl mx-auto space-y-6 pb-12 animate-in fade-in duration-200">
+      {/* Toast notification banner */}
+      {toastMessage && (
+        <div className="fixed top-20 right-8 z-50 bg-[#16191f] border border-[#a3ff12] text-[#a3ff12] px-4 py-2.5 rounded-2xl shadow-[0_0_20px_rgba(163,255,18,0.2)] text-xs font-mono font-bold flex items-center gap-2 animate-in slide-in-from-top duration-200">
+          <Check className="w-4 h-4" />
+          <span>{toastMessage}</span>
+        </div>
+      )}
+
       {/* Top Header & Main Looper Controls */}
       <div className="frosted-card rounded-3xl p-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div>
@@ -70,12 +175,46 @@ export const LooperStation: React.FC = () => {
             </span>
           </div>
           <p className="text-xs text-zinc-400 font-mono mt-1">
-            Unlimited overdubbing, reverse playback, half-speed & per-track panning
+            Processed Tone Studio DSP recording, sound-on-sound overdubbing, reverse playback & DAW export
           </p>
         </div>
 
-        {/* Master Stomp Controls */}
+        {/* Master Stomp & DAW Commit Controls */}
         <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+          {/* Live Guitar Input Toggle */}
+          <button
+            id="btn-looper-mic"
+            onClick={handleToggleMic}
+            className={`flex items-center space-x-1.5 px-3.5 py-2 rounded-xl text-xs font-mono font-bold transition-all border cursor-pointer ${
+              isMicActive
+                ? "bg-[#a3ff12]/15 text-[#a3ff12] border-[#a3ff12]/40"
+                : "bg-white/5 border-white/5 text-zinc-400 hover:text-white"
+            }`}
+          >
+            {isMicActive ? <Mic className="w-3.5 h-3.5 text-[#a3ff12]" /> : <MicOff className="w-3.5 h-3.5 text-zinc-400" />}
+            <span>{isMicActive ? "INPUT READY" : "ENABLE IN"}</span>
+          </button>
+
+          {/* Commit All Loops to DAW */}
+          <button
+            id="btn-looper-commit-daw"
+            onClick={handleCommitAllToDAW}
+            className="flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-white/5 hover:bg-[#a3ff12]/10 border border-white/5 hover:border-[#a3ff12]/40 text-xs font-mono font-bold text-zinc-300 hover:text-[#a3ff12] transition-colors cursor-pointer"
+            title="Commit all active loop layers to Multi-Track Studio"
+          >
+            <Share2 className="w-3.5 h-3.5 text-[#a3ff12]" />
+            <span>COMMIT TO STUDIO</span>
+          </button>
+
+          {/* Save Session */}
+          <button
+            onClick={handleSaveLooperSession}
+            className="p-2.5 rounded-xl bg-white/5 border border-white/5 hover:border-white/10 text-zinc-300 hover:text-white transition-colors cursor-pointer"
+            title="Save Looper Session"
+          >
+            <Save className="w-4 h-4" />
+          </button>
+
           {/* Master Play/Stop */}
           <button
             id="btn-looper-play"
@@ -109,15 +248,19 @@ export const LooperStation: React.FC = () => {
           {tracks.map((track, idx) => {
             const hasAudio = track.buffer !== null;
             const isPlayingThis = status.isPlaying && hasAudio && !track.muted;
+            const isSelectedActive = status.activeTrackIndex === idx;
 
             return (
               <div
                 key={track.id}
                 id={`loop-track-${idx + 1}`}
-                className={`p-5 rounded-3xl border transition-all relative flex flex-col justify-between ${
-                  hasAudio
+                onClick={() => looperEngine.setActiveTrackIndex(idx)}
+                className={`p-5 rounded-3xl border transition-all relative flex flex-col justify-between cursor-pointer ${
+                  isSelectedActive
+                    ? "border-[#a3ff12]/60 shadow-[0_0_20px_rgba(163,255,18,0.1)] frosted-card"
+                    : hasAudio
                     ? isPlayingThis
-                      ? "frosted-card border-[#a3ff12]/50 shadow-[0_0_20px_rgba(163,255,18,0.08)]"
+                      ? "frosted-card border-[#a3ff12]/40"
                       : "frosted-card"
                     : "bg-white/5 border border-white/5 opacity-70"
                 }`}
@@ -125,12 +268,21 @@ export const LooperStation: React.FC = () => {
                 {/* Track Header */}
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center space-x-2.5">
-                    <span className="w-6 h-6 rounded-lg bg-white/5 border border-white/5 flex items-center justify-center font-mono font-bold text-xs text-[#a3ff12]">
+                    <span className={`w-6 h-6 rounded-lg border flex items-center justify-center font-mono font-bold text-xs ${
+                      isSelectedActive
+                        ? "bg-[#a3ff12] text-black border-[#a3ff12]"
+                        : "bg-white/5 border-white/5 text-[#a3ff12]"
+                    }`}>
                       {idx + 1}
                     </span>
                     <div>
-                      <h3 className="font-mono font-bold text-sm text-white">
-                        {track.name}
+                      <h3 className="font-mono font-bold text-sm text-white flex items-center gap-2">
+                        <span>{track.name}</span>
+                        {isSelectedActive && (
+                          <span className="text-[9px] text-[#a3ff12] uppercase font-bold tracking-wider">
+                            (REC TARGET)
+                          </span>
+                        )}
                       </h3>
                       <span className="text-[10px] font-mono text-zinc-400">
                         {hasAudio ? `${track.lengthSeconds.toFixed(1)}s Loop` : "Empty track"}
@@ -139,6 +291,19 @@ export const LooperStation: React.FC = () => {
                   </div>
 
                   <div className="flex items-center space-x-1.5">
+                    {hasAudio ? (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleCommitSingleTrackToDAW(idx);
+                        }}
+                        className="text-[10px] font-mono font-bold text-zinc-300 hover:text-[#a3ff12] bg-white/5 hover:bg-[#a3ff12]/10 px-2 py-0.5 rounded border border-white/5 hover:border-[#a3ff12]/30 flex items-center gap-1 transition-colors cursor-pointer"
+                        title="Export this layer into Studio DAW"
+                      >
+                        <span>&rarr; DAW</span>
+                      </button>
+                    ) : null}
+
                     {hasAudio ? (
                       <span className="text-[10px] font-mono font-bold text-[#a3ff12] bg-[#a3ff12]/10 px-2 py-0.5 rounded border border-[#a3ff12]/30">
                         {track.muted ? "MUTED" : isPlayingThis ? "PLAYING" : "READY"}
@@ -155,7 +320,6 @@ export const LooperStation: React.FC = () => {
                 <div className="h-14 bg-[#0a0c0e]/60 rounded-xl border border-white/5 p-2 flex items-center justify-center relative overflow-hidden mb-3">
                   {hasAudio && track.buffer ? (
                     <div className="w-full h-full flex items-center justify-between gap-0.5">
-                      {/* Real Waveform Peak Slices */}
                       {Array.from({ length: 32 }).map((_, bIdx) => {
                         const channelData = track.buffer?.getChannelData(0);
                         let heightPercent = 20;
@@ -186,7 +350,7 @@ export const LooperStation: React.FC = () => {
                     </div>
                   ) : (
                     <div className="text-[11px] font-mono text-zinc-600 flex items-center gap-1.5">
-                      <span>Ready to record</span>
+                      <span>{isSelectedActive ? "Arm target - press REC" : "Click to select"}</span>
                     </div>
                   )}
 
@@ -200,7 +364,7 @@ export const LooperStation: React.FC = () => {
                 </div>
 
                 {/* Volume & Pan Sliders */}
-                <div className="space-y-2.5 my-1">
+                <div className="space-y-2.5 my-1" onClick={(e) => e.stopPropagation()}>
                   <div className="space-y-1">
                     <div className="flex justify-between text-[11px] font-mono text-zinc-400">
                       <span>LEVEL</span>
@@ -235,7 +399,7 @@ export const LooperStation: React.FC = () => {
                 </div>
 
                 {/* Special FX: Mute, Reverse, Half-Speed & Clear */}
-                <div className="flex items-center justify-between pt-3 border-t border-white/5 mt-2">
+                <div className="flex items-center justify-between pt-3 border-t border-white/5 mt-2" onClick={(e) => e.stopPropagation()}>
                   <div className="flex space-x-1.5">
                     <button
                       onClick={() => looperEngine.toggleMute(track.id)}
@@ -378,68 +542,6 @@ export const LooperStation: React.FC = () => {
               {status.isPlaying ? <Square className="w-3.5 h-3.5 fill-black" /> : <Play className="w-3.5 h-3.5 fill-current text-[#a3ff12]" />}
               <span>{status.isPlaying ? "STOP PLAYBACK" : "START PLAYBACK"}</span>
             </button>
-          </div>
-        </div>
-      </div>
-
-      {/* "Session Mix" Panel (Clearly labeled Coming Soon / Disabled Demo State) */}
-      <div className="frosted-card rounded-3xl p-6 space-y-4 relative overflow-hidden">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-white/5 pb-3">
-          <div className="flex items-center space-x-2.5">
-            <Sliders className="w-4 h-4 text-zinc-500" />
-            <h3 className="font-mono font-bold text-sm text-zinc-300">
-              SESSION MIX & SMART BACKING BANDS
-            </h3>
-          </div>
-          <span className="text-[10px] font-mono font-bold bg-zinc-800 text-zinc-400 px-2.5 py-1 rounded border border-zinc-700">
-            COMING SOON • FIRMWARE V2.2
-          </span>
-        </div>
-
-        {/* Genre Selector Buttons (Disabled Demo) */}
-        <div className="space-y-2 opacity-50 pointer-events-none">
-          <div className="text-xs font-mono text-zinc-400">SELECT BACKING GENRE:</div>
-          <div className="flex flex-wrap gap-2">
-            {["Rock Heavy", "Blues 12-Bar", "Funk Groove", "Jazz Swing", "Acoustic Pop"].map((genre, idx) => (
-              <button
-                key={genre}
-                disabled
-                className={`px-3 py-1.5 rounded-lg text-xs font-mono border ${
-                  idx === 0
-                    ? "bg-white/10 text-[#a3ff12] border-[#a3ff12]/40 font-bold"
-                    : "bg-white/5 border border-white/5 text-zinc-500"
-                }`}
-              >
-                {genre}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Drums / Bass / Backing Track Sliders (Disabled Demo) */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2 opacity-50 pointer-events-none">
-          <div className="p-3 bg-white/5 rounded-xl border border-white/5 space-y-1">
-            <div className="flex justify-between text-[11px] font-mono text-zinc-500">
-              <span>DRUM STEM</span>
-              <span>80%</span>
-            </div>
-            <input type="range" disabled value={80} min={0} max={100} className="w-full h-1.5 bg-white/5 rounded accent-[#a3ff12]" />
-          </div>
-
-          <div className="p-3 bg-white/5 rounded-xl border border-white/5 space-y-1">
-            <div className="flex justify-between text-[11px] font-mono text-zinc-500">
-              <span>BASS STEM</span>
-              <span>70%</span>
-            </div>
-            <input type="range" disabled value={70} min={0} max={100} className="w-full h-1.5 bg-white/5 rounded accent-[#a3ff12]" />
-          </div>
-
-          <div className="p-3 bg-white/5 rounded-xl border border-white/5 space-y-1">
-            <div className="flex justify-between text-[11px] font-mono text-zinc-500">
-              <span>KEYS / ACCENT STEM</span>
-              <span>60%</span>
-            </div>
-            <input type="range" disabled value={60} min={0} max={100} className="w-full h-1.5 bg-white/5 rounded accent-[#a3ff12]" />
           </div>
         </div>
       </div>

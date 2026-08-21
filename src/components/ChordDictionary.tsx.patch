@@ -1,0 +1,53 @@
+--- src/components/ChordDictionary.tsx
++++ src/components/ChordDictionary.tsx
+@@ -10,7 +10,7 @@
+   ChevronRight,
+   Sliders,
+ } from "lucide-react";
+-import { CHORD_DATABASE } from "../data/chordDatabase";
++import { getChordsForDictionary } from "../music/chordIntegration";
+ import { guitarSynth } from "../audio/guitarSynth";
+ import { ChordVoicing } from "../types";
+ import { ChordDiagram } from "./ChordDiagram";
+@@ -35,27 +35,13 @@
+   const [selectedRoot, setSelectedRoot] = useState<string>("C");
+   const [selectedQuality, setSelectedQuality] = useState<string>("All");
+   const [selectedCaged, setSelectedCaged] = useState<string>("ALL");
+   const [searchQuery, setSearchQuery] = useState<string>("");
+-  const [selectedChord, setSelectedChord] = useState<ChordVoicing>(CHORD_DATABASE[0]);
++  const [selectedChord, setSelectedChord] = useState<ChordVoicing | null>(null);
+   const [strumSpeed, setStrumSpeed] = useState<number>(24); // ms
+   const [capoFret, setCapoFret] = useState<number>(0);
+   const [transposeOffset, setTransposeOffset] = useState<number>(0);
+ 
+-  const filteredChords = CHORD_DATABASE.filter((c) => {
+-    const matchesSearch = searchQuery
+-      ? c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+-        c.root.toLowerCase().includes(searchQuery.toLowerCase())
+-      : true;
+-    const matchesRoot =
+-      selectedRoot === "All" || c.root.toUpperCase() === selectedRoot.toUpperCase();
+-    const matchesQuality =
+-      selectedQuality === "All" ||
+-      c.quality.toLowerCase() === selectedQuality.toLowerCase();
+-    const matchesCaged =
+-      selectedCaged === "ALL" || c.cagedShape === selectedCaged;
+-
+-    return (
+-      matchesSearch &&
+-      (searchQuery ? true : matchesRoot && matchesQuality && matchesCaged)
+-    );
+-  });
++  const filteredChords = React.useMemo(() => {
++    return getChordsForDictionary(selectedRoot, selectedQuality, selectedCaged, searchQuery);
++  }, [selectedRoot, selectedQuality, selectedCaged, searchQuery]);
++
++  React.useEffect(() => {
++    if (filteredChords.length > 0 && (!selectedChord || !filteredChords.find(c => c.id === selectedChord.id))) {
++      setSelectedChord(filteredChords[0]);
++    } else if (filteredChords.length === 0) {
++      setSelectedChord(null);
++    }
++  }, [filteredChords]);
+ 
+   const handlePlayChord = () => {

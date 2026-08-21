@@ -1,0 +1,204 @@
+--- src/audio/guitarChordResolver.ts
++++ src/audio/guitarChordResolver.ts
+@@ -2,12 +2,15 @@
+ // Separates raw acoustic detection from guitarist playability & voicing confidence.
+ 
+ import { ChordVoicing } from "../types";
+-import { findChordByName } from "../data/chordDatabase";
+ import { parseChordLabel, normalizeChord, NormalizedChord, RawChordHypothesis } from "./chordNormalizer";
+ import { resolvePowerChord } from "./powerChordResolver";
++import { parseChordSymbol } from "../music/chordParser";
++import { generateVoicings } from "../music/chordVoicingGenerator";
++import { buildChord } from "../music/chordTheory";
+ 
+ export interface GuitarVoicingResult {
+   detectedChord: string;        // e.g. "Cm7/Bb" or "B5"
+   displayChord: string;         // e.g. "Cm7/Bb" (exact), "B5" (generated), or "Cm7" (simplified)
+   voicing: ChordVoicing | null;  // The guitar voicing object or null if none
+   voicingType: "exact" | "simplified" | "generated" | "none";
+@@ -37,121 +40,78 @@
+  */
+ export function resolveGuitarChord(
+   input: string | NormalizedChord | RawChordHypothesis,
+   options: ResolveOptions = {}
+ ): GuitarVoicingResult {
+   const detectConf = options.detectionConfidence ?? 90;
+   const keyCtx = options.keyContext;
+ 
+   let norm: NormalizedChord;
+   if (typeof input === "string") {
+     norm = parseChordLabel(input, keyCtx);
+   } else if ("canonicalLabel" in input) {
+     norm = input as NormalizedChord;
+   } else {
+     norm = normalizeChord(input as RawChordHypothesis, keyCtx);
+   }
+ 
+   // 1. Invalid chord safety
+   if (!norm.isValid || !norm.root) {
+     return {
+       detectedChord: "Unknown chord",
+       displayChord: "Unknown chord",
+       voicing: null,
+       voicingType: "none",
+       detectionConfidence: 0,
+       voicingConfidence: 0,
+       hasExactSlashVoicing: false,
+       simplificationReason: "Invalid or malformed chord specification"
+     };
+   }
+ 
+   const detectedLabel = norm.canonicalLabel;
+   
+-  // 2. Exact match attempt in database for full label (including slash bass if present)
+-  const exactVoicing = findChordByName(detectedLabel);
+-  if (exactVoicing) {
+-    return {
+-      detectedChord: detectedLabel,
+-      displayChord: detectedLabel,
+-      voicing: exactVoicing,
+-      voicingType: "exact",
+-      detectionConfidence: detectConf,
+-      voicingConfidence: 98,
+-      hasExactSlashVoicing: !!norm.bass
+-    };
+-  }
+-
+-  // 3. Fallback for Power Chords (if not explicitly in database)
+-  if (norm.quality === "5") {
+-    const powerVoicing = resolvePowerChord(norm.root);
+-    if (powerVoicing) {
+-      return {
+-        detectedChord: detectedLabel,
+-        displayChord: detectedLabel, // Keep it as B5
+-        voicing: powerVoicing,
+-        voicingType: "generated",
+-        detectionConfidence: detectConf,
+-        voicingConfidence: 95,
+-        hasExactSlashVoicing: false
+-      };
+-    }
+-  }
+-
+-  // 4. Fallback: Base chord without bass note
+-  // If it was a slash chord (Cm7/Bb) and we don't have it, try base chord (Cm7)
+-  if (norm.bass) {
+-    const baseLabel = `${norm.root}${norm.quality}${norm.extensions}`;
+-    const baseVoicing = findChordByName(baseLabel);
+-    
+-    if (baseVoicing) {
+-      return {
+-        detectedChord: detectedLabel,
+-        displayChord: baseLabel, // Shows Cm7 instead of Cm7/Bb
+-        voicing: baseVoicing,
+-        voicingType: "simplified",
+-        detectionConfidence: detectConf,
+-        voicingConfidence: 85,
+-        hasExactSlashVoicing: false,
+-        simplificationReason: `Bass note ${norm.bass} omitted`
+-      };
+-    }
+-  }
+-
+-  // 5. Fallback: Base triad quality without extensions
+-  // If it was Cadd9 and we don't have it, try C Major.
+-  if (norm.extensions && norm.extensions.length > 0) {
+-    const triadLabel = `${norm.root}${norm.quality}`;
+-    const triadVoicing = findChordByName(triadLabel);
+-    
+-    if (triadVoicing) {
+-      return {
+-        detectedChord: detectedLabel,
+-        displayChord: triadLabel,
+-        voicing: triadVoicing,
+-        voicingType: "simplified",
+-        detectionConfidence: detectConf,
+-        voicingConfidence: 70,
+-        hasExactSlashVoicing: false,
+-        simplificationReason: `Extensions omitted`
+-      };
+-    }
+-  }
+-
+-  // 6. Absolute lowest fallback: Just try major/minor based on quality string parsing
+-  const rawBaseLabel = `${norm.root}${norm.quality.startsWith("m") && norm.quality !== "maj" ? "m" : ""}`;
+-  const rawBaseVoicing = findChordByName(rawBaseLabel);
+-  if (rawBaseVoicing && options.simplifyIfUnavailable !== false) {
+-     return {
+-        detectedChord: detectedLabel,
+-        displayChord: rawBaseLabel,
+-        voicing: rawBaseVoicing,
+-        voicingType: "simplified",
+-        detectionConfidence: detectConf,
+-        voicingConfidence: 50,
+-        hasExactSlashVoicing: false,
+-        simplificationReason: "Simplified to core triad"
+-      };
+-  }
+-
+-  // 7. No playable voicing found
++  const parsed = parseChordSymbol(detectedLabel);
++  
++  if (!parsed.isValid || !parsed.chord) {
++    return {
++      detectedChord: detectedLabel,
++      displayChord: detectedLabel,
++      voicing: null,
++      voicingType: "none",
++      detectionConfidence: detectConf,
++      voicingConfidence: 0,
++      hasExactSlashVoicing: false,
++      simplificationReason: "Unsupported chord symbol"
++    };
++  }
++  
++  // Power chords
++  if (parsed.chord.quality === "5") {
++      const pVoicing = resolvePowerChord(parsed.chord.rootName);
++      if (pVoicing) {
++         return {
++           detectedChord: detectedLabel,
++           displayChord: detectedLabel,
++           voicing: pVoicing,
++           voicingType: "generated",
++           detectionConfidence: detectConf,
++           voicingConfidence: 90,
++           hasExactSlashVoicing: false
++         };
++      }
++  }
++
++  const generated = generateVoicings(parsed.chord, { maxFretSpan: 4, maxFret: 15 });
++  
++  if (generated.length > 0) {
++    const best = generated[0];
++    const voicing: ChordVoicing = {
++      id: "procedural-" + detectedLabel,
++      name: detectedLabel,
++      root: parsed.chord.rootName,
++      quality: parsed.chord.quality,
++      frets: best.frets,
++      fingers: best.fingers,
++      barre: best.barre,
++      baseFret: best.baseFret,
++      notes: best.notes,
++      intervals: best.intervals,
++      cagedShape: best.cagedShape,
++      voicingType: best.type,
++      difficulty: best.type === "exact" ? "Intermediate" : "Beginner"
++    };
++    
++    return {
++      detectedChord: detectedLabel,
++      displayChord: best.type === "simplified" ? `${parsed.chord.rootName} ${parsed.chord.quality}` : detectedLabel,
++      voicing,
++      voicingType: best.type,
++      detectionConfidence: detectConf,
++      voicingConfidence: best.type === "exact" ? 95 : 70,
++      hasExactSlashVoicing: parsed.chord.bass !== undefined && best.type === "exact",
++      simplificationReason: best.type === "simplified" ? "Simplified voicing used" : undefined
++    };
++  }
++  
+   return {
+     detectedChord: detectedLabel,

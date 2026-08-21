@@ -349,6 +349,11 @@ export class PedalboardDSPChain {
     return this.inputNode!;
   }
 
+  public getOutputNode(): GainNode {
+    this.init();
+    return this.outputNode!;
+  }
+
   /**
    * Applies complete pedal configuration parameters from preset
    */
@@ -499,9 +504,8 @@ export class PedalboardDSPChain {
     this.init();
     if (enable) {
       try {
-        const { source } = await audioEngine.startMicrophone();
+        const { source } = await audioEngine.acquireInput("pedalboard");
         this.micInputSource = source;
-        this.micInputSource.connect(this.inputNode!);
         this.isProcessingLiveMic = true;
         return true;
       } catch (err) {
@@ -510,11 +514,8 @@ export class PedalboardDSPChain {
         return false;
       }
     } else {
-      if (this.micInputSource && this.inputNode) {
-        try {
-          this.micInputSource.disconnect(this.inputNode);
-        } catch (_) {}
-      }
+      audioEngine.releaseInput("pedalboard");
+      this.micInputSource = null;
       this.isProcessingLiveMic = false;
       return false;
     }

@@ -31,10 +31,10 @@ export const TunerPanel: React.FC = () => {
   const bufferRef = useRef<Float32Array | null>(null);
   const spectrumCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
+  // Clean unmount release
   useEffect(() => {
-    const unsub = audioEngine.subscribeMicStatus(setIsListening);
     return () => {
-      unsub();
+      audioEngine.releaseInput("tuner");
     };
   }, []);
 
@@ -43,6 +43,7 @@ export const TunerPanel: React.FC = () => {
     if (!isListening) {
       if (animRef.current) cancelAnimationFrame(animRef.current);
       setTunerData(null);
+      audioEngine.releaseInput("tuner");
       return;
     }
 
@@ -57,7 +58,7 @@ export const TunerPanel: React.FC = () => {
 
     let sourceNode: MediaStreamAudioSourceNode | null = null;
     audioEngine
-      .startMicrophone()
+      .acquireInput("tuner")
       .then(({ source }) => {
         if (!isMounted) return;
         sourceNode = source;
@@ -65,6 +66,7 @@ export const TunerPanel: React.FC = () => {
       })
       .catch((err) => {
         console.warn("Tuner mic connection error:", err);
+        setIsListening(false);
       });
 
     let lastDetectTime = 0;
@@ -139,12 +141,8 @@ export const TunerPanel: React.FC = () => {
     };
   }, [isListening, selectedTuning, calibrationA4, lockedStringIdx]);
 
-  const toggleListening = async () => {
-    if (isListening) {
-      audioEngine.stopMicrophone();
-    } else {
-      await audioEngine.startMicrophone();
-    }
+  const toggleListening = () => {
+    setIsListening((prev) => !prev);
   };
 
   const handlePlayStringTone = (note: string, octave: number, idx: number) => {

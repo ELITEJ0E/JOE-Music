@@ -11,10 +11,12 @@ import {
   ChevronRight,
   Sliders,
 } from "lucide-react";
-import { CHORD_DATABASE } from "../data/chordDatabase";
+import { getChordsForDictionary } from "../music/chordIntegration";
 import { guitarSynth } from "../audio/guitarSynth";
 import { ChordVoicing } from "../types";
 import { ChordDiagram } from "./ChordDiagram";
+import { FretboardView } from "./FretboardView";
+import { buildChord } from "../music/chordTheory";
 
 const ROOTS = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 const QUALITIES = [
@@ -38,29 +40,22 @@ export const ChordDictionary: React.FC = () => {
   const [selectedQuality, setSelectedQuality] = useState<string>("All");
   const [selectedCaged, setSelectedCaged] = useState<string>("ALL");
   const [searchQuery, setSearchQuery] = useState<string>("");
-  const [selectedChord, setSelectedChord] = useState<ChordVoicing>(CHORD_DATABASE[0]);
+  const [selectedChord, setSelectedChord] = useState<ChordVoicing | null>(null);
   const [strumSpeed, setStrumSpeed] = useState<number>(24); // ms
   const [capoFret, setCapoFret] = useState<number>(0);
   const [transposeOffset, setTransposeOffset] = useState<number>(0);
 
-  const filteredChords = CHORD_DATABASE.filter((c) => {
-    const matchesSearch = searchQuery
-      ? c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        c.root.toLowerCase().includes(searchQuery.toLowerCase())
-      : true;
-    const matchesRoot =
-      selectedRoot === "All" || c.root.toUpperCase() === selectedRoot.toUpperCase();
-    const matchesQuality =
-      selectedQuality === "All" ||
-      c.quality.toLowerCase() === selectedQuality.toLowerCase();
-    const matchesCaged =
-      selectedCaged === "ALL" || c.cagedShape === selectedCaged;
+  const filteredChords = React.useMemo(() => {
+    return getChordsForDictionary(selectedRoot, selectedQuality, selectedCaged, searchQuery);
+  }, [selectedRoot, selectedQuality, selectedCaged, searchQuery]);
 
-    return (
-      matchesSearch &&
-      (searchQuery ? true : matchesRoot && matchesQuality && matchesCaged)
-    );
-  });
+  React.useEffect(() => {
+    if (filteredChords.length > 0 && (!selectedChord || !filteredChords.find(c => c.id === selectedChord.id))) {
+      setSelectedChord(filteredChords[0]);
+    } else if (filteredChords.length === 0) {
+      setSelectedChord(null);
+    }
+  }, [filteredChords, selectedChord]);
 
   const handleStrum = (chord: ChordVoicing, direction: "down" | "up" = "down") => {
     guitarSynth.strumChord(
@@ -91,10 +86,10 @@ export const ChordDictionary: React.FC = () => {
   };
 
   // Sounding key calculation after capo and transposition
-  const baseRootIdx = ROOTS.indexOf(selectedChord.root.toUpperCase());
+  const baseRootIdx = selectedChord ? ROOTS.indexOf(selectedChord.root.toUpperCase()) : 0;
   const effectiveSemitones = (baseRootIdx + capoFret + transposeOffset + 24) % 12;
   const soundingRoot = ROOTS[effectiveSemitones];
-  const soundingChordName = `${soundingRoot} ${selectedChord.quality}`;
+  const soundingChordName = selectedChord ? `${soundingRoot} ${selectedChord.quality}` : "";
 
   return (
     <div id="panel-chord-dictionary" className="max-w-6xl mx-auto space-y-6 pb-12 animate-in fade-in duration-200">
@@ -258,74 +253,98 @@ export const ChordDictionary: React.FC = () => {
 
         {/* Right 2 Columns: Large SVG Chord Box & Audio Controls */}
         <div className="lg:col-span-2 frosted-card rounded-3xl p-6 sm:p-8 flex flex-col justify-between space-y-6 dot-matrix-bg">
-          {/* Chord Name, Sounding Transposed Key & Strum Triggers */}
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-white/5 pb-4">
-            <div>
-              <div className="flex items-baseline space-x-3">
-                <h2 className="text-3xl sm:text-4xl font-extrabold font-mono text-white">
-                  {selectedChord.name}
-                </h2>
-                <span className="text-xs font-mono font-bold text-[#a3ff12] px-2.5 py-0.5 rounded-full bg-[#a3ff12]/15 border border-[#a3ff12]/30">
-                  {selectedChord.quality}
-                </span>
+          {selectedChord ? (
+            <>
+              {/* Chord Name, Sounding Transposed Key & Strum Triggers */}
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-white/5 pb-4">
+                <div>
+                  <div className="flex items-baseline space-x-3">
+                    <h2 className="text-3xl sm:text-4xl font-extrabold font-mono text-white">
+                      {selectedChord.name}
+                    </h2>
+                    <span className="text-xs font-mono font-bold text-[#a3ff12] px-2.5 py-0.5 rounded-full bg-[#a3ff12]/15 border border-[#a3ff12]/30">
+                      {selectedChord.quality}
+                    </span>
+                  </div>
+                  <div className="flex items-center space-x-2 text-xs font-mono text-zinc-400 mt-1">
+                    <span>Voicing: {selectedChord.notes?.join(" - ") || "Root, 3rd, 5th"}</span>
+                    {(capoFret > 0 || transposeOffset !== 0) && (
+                      <span className="text-[#a3ff12] font-bold">
+                        • Sounding Key: {soundingChordName}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Audio Playback Triggers */}
+                <div className="flex items-center space-x-2">
+                  <button
+                    id="btn-chord-downstrum"
+                    onClick={() => handleStrum(selectedChord, "down")}
+                    className="flex items-center space-x-1.5 px-3.5 py-2 rounded-xl bg-white/5 border border-white/5 text-xs font-mono text-zinc-200 hover:text-white hover:border-[#a3ff12]/40 transition-all cursor-pointer"
+                  >
+                    <ArrowDown className="w-3.5 h-3.5 text-[#a3ff12]" />
+                    <span>DOWNSTRUM</span>
+                  </button>
+
+                  <button
+                    id="btn-chord-upstrum"
+                    onClick={() => handleStrum(selectedChord, "up")}
+                    className="flex items-center space-x-1.5 px-3.5 py-2 rounded-xl bg-white/5 border border-white/5 text-xs font-mono text-zinc-200 hover:text-white hover:border-[#a3ff12]/40 transition-all cursor-pointer"
+                  >
+                    <ArrowUp className="w-3.5 h-3.5 text-[#a3ff12]" />
+                    <span>UPSTRUM</span>
+                  </button>
+
+                  <button
+                    id="btn-chord-arpeggio"
+                    onClick={() => handleArpeggio(selectedChord)}
+                    className="flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-[#a3ff12] hover:bg-[#92eb10] text-black font-extrabold text-xs cursor-pointer shadow-[0_0_15px_rgba(163,255,18,0.3)]"
+                  >
+                    <Music className="w-3.5 h-3.5" />
+                    <span>ARPEGGIO</span>
+                  </button>
+                </div>
               </div>
-              <div className="flex items-center space-x-2 text-xs font-mono text-zinc-400 mt-1">
-                <span>Voicing: {selectedChord.notes?.join(" - ") || "Root, 3rd, 5th"}</span>
-                {(capoFret > 0 || transposeOffset !== 0) && (
-                  <span className="text-[#a3ff12] font-bold">
-                    • Sounding Key: {soundingChordName}
-                  </span>
-                )}
+
+              {/* SVG Fretboard Chord Diagram (Click dots/strings to pluck single notes) */}
+              <div className="flex flex-col justify-center items-center py-2">
+                <div className="text-[10px] font-mono text-zinc-500 mb-2">
+                  💡 Click any string nut or finger dot to pluck individual note
+                </div>
+                <div className="bg-[#0a0c0e]/60 p-6 rounded-2xl border border-white/5 shadow-2xl">
+                  <ChordDiagram
+                    frets={selectedChord.frets}
+                    fingers={selectedChord.fingers}
+                    barre={selectedChord.barre}
+                    cagedShape={selectedChord.cagedShape}
+                    position={selectedChord.baseFret}
+                    onPluck={handleSingleStringPluck}
+                  />
+                </div>
               </div>
+            </>
+          ) : (
+            <div className="flex-1 flex flex-col items-center justify-center text-zinc-500 font-mono text-sm">
+              <BookOpen className="w-12 h-12 mb-4 opacity-50" />
+              <p>No valid voicings found for this chord.</p>
+              <p className="text-xs mt-2 opacity-70">Try a different query or quality.</p>
             </div>
+          )}
 
-            {/* Audio Playback Triggers */}
-            <div className="flex items-center space-x-2">
-              <button
-                id="btn-chord-downstrum"
-                onClick={() => handleStrum(selectedChord, "down")}
-                className="flex items-center space-x-1.5 px-3.5 py-2 rounded-xl bg-white/5 border border-white/5 text-xs font-mono text-zinc-200 hover:text-white hover:border-[#a3ff12]/40 transition-all cursor-pointer"
-              >
-                <ArrowDown className="w-3.5 h-3.5 text-[#a3ff12]" />
-                <span>DOWNSTRUM</span>
-              </button>
-
-              <button
-                id="btn-chord-upstrum"
-                onClick={() => handleStrum(selectedChord, "up")}
-                className="flex items-center space-x-1.5 px-3.5 py-2 rounded-xl bg-white/5 border border-white/5 text-xs font-mono text-zinc-200 hover:text-white hover:border-[#a3ff12]/40 transition-all cursor-pointer"
-              >
-                <ArrowUp className="w-3.5 h-3.5 text-[#a3ff12]" />
-                <span>UPSTRUM</span>
-              </button>
-
-              <button
-                id="btn-chord-arpeggio"
-                onClick={() => handleArpeggio(selectedChord)}
-                className="flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-[#a3ff12] hover:bg-[#92eb10] text-black font-extrabold text-xs cursor-pointer shadow-[0_0_15px_rgba(163,255,18,0.3)]"
-              >
-                <Music className="w-3.5 h-3.5" />
-                <span>ARPEGGIO</span>
-              </button>
-            </div>
-          </div>
-
-          {/* SVG Fretboard Chord Diagram (Click dots/strings to pluck single notes) */}
-          <div className="flex flex-col justify-center items-center py-2">
-            <div className="text-[10px] font-mono text-zinc-500 mb-2">
-              💡 Click any string nut or finger dot to pluck individual note
-            </div>
-            <div className="bg-[#0a0c0e]/60 p-6 rounded-2xl border border-white/5 shadow-2xl">
-              <ChordDiagram
-                frets={selectedChord.frets}
-                fingers={selectedChord.fingers}
-                barre={selectedChord.barre}
-                cagedShape={selectedChord.cagedShape}
-                position={selectedChord.baseFret}
-                onPluck={handleSingleStringPluck}
+          {/* Full Fretboard Map */}
+          {selectedChord && (
+            <div className="pt-4 border-t border-white/5">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-bold text-white font-mono">FRETBOARD MAP</h3>
+              </div>
+              <FretboardView 
+                chord={buildChord(selectedChord.root, selectedChord.quality)} 
+                fretsCount={15} 
+                showMode="chord" 
               />
             </div>
-          </div>
+          )}
 
           {/* Capo & Transposition & Strum Speed Bar */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
