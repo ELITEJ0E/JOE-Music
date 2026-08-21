@@ -1,29 +1,10 @@
-import { useState, useEffect, useCallback, useRef } from "react";
-import { SunoPlaylistResponse, SunoTrack, MY_SUNO_PLAYLISTS } from "../lib/suno-playlists";
-
-interface UseSunoPlaylistResult {
-  playlist: SunoPlaylistResponse | null;
-  tracks: SunoTrack[];
-  isLoading: boolean;
-  isLoadingMore: boolean;
-  error: string | null;
-  page: number;
-  hasMore: boolean;
-  refresh: () => Promise<void>;
-  loadMore: () => Promise<void>;
-}
-
-// Built-in fail-safe songs manifest for static hosting / Vercel SPA
-const CLIENT_FALLBACK_PLAYLISTS: Record<string, SunoPlaylistResponse> = {
+// Curated high-fidelity song database for Joel's tracks
+const DEFAULT_PLAYLIST_DATA: Record<string, any> = {
   "ff247038-e0ae-4778-989d-0529e575027b": {
-    id: "ff247038-e0ae-4778-989d-0529e575027b",
     title: "Joel's Originals",
-    name: "Joel's Originals",
     description: "Original songs, pop funk rhythms, and exclusive compositions",
+    category: "Originals",
     imageUrl: "https://cdn2.suno.ai/1bc7ee09-ee52-487a-85c7-568e961bbc3d.jpeg",
-    userDisplayName: "ELITEJOE",
-    totalTracks: 5,
-    hasMore: false,
     tracks: [
       {
         id: "bd216e5e-4604-48e2-ac6e-7f1698044908",
@@ -83,14 +64,10 @@ const CLIENT_FALLBACK_PLAYLISTS: Record<string, SunoPlaylistResponse> = {
     ]
   },
   "627c2d15-0cca-4c07-91b3-5f203c981e6e": {
-    id: "627c2d15-0cca-4c07-91b3-5f203c981e6e",
     title: "Worship & Praise",
-    name: "Worship & Praise",
     description: "Devotional songs, acoustic guitar arrangements, and uplifting melodies",
+    category: "Worship",
     imageUrl: "https://cdn2.suno.ai/7697a8ed-b029-451b-b54f-e5ba5b947890.jpeg",
-    userDisplayName: "ELITEJOE",
-    totalTracks: 2,
-    hasMore: false,
     tracks: [
       {
         id: "37bc2d3a-a30d-4d27-9ca4-d8f727463931",
@@ -117,14 +94,10 @@ const CLIENT_FALLBACK_PLAYLISTS: Record<string, SunoPlaylistResponse> = {
     ]
   },
   "34ac065b-e68e-4dfa-9780-00c49bae047a": {
-    id: "34ac065b-e68e-4dfa-9780-00c49bae047a",
     title: "Upcoming Releases",
-    name: "Upcoming Releases",
     description: "Fresh tracks, guitar vibes, and synth-pop arrangements",
+    category: "Upcoming",
     imageUrl: "https://cdn2.suno.ai/1efe9cb2-dd3b-47c4-b0ad-c8efa5e4e139.jpeg",
-    userDisplayName: "ELITEJOE",
-    totalTracks: 2,
-    hasMore: false,
     tracks: [
       {
         id: "6234dc9e-ba8b-46f6-a071-67ade0b1da8c",
@@ -152,127 +125,93 @@ const CLIENT_FALLBACK_PLAYLISTS: Record<string, SunoPlaylistResponse> = {
   }
 };
 
-// In-memory cache for fast responsive playlist switching
-const playlistCache = new Map<string, { data: SunoPlaylistResponse; timestamp: number }>();
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes cache
-
-export function useSunoPlaylist(playlistId: string): UseSunoPlaylistResult {
-  const [playlist, setPlaylist] = useState<SunoPlaylistResponse | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [isLoadingMore, setIsLoadingMore] = useState<boolean>(false);
-  const [error, setError] = useState<string | null>(null);
-  const [page, setPage] = useState<number>(1);
-  const isMountedRef = useRef<boolean>(true);
-
-  useEffect(() => {
-    isMountedRef.current = true;
-    return () => {
-      isMountedRef.current = false;
-    };
-  }, []);
-
-  const fetchPlaylistData = useCallback(
-    async (targetPage: number = 1, append: boolean = false) => {
-      if (!playlistId) return;
-
-      const cacheKey = `${playlistId}-p-${targetPage}`;
-      const cached = playlistCache.get(cacheKey);
-      const isFresh = cached && Date.now() - cached.timestamp < CACHE_TTL_MS;
-
-      if (isFresh && !append) {
-        setPlaylist(cached.data);
-        setIsLoading(false);
-        setError(null);
-        return;
-      }
-
-      if (append) {
-        setIsLoadingMore(true);
-      } else {
-        setIsLoading(true);
-      }
-      setError(null);
-
-      try {
-        const res = await fetch(`/api/suno-playlist?id=${encodeURIComponent(playlistId)}&page=${targetPage}`);
-        
-        // Handle cases where Vercel or host serves HTML index.html on 404 or missing server route
-        const contentType = res.headers.get("content-type") || "";
-        if (!res.ok || !contentType.includes("application/json")) {
-          throw new Error(`Endpoint returned status ${res.status}`);
-        }
-
-        const data: SunoPlaylistResponse = await res.json();
-
-        if (isMountedRef.current) {
-          playlistCache.set(cacheKey, { data, timestamp: Date.now() });
-
-          setPlaylist((prev) => {
-            if (!prev || !append) {
-              return data;
-            }
-            const existingIds = new Set(prev.tracks.map((t) => t.id));
-            const newUniqueTracks = data.tracks.filter((t) => !existingIds.has(t.id));
-            return {
-              ...data,
-              tracks: [...prev.tracks, ...newUniqueTracks],
-            };
-          });
-
-          setPage(targetPage);
-        }
-      } catch (err: any) {
-        console.warn("API proxy unavailable, switching to local catalog fallback:", err?.message);
-        
-        // Instant graceful client-side fallback for static Vercel deployments
-        const fallback = CLIENT_FALLBACK_PLAYLISTS[playlistId] || CLIENT_FALLBACK_PLAYLISTS["ff247038-e0ae-4778-989d-0529e575027b"];
-        if (isMountedRef.current && fallback) {
-          playlistCache.set(cacheKey, { data: fallback, timestamp: Date.now() });
-          setPlaylist(fallback);
-          setError(null);
-        } else if (isMountedRef.current) {
-          setError("Failed to fetch playlist data.");
-        }
-      } finally {
-        if (isMountedRef.current) {
-          setIsLoading(false);
-          setIsLoadingMore(false);
-        }
-      }
-    },
-    [playlistId]
+export default async function handler(req: any, res: any) {
+  // Enable CORS
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS");
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version"
   );
 
-  useEffect(() => {
-    setPage(1);
-    fetchPlaylistData(1, false);
-  }, [playlistId, fetchPlaylistData]);
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
 
-  const refresh = useCallback(async () => {
-    for (const key of playlistCache.keys()) {
-      if (key.startsWith(playlistId)) {
-        playlistCache.delete(key);
+  const rawId = (req.query?.id as string) || "ff247038-e0ae-4778-989d-0529e575027b";
+  const targetId = rawId.trim();
+
+  // Try live fetch with headers if possible
+  try {
+    const sunoApiUrl = `https://studio-api.suno.ai/api/playlist/${targetId}/?page=1`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4000);
+
+    const response = await fetch(sunoApiUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+      },
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    if (response.ok) {
+      const data = await response.json();
+      const rawClips = data.playlist_clips || data.clips || data.items || [];
+      if (rawClips.length > 0) {
+        const tracks = rawClips.map((item: any) => {
+          const clip = item.clip || item;
+          const clipId = clip.id || clip.clip_id || `trk-${Math.random().toString(36).slice(2, 9)}`;
+          const audioUrl = clip.audio_url || clip.audioUrl || `https://cdn1.suno.ai/${clipId}.mp3`;
+          const rawImg = clip.image_large_url || clip.image_url || clip.imageUrl;
+          const imageUrl = rawImg || `https://cdn2.suno.ai/image_${clipId}.jpeg`;
+
+          return {
+            id: clipId,
+            title: clip.title || "Untitled Composition",
+            artist: clip.display_name || clip.handle || data.user_display_name || "ELITEJOE",
+            album: data.name || "Joel's Originals",
+            duration: Math.round(clip.metadata?.duration || clip.duration || 185),
+            audioUrl: audioUrl,
+            audio_url: audioUrl,
+            imageUrl: imageUrl,
+            image_url: imageUrl,
+            lyrics: clip.metadata?.prompt || clip.prompt || clip.lyrics || "",
+            tags: ["Guitar", "Original"],
+            createdAt: clip.created_at || new Date().toISOString(),
+          };
+        });
+
+        return res.status(200).json({
+          id: rawId,
+          title: data.name || "Joel's Originals",
+          name: data.name || "Joel's Originals",
+          description: data.description || "Original music by ELITEJOE.",
+          imageUrl: data.image_url || "https://cdn2.suno.ai/1bc7ee09-ee52-487a-85c7-568e961bbc3d.jpeg",
+          userDisplayName: data.user_display_name || "ELITEJOE",
+          tracks: tracks,
+          totalTracks: data.num_total_results || tracks.length,
+          hasMore: false,
+        });
       }
     }
-    setPage(1);
-    await fetchPlaylistData(1, false);
-  }, [playlistId, fetchPlaylistData]);
+  } catch (err) {
+    // Fall through to instant fallback
+  }
 
-  const loadMore = useCallback(async () => {
-    if (isLoading || isLoadingMore) return;
-    const nextPage = page + 1;
-    await fetchPlaylistData(nextPage, true);
-  }, [isLoading, isLoadingMore, page, fetchPlaylistData]);
-
-  return {
-    playlist,
-    tracks: playlist?.tracks || [],
-    isLoading,
-    isLoadingMore,
-    error,
-    page,
-    hasMore: Boolean(playlist?.tracks && playlist.tracks.length >= 20),
-    refresh,
-    loadMore,
-  };
+  // Resilient static catalog fallback for Vercel
+  const fallback = DEFAULT_PLAYLIST_DATA[targetId] || DEFAULT_PLAYLIST_DATA["ff247038-e0ae-4778-989d-0529e575027b"];
+  return res.status(200).json({
+    id: rawId,
+    title: fallback.title,
+    name: fallback.title,
+    description: fallback.description,
+    imageUrl: fallback.imageUrl,
+    userDisplayName: "ELITEJOE",
+    tracks: fallback.tracks,
+    totalTracks: fallback.tracks.length,
+    hasMore: false,
+  });
 }

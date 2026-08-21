@@ -10,6 +10,7 @@ export interface SunoTrack {
   id: string;
   title: string;
   artist: string;
+  album?: string;
   audioUrl: string;
   videoUrl?: string | null;
   imageUrl: string;
@@ -28,6 +29,8 @@ export interface SunoPlaylistResponse {
   title?: string;
   description: string;
   imageUrl?: string;
+  userDisplayName?: string;
+  hasMore?: boolean;
   tracks: SunoTrack[];
   totalTracks: number;
 }
