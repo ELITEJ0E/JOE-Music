@@ -14,6 +14,13 @@ import { GUITAR_TUNINGS } from "../data/tuningsDatabase";
 import { SCALES_DATABASE } from "../data/scalesDatabase";
 import { guitarSynth } from "../audio/guitarSynth";
 import { ScaleDefinition, GuitarTuning } from "../types";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./ui/select";
 
 const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 const OPEN_STRING_BASE_SEMITONES = [4, 9, 2, 7, 11, 4]; // E2 (4), A2 (9), D3 (2), G3 (7), B3 (11), E4 (4)
@@ -167,20 +174,24 @@ export const FretboardViewer: React.FC<FretboardViewerProps> = ({ mode = "fretbo
             <label className="text-[11px] font-mono text-zinc-400 uppercase tracking-wider block">
               Scale Mode / Formula
             </label>
-            <select
+            <Select
               value={selectedScale.name}
-              onChange={(e) => {
-                const s = SCALES_DATABASE.find((sc) => sc.name === e.target.value);
+              onValueChange={(val) => {
+                const s = SCALES_DATABASE.find((sc) => sc.name === val);
                 if (s) setSelectedScale(s);
               }}
-              className="w-full bg-[#0a0c0e]/80 text-xs font-mono text-white border border-white/10 rounded-xl px-3 py-2 focus:outline-none focus:border-[#a3ff12]"
             >
-              {SCALES_DATABASE.map((sc) => (
-                <option key={sc.name} value={sc.name} className="bg-[#13161a]">
-                  {sc.name} ({sc.category})
-                </option>
-              ))}
-            </select>
+              <SelectTrigger className="h-9 text-xs font-mono px-3 bg-[#0a0c0e]/80 border-white/10 rounded-xl focus:border-[#a3ff12]">
+                <SelectValue placeholder="Select Scale" />
+              </SelectTrigger>
+              <SelectContent>
+                {SCALES_DATABASE.map((sc) => (
+                  <SelectItem key={sc.name} value={sc.name}>
+                    {sc.name} ({sc.category})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Guitar Tuning Dropdown */}
@@ -188,20 +199,24 @@ export const FretboardViewer: React.FC<FretboardViewerProps> = ({ mode = "fretbo
             <label className="text-[11px] font-mono text-zinc-400 uppercase tracking-wider block">
               Instrument Tuning
             </label>
-            <select
+            <Select
               value={selectedTuning.name}
-              onChange={(e) => {
-                const t = GUITAR_TUNINGS.find((tn) => tn.name === e.target.value);
+              onValueChange={(val) => {
+                const t = GUITAR_TUNINGS.find((tn) => tn.name === val);
                 if (t) setSelectedTuning(t);
               }}
-              className="w-full bg-[#0a0c0e]/80 text-xs font-mono text-white border border-white/10 rounded-xl px-3 py-2 focus:outline-none focus:border-[#a3ff12]"
             >
-              {GUITAR_TUNINGS.map((tn) => (
-                <option key={tn.name} value={tn.name} className="bg-[#13161a]">
-                  {tn.name}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger className="h-9 text-xs font-mono px-3 bg-[#0a0c0e]/80 border-white/10 rounded-xl focus:border-[#a3ff12]">
+                <SelectValue placeholder="Select Tuning" />
+              </SelectTrigger>
+              <SelectContent>
+                {GUITAR_TUNINGS.map((tn) => (
+                  <SelectItem key={tn.name} value={tn.name}>
+                    {tn.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Display Label Mode Toggle */}
@@ -251,18 +266,22 @@ export const FretboardViewer: React.FC<FretboardViewerProps> = ({ mode = "fretbo
           <div className="flex items-center space-x-4">
             <div className="flex items-center space-x-2 text-xs font-mono text-zinc-400">
               <span>Capo:</span>
-              <select
-                value={capoFret}
-                onChange={(e) => setCapoFret(parseInt(e.target.value, 10))}
-                className="bg-[#0a0c0e]/80 text-xs font-mono text-[#a3ff12] font-bold border border-white/10 rounded-lg px-2 py-1 focus:outline-none focus:border-[#a3ff12]"
+              <Select
+                value={String(capoFret)}
+                onValueChange={(val) => setCapoFret(parseInt(val, 10))}
               >
-                <option value={0} className="bg-[#13161a]">Open (No Capo)</option>
-                {Array.from({ length: 12 }).map((_, i) => (
-                  <option key={i + 1} value={i + 1} className="bg-[#13161a]">
-                    Fret {i + 1} (+{i + 1} st)
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger className="h-[28px] text-xs font-mono text-[#a3ff12] font-bold border-white/10 rounded-lg px-2 bg-[#0a0c0e]/80 w-[140px] focus:ring-0">
+                  <SelectValue placeholder="Capo Fret" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="0">Open (No Capo)</SelectItem>
+                  {Array.from({ length: 12 }).map((_, i) => (
+                    <SelectItem key={i + 1} value={String(i + 1)}>
+                      Fret {i + 1} (+{i + 1} st)
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="flex items-center space-x-2 text-xs font-mono text-zinc-400">

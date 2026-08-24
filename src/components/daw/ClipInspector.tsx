@@ -1,7 +1,8 @@
-import React from "react";
+import React, { useState } from "react";
 import { X, Sliders, Scissors, Copy, Trash2, Download, Volume2, Sparkles } from "lucide-react";
 import { AudioClip } from "../../types";
 import { audioBufferToWavBlob } from "../../audio/wavEncoder";
+import { CustomConfirmDialog } from "../ui/CustomConfirmDialog";
 
 interface ClipInspectorProps {
   clip: AudioClip;
@@ -26,6 +27,21 @@ export const ClipInspector: React.FC<ClipInspectorProps> = ({
   onDuplicateClip,
   onDeleteClip,
 }) => {
+  const [dialog, setDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    confirmText?: string;
+    cancelText?: string;
+    onConfirm: () => void;
+    type?: "confirm" | "alert" | "error" | "success";
+  }>({
+    isOpen: false,
+    title: "",
+    message: "",
+    onConfirm: () => {},
+  });
+
   const handleDownloadWav = () => {
     if (!clip.audioBuffer && !clip.audioBlob) return;
     const blob = clip.audioBlob || (clip.audioBuffer ? audioBufferToWavBlob(clip.audioBuffer) : null);
@@ -174,7 +190,14 @@ export const ClipInspector: React.FC<ClipInspectorProps> = ({
                 onSplitAtPlayhead(clip.id);
                 onClose();
               } else {
-                alert("Place the playhead inside this clip to split.");
+                setDialog({
+                  isOpen: true,
+                  title: "Invalid Playhead Position",
+                  message: "Place the playhead inside this clip first to split it.",
+                  confirmText: "OK",
+                  type: "alert",
+                  onConfirm: () => setDialog((prev) => ({ ...prev, isOpen: false })),
+                });
               }
             }}
             disabled={!isPlayheadInside}
@@ -212,10 +235,19 @@ export const ClipInspector: React.FC<ClipInspectorProps> = ({
 
           <button
             onClick={() => {
-              if (confirm("Delete this audio clip?")) {
-                onDeleteClip(clip.id);
-                onClose();
-              }
+              setDialog({
+                isOpen: true,
+                title: "Delete Audio Clip",
+                message: "Are you sure you want to delete this audio clip? This action is irreversible.",
+                confirmText: "Delete",
+                cancelText: "Cancel",
+                type: "confirm",
+                onConfirm: () => {
+                  onDeleteClip(clip.id);
+                  onClose();
+                  setDialog((prev) => ({ ...prev, isOpen: false }));
+                },
+              });
             }}
             className="text-xs font-mono text-rose-400 hover:text-rose-300 flex items-center gap-1.5"
           >
@@ -224,6 +256,17 @@ export const ClipInspector: React.FC<ClipInspectorProps> = ({
           </button>
         </div>
       </div>
+
+      <CustomConfirmDialog
+        isOpen={dialog.isOpen}
+        title={dialog.title}
+        message={dialog.message}
+        confirmText={dialog.confirmText}
+        cancelText={dialog.cancelText}
+        type={dialog.type}
+        onConfirm={dialog.onConfirm}
+        onCancel={() => setDialog((prev) => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 };

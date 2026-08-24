@@ -165,6 +165,10 @@ class AudioEngineManager {
   public getIsInputReady(): boolean {
     return this.inputState === "READY" || this.inputState === "MONITORING" || this.inputState === "RECORDING";
   }
+  
+  public getMicStreamTracksCount(): number {
+    return this.micStream ? this.micStream.getTracks().length : 0;
+  }
 
   /**
    * Acquire shared hardware audio input with reference counting.

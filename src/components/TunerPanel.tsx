@@ -11,6 +11,7 @@ import { analyzePitchFrame } from "../audio/pitchDetector";
 import { guitarSynth } from "../audio/guitarSynth";
 import { GUITAR_TUNINGS } from "../data/tuningsDatabase";
 import { GuitarTuning, TunerResult } from "../types";
+import { CustomConfirmDialog } from "./ui/CustomConfirmDialog";
 
 const BASS_TUNINGS: GuitarTuning[] = [
   {
@@ -59,6 +60,20 @@ export const TunerPanel: React.FC = () => {
   const [smoothedFreq, setSmoothedFreq] = useState<number>(0);
   const [playingRefToneIdx, setPlayingRefToneIdx] = useState<number | null>(null);
   const [lockedStringIdx, setLockedStringIdx] = useState<number | null>(null);
+  const [dialog, setDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    confirmText?: string;
+    cancelText?: string;
+    onConfirm: () => void;
+    type?: "confirm" | "alert" | "error" | "success";
+  }>({
+    isOpen: false,
+    title: "",
+    message: "",
+    onConfirm: () => {},
+  });
 
   const stopToneRef = useRef<(() => void) | null>(null);
   const animRef = useRef<number | null>(null);
@@ -146,6 +161,7 @@ export const TunerPanel: React.FC = () => {
       });
 
     let lastDetectTime = 0;
+    let lastFrequency = 0;
 
     const loop = (currentTime: number) => {
       if (!isMounted) return;
@@ -161,10 +177,12 @@ export const TunerPanel: React.FC = () => {
             bufferRef.current,
             ctx.sampleRate,
             targetFreqs,
-            440
+            440,
+            lastFrequency
           );
 
           if (result) {
+            lastFrequency = result.frequency;
             if (lockedStringIdx !== null && activeTuning.frequencies[lockedStringIdx]) {
               const stringFreq = activeTuning.frequencies[lockedStringIdx];
               result.stringIndex = lockedStringIdx;
@@ -214,7 +232,14 @@ export const TunerPanel: React.FC = () => {
         await audioEngine.acquireInput("tuner", { enableMonitoring: false });
         setIsListening(true);
       } catch (err) {
-        alert("Microphone permission is required for tuning.");
+        setDialog({
+          isOpen: true,
+          title: "Microphone Access Required",
+          message: "Please authorize microphone access to use the high-accuracy guitar tuner.",
+          confirmText: "OK",
+          type: "alert",
+          onConfirm: () => setDialog((prev) => ({ ...prev, isOpen: false })),
+        });
       }
     } else {
       setIsListening(false);
@@ -507,6 +532,17 @@ export const TunerPanel: React.FC = () => {
           )}
         </div>
       </div>
+
+      <CustomConfirmDialog
+        isOpen={dialog.isOpen}
+        title={dialog.title}
+        message={dialog.message}
+        confirmText={dialog.confirmText}
+        cancelText={dialog.cancelText}
+        type={dialog.type}
+        onConfirm={dialog.onConfirm}
+        onCancel={() => setDialog((prev) => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 };

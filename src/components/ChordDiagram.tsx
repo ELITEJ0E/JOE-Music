@@ -15,6 +15,7 @@ export interface ChordDiagramProps {
   showPositionLabel?: boolean;
   onPluck?: (stringIdx: number, fret: number) => void;
   className?: string;
+  capo?: number;
 }
 
 /**
@@ -69,6 +70,7 @@ export const ChordDiagram: React.FC<ChordDiagramProps> = ({
   showPositionLabel = true,
   onPluck,
   className = "",
+  capo = 0,
 }) => {
   // Calculate automatic display starting fret
   const startFret = calculateStartFret(frets, barre, position);
@@ -107,14 +109,29 @@ export const ChordDiagram: React.FC<ChordDiagramProps> = ({
       >
         {/* Nut (Open Position) or Top Fret Wire (Higher Position) */}
         {isOpenPosition ? (
-          <rect
-            x={startX - 1}
-            y={topY - 4}
-            width={gridWidth + 2}
-            height={6}
-            fill="#a3ff12"
-            rx="3"
-          />
+          <g>
+            <rect
+              x={startX - 1}
+              y={topY - 4}
+              width={gridWidth + 2}
+              height={6}
+              fill={capo > 0 ? "#38bdf8" : "#a3ff12"}
+              rx="3"
+            />
+            {capo > 0 && showPositionLabel && (
+              <text
+                x={startX - 6}
+                y={topY + 1}
+                fill="#38bdf8"
+                fontSize="10"
+                fontFamily="monospace"
+                fontWeight="bold"
+                textAnchor="end"
+              >
+                Capo {capo}
+              </text>
+            )}
+          </g>
         ) : (
           <line
             x1={startX}
@@ -319,18 +336,18 @@ export const ChordDiagram: React.FC<ChordDiagramProps> = ({
         })}
 
         {/* Optional CAGED Shape Subtitle Badge in SVG */}
-        {cagedShape && (
+        {(cagedShape || capo > 0) && (
           <text
             x="120"
             y="248"
-            fill="#a3ff12"
+            fill={capo > 0 ? "#38bdf8" : "#a3ff12"}
             fontSize="10"
             fontFamily="monospace"
             fontWeight="bold"
             textAnchor="middle"
-            opacity={0.8}
+            opacity={0.9}
           >
-            {cagedShape}-SHAPE • {isOpenPosition ? "OPEN POSITION" : `${startFret}TH FRET`}
+            {cagedShape ? `${cagedShape}-SHAPE • ` : ""}{capo > 0 ? `CAPO FRET ${capo}` : isOpenPosition ? "OPEN POSITION" : `${startFret}TH FRET`}
           </text>
         )}
       </svg>

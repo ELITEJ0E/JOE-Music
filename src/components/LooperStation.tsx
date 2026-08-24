@@ -19,6 +19,7 @@ import { looperEngine } from "../audio/looperEngine";
 import { audioEngine } from "../audio/audioContext";
 import { LooperTrack, DAWProject, WorkstationMode } from "../types";
 import { saveProjectToDB, saveLooperSessionToDB } from "../utils/storage";
+import { CustomConfirmDialog } from "./ui/CustomConfirmDialog";
 
 interface LooperStationProps {
   onSelectMode?: (mode: WorkstationMode) => void;
@@ -31,6 +32,21 @@ export const LooperStation: React.FC<LooperStationProps> = ({ onSelectMode, onCo
   const [progress, setProgress] = useState<number>(0);
   const [isMicActive, setIsMicActive] = useState<boolean>(audioEngine.getIsMicActive());
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const [dialog, setDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    confirmText?: string;
+    cancelText?: string;
+    onConfirm: () => void;
+    type?: "confirm" | "alert" | "error" | "success";
+  }>({
+    isOpen: false,
+    title: "",
+    message: "",
+    onConfirm: () => {},
+  });
 
   useEffect(() => {
     const unsubState = looperEngine.subscribeState(() => {
@@ -67,10 +83,19 @@ export const LooperStation: React.FC<LooperStationProps> = ({ onSelectMode, onCo
   };
 
   const handleClearAll = () => {
-    if (confirm("Clear all recorded loop tracks?")) {
-      looperEngine.clearAll();
-      showToast("All loop tracks cleared.");
-    }
+    setDialog({
+      isOpen: true,
+      title: "Clear Loop Tracks",
+      message: "Are you sure you want to clear all recorded loop tracks? This action is irreversible.",
+      confirmText: "Clear All",
+      cancelText: "Cancel",
+      type: "confirm",
+      onConfirm: () => {
+        looperEngine.clearAll();
+        showToast("All loop tracks cleared.");
+        setDialog((prev) => ({ ...prev, isOpen: false }));
+      },
+    });
   };
 
   const handleToggleMic = async () => {
@@ -81,7 +106,14 @@ export const LooperStation: React.FC<LooperStationProps> = ({ onSelectMode, onCo
         await audioEngine.acquireInput("looper-input");
       }
     } catch (err) {
-      alert("Microphone permission required for guitar recording.");
+      setDialog({
+        isOpen: true,
+        title: "Microphone Access Required",
+        message: "Microphone/audio input permission is required for real-time guitar recording.",
+        confirmText: "OK",
+        type: "alert",
+        onConfirm: () => setDialog((prev) => ({ ...prev, isOpen: false })),
+      });
     }
   };
 
@@ -546,6 +578,17 @@ export const LooperStation: React.FC<LooperStationProps> = ({ onSelectMode, onCo
           </div>
         </div>
       </div>
+
+      <CustomConfirmDialog
+        isOpen={dialog.isOpen}
+        title={dialog.title}
+        message={dialog.message}
+        confirmText={dialog.confirmText}
+        cancelText={dialog.cancelText}
+        type={dialog.type}
+        onConfirm={dialog.onConfirm}
+        onCancel={() => setDialog((prev) => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 };

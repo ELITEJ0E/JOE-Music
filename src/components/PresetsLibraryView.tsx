@@ -13,6 +13,13 @@ import {
 import { TonePreset } from "../types";
 import { DEFAULT_TONE_PRESETS } from "../data/presetsDatabase";
 import { pedalboardDsp } from "../audio/pedalboardDsp";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./ui/select";
 
 interface PresetsLibraryViewProps {
   onSelectTonePreset?: (preset: TonePreset) => void;
@@ -184,21 +191,25 @@ export const PresetsLibraryView: React.FC<PresetsLibraryViewProps> = ({
         </div>
 
         {/* Genre Dropdown */}
-        <div className="flex items-center gap-2 pl-2">
+        <div className="flex items-center gap-2 pl-2 min-w-[140px]">
           <span className="text-[10px] font-mono font-bold text-zinc-400 uppercase">GENRE:</span>
-          <select
+          <Select
             value={selectedGenre}
-            onChange={(e) => setSelectedGenre(e.target.value)}
-            className="bg-white/5 border border-white/10 rounded-xl px-3 py-1.5 text-xs font-mono text-zinc-200 focus:outline-none focus:border-[#a3ff12]"
+            onValueChange={(val) => setSelectedGenre(val)}
           >
-            <option value="All Genres">All Genres</option>
-            <option value="Ambient">Ambient</option>
-            <option value="Metal">Metal</option>
-            <option value="Blues">Blues</option>
-            <option value="Clean">Clean</option>
-            <option value="Rock">Rock</option>
-            <option value="Funk">Funk</option>
-          </select>
+            <SelectTrigger className="h-8 text-xs font-mono px-3 bg-white/5 border-white/10 rounded-xl focus:border-[#a3ff12]">
+              <SelectValue placeholder="Genre" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="All Genres">All Genres</SelectItem>
+              <SelectItem value="Ambient">Ambient</SelectItem>
+              <SelectItem value="Metal">Metal</SelectItem>
+              <SelectItem value="Blues">Blues</SelectItem>
+              <SelectItem value="Clean">Clean</SelectItem>
+              <SelectItem value="Rock">Rock</SelectItem>
+              <SelectItem value="Funk">Funk</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       </div>
 

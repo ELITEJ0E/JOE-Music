@@ -1,3 +1,4 @@
+import { X } from "lucide-react";
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   SkipBack,
@@ -49,6 +50,13 @@ import {
   DEFAULT_TRACK_EQ,
   DEFAULT_TRACK_INSERT_EFFECTS,
 } from "../types";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./ui/select";
 
 export interface BusChannelState {
   id: string;
@@ -83,10 +91,11 @@ import { ClipInspector } from "./daw/ClipInspector";
 import { ProjectsModal } from "./daw/ProjectsModal";
 import { LooperStation } from "./LooperStation";
 import { DrumMetronome } from "./DrumMetronome";
+import { CustomConfirmDialog } from "./ui/CustomConfirmDialog";
 
 const DEFAULT_PROJECT_ID = "project-default-session";
 
-type StudioTab = "timeline" | "looper" | "drums" | "mixer" | "projects";
+type StudioTab = "tracks" | "looper" | "drums" | "mixer" | "projects";
 
 import { SunoSong } from "./SongsLibraryView";
 
@@ -95,7 +104,7 @@ interface MultiTrackStudioProps {
 }
 
 export const MultiTrackStudio: React.FC<MultiTrackStudioProps> = ({ initialSong }) => {
-  const [activeTab, setActiveTab] = useState<StudioTab>("timeline");
+  const [activeTab, setActiveTab] = useState<StudioTab>("tracks");
   const [project, setProject] = useState<DAWProject>({
     id: DEFAULT_PROJECT_ID,
     name: "Guitar Studio Session",
@@ -168,6 +177,20 @@ export const MultiTrackStudio: React.FC<MultiTrackStudioProps> = ({ initialSong 
 
   // Feedback & Operations
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [dialog, setDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    confirmText?: string;
+    cancelText?: string;
+    onConfirm: () => void;
+    type?: "confirm" | "alert" | "error" | "success";
+  }>({
+    isOpen: false,
+    title: "",
+    message: "",
+    onConfirm: () => {},
+  });
   const [isExportingMix, setIsExportingMix] = useState<boolean>(false);
   const [lastRecordedClipInfo, setLastRecordedClipInfo] = useState<{ trackId: string; clipId: string } | null>(null);
 
@@ -266,6 +289,13 @@ export const MultiTrackStudio: React.FC<MultiTrackStudioProps> = ({ initialSong 
 
   // Transport & Audio Engine Subscriptions
   useEffect(() => {
+    return () => {
+      audioEngine.releaseInput("daw-armed");
+      audioEngine.releaseInput("daw-recording");
+    };
+  }, []);
+
+  useEffect(() => {
     const unsubTransport = transport.subscribe((state) => {
       setTransportState({ ...state });
     });
@@ -316,8 +346,6 @@ export const MultiTrackStudio: React.FC<MultiTrackStudioProps> = ({ initialSong 
       unsubMic();
       unsubMon();
       clearInterval(meterInterval);
-      audioEngine.releaseInput("daw-armed");
-      audioEngine.releaseInput("daw-recording");
     };
   }, [project.tracks, isMicActive, transportState.isPlaying]);
 
@@ -439,7 +467,14 @@ export const MultiTrackStudio: React.FC<MultiTrackStudioProps> = ({ initialSong 
         }
 
         if (!armedTrack) {
-          alert("Please arm a track first to record guitar.");
+          setDialog({
+            isOpen: true,
+            title: "No Armed Track",
+            message: "Please select and arm a track first to record audio.",
+            confirmText: "OK",
+            type: "alert",
+            onConfirm: () => setDialog((prev) => ({ ...prev, isOpen: false })),
+          });
           return;
         }
 
@@ -527,7 +562,14 @@ export const MultiTrackStudio: React.FC<MultiTrackStudioProps> = ({ initialSong 
         dawEngine.startPlayback(project, curTime);
         transport.startRecording();
       } catch (err) {
-        alert("Please enable microphone / USB audio device to record guitar.");
+        setDialog({
+          isOpen: true,
+          title: "Audio Input Access Required",
+          message: "Please ensure your microphone or USB audio device is connected and authorized to record guitar.",
+          confirmText: "OK",
+          type: "alert",
+          onConfirm: () => setDialog((prev) => ({ ...prev, isOpen: false })),
+        });
         setCountInCountdown(null);
       }
     }
@@ -639,7 +681,14 @@ export const MultiTrackStudio: React.FC<MultiTrackStudioProps> = ({ initialSong 
     const clipEnd = clip.startTime + clip.duration;
 
     if (curPlayhead <= clipStart || curPlayhead >= clipEnd) {
-      alert("Place the playhead inside the clip to split.");
+      setDialog({
+        isOpen: true,
+        title: "Invalid Playhead Position",
+        message: "Place the playhead inside the clip boundaries first to split it.",
+        confirmText: "OK",
+        type: "alert",
+        onConfirm: () => setDialog((prev) => ({ ...prev, isOpen: false })),
+      });
       return;
     }
 
@@ -823,7 +872,14 @@ export const MultiTrackStudio: React.FC<MultiTrackStudioProps> = ({ initialSong 
   // Track Management: Delete Track
   const handleDeleteTrack = (trackId: string) => {
     if (project.tracks.length <= 1) {
-      alert("At least one track is required in the session.");
+      setDialog({
+        isOpen: true,
+        title: "Track Deletion Restricted",
+        message: "At least one track is required in the multi-track studio session. You cannot delete the last remaining track.",
+        confirmText: "OK",
+        type: "alert",
+        onConfirm: () => setDialog((prev) => ({ ...prev, isOpen: false })),
+      });
       return;
     }
     const updated = {
@@ -1015,6 +1071,19 @@ export const MultiTrackStudio: React.FC<MultiTrackStudioProps> = ({ initialSong 
     }
   };
 
+  const handleTrackInputSourceChange = (trackId: string, source: "dry" | "processed") => {
+    commitProjectChange(
+      {
+        ...project,
+        tracks: project.tracks.map((t) =>
+          t.id === trackId ? { ...t, inputSource: source === "dry" ? "dry" : "processed" } : t
+        ),
+      },
+      "Change Track Input Source",
+      false
+    );
+  };
+
   const handleToggleMonitoring = (trackId: string) => {
     setProject((prev) => ({
       ...prev,
@@ -1079,7 +1148,14 @@ export const MultiTrackStudio: React.FC<MultiTrackStudioProps> = ({ initialSong 
       setSelectedClipId(newClip.id);
       showToast(`Imported "${file.name}"!`);
     } catch (err) {
-      alert("Failed to decode audio file. Please try a standard WAV or MP3 file.");
+      setDialog({
+        isOpen: true,
+        title: "Audio Import Failed",
+        message: "Failed to decode the imported audio file. Please ensure it is a valid, uncorrupted WAV or MP3 file.",
+        confirmText: "OK",
+        type: "error",
+        onConfirm: () => setDialog((prev) => ({ ...prev, isOpen: false })),
+      });
     } finally {
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
@@ -1105,7 +1181,14 @@ export const MultiTrackStudio: React.FC<MultiTrackStudioProps> = ({ initialSong 
       URL.revokeObjectURL(url);
       showToast(`Stem "${track.name}" exported!`);
     } catch (err) {
-      alert("Stem export error: " + err);
+      setDialog({
+        isOpen: true,
+        title: "Stem Export Error",
+        message: `An error occurred during stem export: ${err instanceof Error ? err.message : String(err)}`,
+        confirmText: "OK",
+        type: "error",
+        onConfirm: () => setDialog((prev) => ({ ...prev, isOpen: false })),
+      });
     }
   };
 
@@ -1128,7 +1211,14 @@ export const MultiTrackStudio: React.FC<MultiTrackStudioProps> = ({ initialSong 
       URL.revokeObjectURL(url);
       showToast("Master Mixdown exported to WAV!");
     } catch (err) {
-      alert("Mixdown export failed: " + err);
+      setDialog({
+        isOpen: true,
+        title: "Mixdown Export Failed",
+        message: `An error occurred during master mixdown export: ${err instanceof Error ? err.message : String(err)}`,
+        confirmText: "OK",
+        type: "error",
+        onConfirm: () => setDialog((prev) => ({ ...prev, isOpen: false })),
+      });
     } finally {
       setIsExportingMix(false);
     }
@@ -1145,13 +1235,22 @@ export const MultiTrackStudio: React.FC<MultiTrackStudioProps> = ({ initialSong 
     showToast(`Loaded "${p.name}".`);
   };
 
-  const handleDeleteProject = async (pId: string) => {
-    if (confirm("Delete this project from library?")) {
-      await deleteProjectFromDB(pId);
-      const list = await loadProjectsFromDB(audioEngine.getContext());
-      setSavedProjects(list);
-      showToast("Project deleted.");
-    }
+  const handleDeleteSavedProject = async (pId: string) => {
+    setDialog({
+      isOpen: true,
+      title: "Delete Project",
+      message: "Are you sure you want to delete this project from your library? This action cannot be undone.",
+      confirmText: "Delete",
+      cancelText: "Cancel",
+      type: "confirm",
+      onConfirm: async () => {
+        await deleteProjectFromDB(pId);
+        const list = await loadProjectsFromDB(audioEngine.getContext());
+        setSavedProjects(list);
+        showToast("Project deleted.");
+        setDialog((prev) => ({ ...prev, isOpen: false }));
+      },
+    });
   };
 
   const handleNewProject = () => {
@@ -1206,7 +1305,7 @@ export const MultiTrackStudio: React.FC<MultiTrackStudioProps> = ({ initialSong 
     showToast("New project created.");
   };
 
-  const handleSaveAs = async (customName: string) => {
+  const handleSaveProject = async (customName: string) => {
     const updated: DAWProject = {
       ...project,
       name: customName,
@@ -1231,7 +1330,8 @@ export const MultiTrackStudio: React.FC<MultiTrackStudioProps> = ({ initialSong 
   const currentTick = Math.floor(((currentTotalBeats % 4) % 1) * 100);
 
   return (
-    <div id="panel-multitrack-studio" className="max-w-7xl mx-auto space-y-4 pb-16 animate-in fade-in duration-200">
+    <div id="panel-multitrack-studio" className="flex flex-col h-full w-full bg-[#0b0e14] text-white overflow-hidden animate-in fade-in duration-200">
+      
       {/* Toast Notification Banner */}
       {toastMessage && (
         <div className="fixed top-20 right-8 z-50 bg-[#16191f] border border-[#a3ff12] text-[#a3ff12] px-4 py-2.5 rounded-2xl shadow-[0_0_20px_rgba(163,255,18,0.2)] text-xs font-mono font-bold flex items-center gap-2 animate-in slide-in-from-top duration-200">
@@ -1242,7 +1342,7 @@ export const MultiTrackStudio: React.FC<MultiTrackStudioProps> = ({ initialSong 
 
       {/* Live Count-In Overlay Banner */}
       {countInCountdown && (
-        <div className="fixed top-28 left-1/2 -translate-x-1/2 z-50 bg-rose-600 border border-white/20 text-white px-6 py-3 rounded-2xl shadow-[0_0_30px_rgba(244,63,94,0.7)] text-base font-mono font-extrabold flex items-center gap-3 animate-pulse">
+        <div className="fixed top-28 left-1/2 -translate-x-1/2 z-50 bg-rose-600 border border-white/20 text-white px-6 py-3 rounded-2xl shadow-[0_0_30px_rgba(244,63,94,0.7)] text-base font-mono font-extrabold flex items-center gap-3 animate-pulse pointer-events-none">
           <Radio className="w-5 h-5 animate-spin" />
           <span>{countInCountdown}</span>
         </div>
@@ -1257,990 +1357,361 @@ export const MultiTrackStudio: React.FC<MultiTrackStudioProps> = ({ initialSong 
         className="hidden"
       />
 
-      {/* TOP WORKSPACE HEADER & CONTROLS */}
-      <header className="bg-[#12151d] border border-white/10 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4 shadow-xl">
-        {/* Left: Project Info & Save State */}
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-linear-to-br from-[#a3ff12]/20 to-[#38bdf8]/20 border border-[#a3ff12]/40 flex items-center justify-center">
-            <Music className="w-5 h-5 text-[#a3ff12]" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-sm sm:text-base font-mono font-bold text-white tracking-wide">
-                {project.name}
-              </h1>
-              <span
-                className={`text-[9px] font-mono px-2 py-0.5 rounded-full border ${
-                  autoSaveStatus === "saving"
-                    ? "bg-amber-500/20 text-amber-300 border-amber-500/30 animate-pulse"
-                    : "bg-[#a3ff12]/10 text-[#a3ff12] border-[#a3ff12]/30"
-                }`}
-              >
-                {autoSaveStatus === "saving" ? "Autosaving..." : "Autosaved"}
-              </span>
+      {/* 1. STUDIO TRANSPORT (PERSISTENT TOP) */}
+      <div className="shrink-0 bg-[#12151e] border-b border-white/10 px-2 sm:px-4 py-2 flex flex-col sm:flex-row items-center justify-between gap-2 sm:gap-4 z-20">
+        
+        {/* Left: Project Info */}
+        <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-start">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-linear-to-br from-[#a3ff12]/20 to-[#38bdf8]/20 border border-[#a3ff12]/40 flex items-center justify-center">
+              <Music className="w-4 h-4 text-[#a3ff12]" />
             </div>
-            <p className="text-[11px] font-mono text-zinc-400">
-              BandLab-Style Real Guitar DAW • Processed DSP Stream
-            </p>
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="text-xs sm:text-sm font-mono font-bold text-white truncate max-w-[120px] sm:max-w-[200px]">
+                  {project.name}
+                </h1>
+                <span className={`hidden md:inline-block text-[9px] font-mono px-2 py-0.5 rounded-full border ${autoSaveStatus === "saving" ? "bg-amber-500/20 text-amber-300 border-amber-500/30 animate-pulse" : "bg-[#a3ff12]/10 text-[#a3ff12] border-[#a3ff12]/30"}`}>
+                  {autoSaveStatus === "saving" ? "Autosaving..." : "Saved"}
+                </span>
+              </div>
+            </div>
+          </div>
+          <div className="flex md:hidden items-center gap-2">
+            {/* Mobile quick actions */}
+            <button onClick={() => setIsProjectsModalOpen(true)} className="p-1.5 bg-white/5 rounded text-zinc-300"><FolderOpen className="w-4 h-4" /></button>
+            <button onClick={handleExportMixdown} disabled={isExportingMix} className="p-1.5 bg-[#a3ff12]/20 text-[#a3ff12] rounded"><Download className="w-4 h-4" /></button>
           </div>
         </div>
 
-        {/* Center: BPM, Key, TimeSig, Count-In, Grid Snap */}
-        <div className="flex flex-wrap items-center gap-2 sm:gap-3 bg-black/40 border border-white/10 px-3 py-1.5 rounded-xl text-xs font-mono">
-          {/* BPM */}
-          <div className="flex items-center gap-1.5">
-            <span className="text-zinc-400">BPM</span>
-            <input
-              type="number"
-              min="40"
-              max="240"
-              value={transportState.bpm}
-              onChange={(e) => {
-                const b = parseInt(e.target.value, 10) || 120;
-                transport.setBpm(b);
-                commitProjectChange({ ...project, bpm: b }, "Change BPM", false);
-              }}
-              className="w-12 bg-zinc-900 border border-white/15 focus:border-[#a3ff12] text-center text-white font-bold rounded py-0.5 outline-none"
-            />
-          </div>
-
-          <span className="text-zinc-700">|</span>
-
-          {/* Key */}
-          <div className="flex items-center gap-1.5">
-            <span className="text-zinc-400">KEY</span>
-            <select
-              value={transportState.keySig}
-              onChange={(e) => {
-                transport.setKeySig(e.target.value);
-                commitProjectChange({ ...project, keySig: e.target.value }, "Change Key", false);
-              }}
-              className="bg-zinc-900 border border-white/15 text-white font-bold rounded py-0.5 px-1 outline-none"
-            >
-              {["C", "G", "D", "A", "E", "B", "F", "Am", "Em", "Dm", "Bm", "F#m"].map((k) => (
-                <option key={k} value={k}>
-                  {k}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <span className="text-zinc-700">|</span>
-
-          {/* Count-In Toggle */}
-          <button
-            onClick={() => transport.toggleCountIn()}
-            className={`px-2 py-0.5 rounded text-[11px] font-bold transition-colors ${
-              transportState.countInMode !== "off"
-                ? "bg-[#a3ff12] text-black font-bold"
-                : "text-zinc-400 hover:text-white bg-zinc-900"
-            }`}
-            title="Count-In prior to recording"
-          >
-            COUNT: {transportState.countInMode.toUpperCase()}
-          </button>
-
-          <span className="text-zinc-700">|</span>
-
-          {/* Grid Snap */}
-          <div className="flex items-center gap-1">
-            <Magnet className="w-3.5 h-3.5 text-[#38bdf8]" />
-            <select
-              value={gridSnap}
-              onChange={(e) => setGridSnap(e.target.value as GridSnapSetting)}
-              className="bg-zinc-900 border border-white/15 text-white font-bold rounded py-0.5 px-1 outline-none text-[11px]"
-            >
-              <option value="1bar">Snap: 1 Bar</option>
-              <option value="1beat">Snap: 1 Beat</option>
-              <option value="1/2">Snap: 1/2 Beat</option>
-              <option value="1/4">Snap: 1/4 Beat</option>
-              <option value="1/8">Snap: 1/8 Beat</option>
-              <option value="off">Snap: Off</option>
-            </select>
-          </div>
-        </div>
-
-        {/* Right: Undo / Redo / Library / Export */}
-        <div className="flex items-center gap-2">
-          {/* Undo Button */}
-          <button
-            onClick={handleUndo}
-            disabled={!dawHistory.canUndo()}
-            className={`p-2 rounded-xl border transition-all ${
-              dawHistory.canUndo()
-                ? "bg-white/5 border-white/10 hover:bg-white/10 text-white cursor-pointer"
-                : "bg-white/0 border-transparent text-zinc-600 cursor-not-allowed"
-            }`}
-            title={`Undo: ${dawHistory.getUndoDescription() || "None"} (Ctrl+Z)`}
-          >
-            <Undo2 className="w-4 h-4" />
-          </button>
-
-          {/* Redo Button */}
-          <button
-            onClick={handleRedo}
-            disabled={!dawHistory.canRedo()}
-            className={`p-2 rounded-xl border transition-all ${
-              dawHistory.canRedo()
-                ? "bg-white/5 border-white/10 hover:bg-white/10 text-white cursor-pointer"
-                : "bg-white/0 border-transparent text-zinc-600 cursor-not-allowed"
-            }`}
-            title={`Redo: ${dawHistory.getRedoDescription() || "None"} (Ctrl+Y)`}
-          >
-            <Redo2 className="w-4 h-4" />
-          </button>
-
-          {/* Projects Library Modal Button */}
-          <button
-            onClick={() => setIsProjectsModalOpen(true)}
-            className="px-3 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-200 text-xs font-mono font-bold rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer"
-          >
-            <FolderOpen className="w-4 h-4 text-[#38bdf8]" />
-            <span className="hidden sm:inline">Projects</span>
-          </button>
-
-          {/* Export Mixdown WAV Button */}
-          <button
-            onClick={handleExportMixdown}
-            disabled={isExportingMix}
-            className="px-4 py-2 bg-linear-to-r from-[#a3ff12] to-[#38bdf8] text-black text-xs font-mono font-extrabold rounded-xl hover:opacity-90 shadow-[0_0_15px_rgba(163,255,18,0.3)] flex items-center gap-1.5 transition-all cursor-pointer"
-          >
-            <Download className="w-4 h-4" />
-            <span>{isExportingMix ? "Rendering..." : "Export Mix"}</span>
-          </button>
-        </div>
-      </header>
-
-      {/* MULTI-TRACK TIMELINE WORKSPACE (ALWAYS VISIBLE) */}
-          {/* MAIN TRANSPORT BAR */}
-          <div className="bg-[#12151e] border border-white/10 rounded-2xl p-3 sm:px-6 flex flex-wrap items-center justify-between gap-4 shadow-lg">
-        {/* Playback & Record Controls */}
-        <div className="flex items-center gap-2 sm:gap-3">
-          {/* Rewind */}
-          <button
-            onClick={handleRewind}
-            className="p-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-zinc-300 transition-colors cursor-pointer"
-            title="Rewind to Start"
-          >
+        {/* Center: Playback & Record Controls */}
+        <div className="flex items-center gap-1 sm:gap-2 overflow-x-auto scrollbar-none w-full sm:w-auto justify-center">
+          <button onClick={handleRewind} className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-zinc-300 transition-colors cursor-pointer shrink-0" title="Rewind to Start">
             <SkipBack className="w-4 h-4" />
           </button>
-
-          {/* Stop */}
-          <button
-            onClick={handleStop}
-            className="p-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-zinc-300 transition-colors cursor-pointer"
-            title="Stop"
-          >
+          <button onClick={handleStop} className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-zinc-300 transition-colors cursor-pointer shrink-0" title="Stop">
             <Square className="w-4 h-4" />
           </button>
-
-          {/* Play / Pause */}
-          <button
-            onClick={handleTogglePlay}
-            className={`px-5 py-2.5 rounded-xl font-mono font-bold text-xs flex items-center gap-2 transition-all cursor-pointer ${
-              transportState.isPlaying
-                ? "bg-[#a3ff12] text-black shadow-[0_0_20px_rgba(163,255,18,0.5)]"
-                : "bg-white/10 hover:bg-white/20 text-white"
-            }`}
-          >
-            {transportState.isPlaying ? (
-              <>
-                <Pause className="w-4 h-4 fill-current" />
-                <span>PAUSE</span>
-              </>
-            ) : (
-              <>
-                <Play className="w-4 h-4 fill-current" />
-                <span>PLAY</span>
-              </>
-            )}
+          <button onClick={handleTogglePlay} className={`px-3 sm:px-4 py-2 rounded-lg font-mono font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${transportState.isPlaying ? "bg-[#a3ff12] text-black shadow-[0_0_15px_rgba(163,255,18,0.4)]" : "bg-white/10 hover:bg-white/20 text-white"}`}>
+            {transportState.isPlaying ? <><Pause className="w-4 h-4 fill-current" /><span className="hidden sm:inline">PAUSE</span></> : <><Play className="w-4 h-4 fill-current" /><span className="hidden sm:inline">PLAY</span></>}
           </button>
-
-          {/* Record Button */}
-          <button
-            onClick={handleToggleRecord}
-            className={`px-5 py-2.5 rounded-xl font-mono font-extrabold text-xs flex items-center gap-2 transition-all cursor-pointer ${
-              transportState.isRecording
-                ? "bg-rose-600 text-white shadow-[0_0_25px_rgba(244,63,94,0.8)] animate-pulse"
-                : "bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 text-rose-300"
-            }`}
-          >
+          <button onClick={handleToggleRecord} className={`px-3 sm:px-4 py-2 rounded-lg font-mono font-extrabold text-xs flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${transportState.isRecording ? "bg-rose-600 text-white shadow-[0_0_20px_rgba(244,63,94,0.6)] animate-pulse" : "bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 text-rose-300"}`}>
             <Circle className="w-4 h-4 fill-current" />
-            <span>{transportState.isRecording ? "RECORDING" : "RECORD"}</span>
+            <span className="hidden sm:inline">{transportState.isRecording ? "REC" : "RECORD"}</span>
           </button>
-
-          {/* Retake Button (Visible when last take available) */}
-          {lastRecordedClipInfo && !transportState.isRecording && (
-            <button
-              onClick={handleRetake}
-              className="px-3 py-2 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 text-xs font-mono font-bold rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer"
-              title="Discard last take and restart"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Retake</span>
-            </button>
-          )}
-
-          {/* Metronome Toggle */}
-          <button
-            onClick={() => transport.toggleMetronome()}
-            className={`p-2.5 rounded-xl transition-colors cursor-pointer flex items-center gap-1.5 ${
-              transportState.isMetronomeActive
-                ? "bg-[#a3ff12] text-black font-bold shadow-[0_0_10px_#a3ff12]"
-                : "bg-white/5 hover:bg-white/10 text-zinc-400"
-            }`}
-            title="Metronome Click"
-          >
+          
+          <div className="w-px h-6 bg-white/10 mx-1 shrink-0" />
+          
+          {/* Loop & Metronome */}
+          <button onClick={() => transport.toggleMetronome()} className={`p-2 rounded-lg transition-colors cursor-pointer shrink-0 ${transportState.isMetronomeActive ? "bg-[#a3ff12] text-black shadow-[0_0_10px_#a3ff12]" : "bg-white/5 text-zinc-400"}`} title="Metronome">
             <Clock className="w-4 h-4" />
-            <span className="text-[11px] font-mono hidden md:inline">CLICK</span>
           </button>
-        </div>
 
-        {/* Musical Bar & Time Display */}
-        <div className="flex items-center gap-4 bg-black/60 border border-white/15 px-4 py-2 rounded-xl">
-          {/* Musical Bar:Beat */}
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] font-mono text-zinc-500 uppercase">BAR</span>
-            <span className="text-base font-mono font-bold text-[#a3ff12]">
+          {/* Time Display */}
+          <div className="hidden lg:flex items-center gap-3 bg-black/60 border border-white/10 px-3 py-1.5 rounded-lg shrink-0">
+            <div className="text-sm font-mono font-bold text-[#a3ff12] w-[60px]">
               {String(currentBar).padStart(2, "0")}:{currentBeat}.{String(currentTick).padStart(2, "0")}
-            </span>
-          </div>
-
-          <span className="text-zinc-700">|</span>
-
-          {/* Real Time MM:SS.ms */}
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] font-mono text-zinc-500 uppercase">TIME</span>
-            <span className="text-sm font-mono text-zinc-200">
-              {Math.floor(playheadTimeSec / 60)}:
-              {String(Math.floor(playheadTimeSec % 60)).padStart(2, "0")}.
-              {String(Math.floor((playheadTimeSec % 1) * 100)).padStart(2, "0")}
-            </span>
+            </div>
+            <div className="w-px h-4 bg-white/20" />
+            <div className="text-xs font-mono text-zinc-300 w-[50px]">
+              {Math.floor(playheadTimeSec / 60)}:{String(Math.floor(playheadTimeSec % 60)).padStart(2, "0")}
+            </div>
           </div>
         </div>
 
-        {/* Zoom & Add Track Controls */}
-        <div className="flex items-center gap-2">
-          {/* Zoom Out */}
-          <button
-            onClick={() => setZoomPxPerSec((z) => Math.max(40, z - 20))}
-            className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-zinc-300 transition-colors"
-            title="Zoom Out Timeline"
-          >
-            <ZoomOut className="w-4 h-4" />
+        {/* Right: Settings & Actions */}
+        <div className="hidden md:flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-1.5 bg-black/40 border border-white/10 px-2 py-1 rounded-lg text-xs font-mono">
+            <span className="text-zinc-500">BPM</span>
+            <input type="number" min="40" max="240" value={transportState.bpm} onChange={(e) => { const b = parseInt(e.target.value, 10) || 120; transport.setBpm(b); commitProjectChange({ ...project, bpm: b }, "Change BPM", false); }} className="w-10 bg-transparent text-center text-white font-bold outline-none" />
+          </div>
+          
+          <button onClick={handleUndo} disabled={!dawHistory.canUndo()} className={`p-1.5 rounded text-zinc-300 ${dawHistory.canUndo() ? 'hover:bg-white/10' : 'opacity-30'}`}><Undo2 className="w-4 h-4" /></button>
+          <button onClick={handleRedo} disabled={!dawHistory.canRedo()} className={`p-1.5 rounded text-zinc-300 ${dawHistory.canRedo() ? 'hover:bg-white/10' : 'opacity-30'}`}><Redo2 className="w-4 h-4" /></button>
+          
+          <div className="w-px h-6 bg-white/10 mx-1 shrink-0" />
+          
+          <button onClick={() => setIsProjectsModalOpen(true)} className="px-3 py-1.5 bg-white/5 hover:bg-white/10 text-zinc-200 text-xs font-mono font-bold rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer">
+            <FolderOpen className="w-3.5 h-3.5" /> Projects
           </button>
-
-          <span className="text-[10px] font-mono text-zinc-500 w-10 text-center">
-            {zoomPxPerSec}px
-          </span>
-
-          {/* Zoom In */}
-          <button
-            onClick={() => setZoomPxPerSec((z) => Math.min(220, z + 20))}
-            className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-zinc-300 transition-colors"
-            title="Zoom In Timeline"
-          >
-            <ZoomIn className="w-4 h-4" />
-          </button>
-
-          <span className="text-zinc-700 mx-1">|</span>
-
-          {/* Add Track */}
-          <button
-            onClick={handleAddTrack}
-            className="px-3 py-2 bg-white/10 hover:bg-white/20 text-white text-xs font-mono font-bold rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer"
-          >
-            <Plus className="w-4 h-4 text-[#a3ff12]" />
-            <span>Add Track</span>
+          <button onClick={handleExportMixdown} disabled={isExportingMix} className="px-3 py-1.5 bg-[#a3ff12]/20 hover:bg-[#a3ff12]/30 text-[#a3ff12] text-xs font-mono font-bold rounded-lg flex items-center gap-1.5 transition-all cursor-pointer">
+            <Download className="w-3.5 h-3.5" /> {isExportingMix ? "Wait..." : "Export"}
           </button>
         </div>
       </div>
 
-      {/* MULTI-TRACK TIMELINE WORKSPACE */}
-      <div className="bg-[#0b0e14] border border-white/10 rounded-2xl overflow-hidden shadow-2xl flex flex-col">
-        {/* Workspace Ruler Header Row */}
-        <div className="flex border-b border-white/10 bg-[#0d1017]">
-          {/* Fixed Track Headers Corner */}
-          <div className="w-48 sm:w-64 shrink-0 px-4 py-2 border-r border-white/10 flex items-center justify-between text-[11px] font-mono font-bold text-zinc-400 uppercase tracking-wider">
-            <span>Tracks ({project.tracks.length})</span>
-            <span className="text-[10px] text-zinc-500">I/O • VOL • PAN</span>
-          </div>
+      {/* 2. SECONDARY NAVIGATION (TABS) */}
+      <div className="shrink-0 flex items-center bg-[#0d1017] border-b border-white/5 overflow-x-auto scrollbar-none z-10 px-2 sm:px-4">
+        {(["tracks", "looper", "drums", "mixer"] as const).map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab as any)}
+            className={`px-4 sm:px-6 py-2 sm:py-3 text-[11px] sm:text-xs font-mono font-bold transition-all capitalize whitespace-nowrap cursor-pointer border-b-2 ${
+              activeTab === tab
+                ? "border-[#a3ff12] text-[#a3ff12] bg-white/5"
+                : "border-transparent text-zinc-500 hover:text-zinc-300 hover:bg-white/5"
+            }`}
+          >
+            {tab === "tracks" ? "Arrangement" : tab}
+          </button>
+        ))}
+      </div>
 
-          {/* Scrollable Ruler */}
-          <div className="flex-1 overflow-x-auto overflow-y-hidden">
-            <TimelineRuler
-              bpm={project.bpm}
-              timeSig={project.timeSig}
-              zoomPxPerSec={zoomPxPerSec}
-              totalDurationSec={maxProjectDurationSec}
-              playheadTimeSec={playheadTimeSec}
-              onSeek={handleSeek}
-            />
-          </div>
-        </div>
-
-        {/* Track Lanes */}
-        <div className="divide-y divide-white/5">
-          {project.tracks.map((track) => {
-            const isArmed = track.id === armedTrackId;
-            const isSelected = track.id === selectedTrackId;
-            const peakVal = trackPeaks[track.id] || 0;
-            const isClipping = clippingTracks[track.id] || false;
-
-            return (
-              <div
-                key={track.id}
-                className={`flex transition-colors ${
-                  isSelected ? "bg-[#141824]" : "hover:bg-[#0e121a]"
-                }`}
-              >
-                {/* Left Track Header Box */}
-                <div className="w-48 sm:w-64 shrink-0">
-                  <TrackHeader
-                    track={track}
-                    isSelected={isSelected}
-                    isArmed={isArmed}
-                    onSelect={(id) => setSelectedTrackId(id)}
-                    onArm={handleArmTrack}
-                    onToggleMute={handleToggleMute}
-                    onToggleSolo={handleToggleSolo}
-                    onToggleMonitoring={handleToggleMonitoring}
-                    onVolumeChange={handleTrackVolumeChange}
-                    onPanChange={handleTrackPanChange}
-                    onRename={handleRenameTrack}
-                    onDuplicate={handleDuplicateTrack}
-                    onDelete={handleDeleteTrack}
-                    onTriggerUpload={handleTriggerUpload}
-                    onExportStem={handleExportStem}
-                    meterPeak={peakVal}
-                    isClipping={isClipping}
-                    onResetClipping={() =>
-                      setClippingTracks((prev) => ({ ...prev, [track.id]: false }))
-                    }
-                    onEqChange={handleTrackEqChange}
-                    onReverbSendChange={handleTrackReverbSendChange}
-                    onCompressorChange={handleTrackCompressorChange}
-                    onBusChange={handleTrackBusChange}
-                  />
+      {/* 3. MAIN WORKSPACE */}
+      <div className="flex-1 overflow-hidden relative flex flex-col bg-[#0b0e14]">
+        
+        {/* TRACKS / ARRANGEMENT TAB */}
+        <div className={`flex-col h-full ${activeTab === "tracks" ? "flex" : "hidden"}`}>
+          {/* Top: Timeline & Tracks */}
+          <div className="flex-1 flex overflow-hidden">
+            {/* Left Track Headers (Hidden on small mobile if timeline active, or stack? Mobile: horizontal scroll tracks?) */}
+            {/* Actually, let's keep left-right flex but adapt width */}
+            <div className="w-32 sm:w-48 lg:w-64 shrink-0 flex flex-col bg-[#0d1017] border-r border-white/10 z-10">
+              {/* Corner header */}
+              <div className="h-10 shrink-0 border-b border-white/10 px-2 py-2 flex items-center justify-between text-[9px] sm:text-[10px] font-mono font-bold text-zinc-500 uppercase tracking-wider bg-[#0d1017] sticky top-0">
+                <span>Tracks ({project.tracks.length})</span>
+                <button onClick={handleAddTrack} className="p-1 hover:text-[#a3ff12] hover:bg-white/5 rounded transition-colors"><Plus className="w-3.5 h-3.5" /></button>
+              </div>
+              {/* Track list scrolling container (must sync scroll with timeline y-axis) */}
+              <div className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-none" id="track-headers-container" onScroll={(e) => {
+                const target = document.getElementById('timeline-lanes-container');
+                if (target) target.scrollTop = e.currentTarget.scrollTop;
+              }}>
+                <div className="divide-y divide-white/5">
+                  {project.tracks.map((track) => (
+                    <div key={track.id} className={`${track.id === selectedTrackId ? "bg-[#141824]" : "hover:bg-[#0e121a]"}`}>
+                      <TrackHeader
+                        track={track}
+                        isSelected={track.id === selectedTrackId}
+                        isArmed={track.id === armedTrackId}
+                        onSelect={(id) => setSelectedTrackId(id)}
+                        onArm={handleArmTrack}
+                        onToggleMute={handleToggleMute}
+                        onToggleSolo={handleToggleSolo}
+                        onToggleMonitoring={handleToggleMonitoring}
+                        onInputSourceChange={handleTrackInputSourceChange}
+                        onVolumeChange={handleTrackVolumeChange}
+                        onPanChange={handleTrackPanChange}
+                        onRename={handleRenameTrack}
+                        onDuplicate={handleDuplicateTrack}
+                        onDelete={handleDeleteTrack}
+                        onTriggerUpload={handleTriggerUpload}
+                        onExportStem={handleExportStem}
+                        meterPeak={trackPeaks[track.id] || 0}
+                        isClipping={clippingTracks[track.id] || false}
+                        onResetClipping={() => setClippingTracks((prev) => ({ ...prev, [track.id]: false }))}
+                        onEqChange={handleTrackEqChange}
+                        onReverbSendChange={handleTrackReverbSendChange}
+                        onCompressorChange={handleTrackCompressorChange}
+                        onBusChange={handleTrackBusChange}
+                      />
+                    </div>
+                  ))}
                 </div>
+              </div>
+            </div>
 
-                {/* Right Scrollable Clip Lane */}
-                <div
-                  className="flex-1 relative h-24 overflow-x-auto overflow-y-hidden bg-[#090b10]/60 cursor-crosshair select-none"
+            {/* Center Timeline */}
+            <div className="flex-1 flex flex-col bg-[#090b10] overflow-hidden relative">
+              {/* Ruler */}
+              <div className="h-10 shrink-0 border-b border-white/10 bg-[#0d1017] overflow-x-auto overflow-y-hidden scrollbar-none" id="timeline-ruler-container" onScroll={(e) => {
+                const target = document.getElementById('timeline-lanes-container');
+                if (target) target.scrollLeft = e.currentTarget.scrollLeft;
+              }}>
+                <TimelineRuler
+                  bpm={project.bpm}
+                  timeSig={project.timeSig}
+                  zoomPxPerSec={zoomPxPerSec}
+                  totalDurationSec={maxProjectDurationSec}
+                  playheadTimeSec={playheadTimeSec}
+                  onSeek={handleSeek}
+                />
+              </div>
+
+              {/* Lanes */}
+              <div className="flex-1 overflow-auto cursor-crosshair select-none" id="timeline-lanes-container" onScroll={(e) => {
+                const ruler = document.getElementById('timeline-ruler-container');
+                const headers = document.getElementById('track-headers-container');
+                if (ruler) ruler.scrollLeft = e.currentTarget.scrollLeft;
+                if (headers) headers.scrollTop = e.currentTarget.scrollTop;
+              }}>
+                <div 
+                  className="relative divide-y divide-white/5" 
+                  style={{ minWidth: `${Math.max(800, maxProjectDurationSec * zoomPxPerSec)}px` }}
                   onClick={(e) => {
                     const rect = e.currentTarget.getBoundingClientRect();
                     const clickX = e.clientX - rect.left;
                     handleSeek(clickX / zoomPxPerSec);
                   }}
-                  style={{ minWidth: `${Math.max(800, maxProjectDurationSec * zoomPxPerSec)}px` }}
                 >
                   {/* Subtle Background Grid Lines */}
-                  {Array.from({ length: Math.ceil(maxProjectDurationSec / (60 / project.bpm)) }).map(
-                    (_, beatIdx) => {
+                  <div className="absolute inset-0 pointer-events-none">
+                    {Array.from({ length: Math.ceil(maxProjectDurationSec / (60 / project.bpm)) }).map((_, beatIdx) => {
                       const beatX = beatIdx * (60 / project.bpm) * zoomPxPerSec;
                       const isBar = beatIdx % 4 === 0;
                       return (
-                        <div
-                          key={`lane-grid-${beatIdx}`}
-                          className={`absolute top-0 bottom-0 pointer-events-none ${
-                            isBar ? "w-[1px] bg-white/10" : "w-[1px] bg-white/5"
-                          }`}
-                          style={{ left: `${beatX}px` }}
-                        />
+                        <div key={`lane-grid-${beatIdx}`} className={`absolute top-0 bottom-0 ${isBar ? "w-[1px] bg-white/10" : "w-[1px] bg-white/5"}`} style={{ left: `${beatX}px` }} />
                       );
-                    }
-                  )}
+                    })}
+                  </div>
 
-                  {/* Render All Audio Clips on this track */}
-                  {(track.clips || []).map((clip) => (
-                    <AudioClipView
-                      key={clip.id}
-                      clip={clip}
-                      trackColor={track.color}
-                      zoomPxPerSec={zoomPxPerSec}
-                      isSelected={selectedClipId === clip.id}
-                      onSelect={(id) => {
-                        setSelectedClipId(id);
-                        setSelectedTrackId(track.id);
-                      }}
-                      onMove={handleMoveClip}
-                      onTrimLeft={handleTrimLeft}
-                      onTrimRight={handleTrimRight}
-                      onOpenInspector={(c) => setInspectingClip(c)}
-                      onSplitAtPlayhead={handleSplitAtPlayhead}
-                      onDuplicate={handleDuplicateClip}
-                      onDelete={handleDeleteClip}
-                    />
-                  ))}
-
-                  {/* Active Recording Ghost Waveform Indicator if Armed */}
-                  {isArmed && transportState.isRecording && (
-                    <div
-                      className="absolute top-1 bottom-1 rounded-lg border border-dashed border-rose-500 bg-rose-500/20 backdrop-blur-xs flex items-center justify-center font-mono text-[10px] text-rose-300 font-bold animate-pulse z-20 pointer-events-none"
-                      style={{
-                        left: `${recordStartTimeRef.current * zoomPxPerSec}px`,
-                        width: `${Math.max(20, (playheadTimeSec - recordStartTimeRef.current) * zoomPxPerSec)}px`,
-                      }}
-                    >
-                      <Radio className="w-3 h-3 mr-1 animate-spin" />
-                      <span>REC</span>
+                  {/* Render Track Lanes */}
+                  {project.tracks.map((track) => (
+                    <div key={track.id} className={`relative h-24 ${track.id === selectedTrackId ? "bg-white/[0.02]" : ""}`}>
+                      {(track.clips || []).map((clip) => (
+                        <AudioClipView
+                          key={clip.id}
+                          clip={clip}
+                          trackColor={track.color}
+                          zoomPxPerSec={zoomPxPerSec}
+                          isSelected={clip.id === selectedClipId}
+                          onSelect={() => {
+                            setSelectedClipId(clip.id);
+                            setSelectedTrackId(track.id);
+                            setInspectingClip(clip);
+                          }}
+                          onMove={(newStart) => handleMoveClip(clip.id, newStart)}
+                          onTrimLeft={(delta) => {}}
+                          onTrimRight={(delta) => {}}
+                          onOpenInspector={(c) => setInspectingClip(c)}
+                        />
+                      ))}
                     </div>
-                  )}
-
-                  {/* Playhead Line in Lane */}
-                  <div
-                    className="absolute top-0 bottom-0 w-[2px] bg-[#a3ff12] pointer-events-none z-30 shadow-[0_0_10px_#a3ff12]"
-                    style={{ left: `${playheadTimeSec * zoomPxPerSec}px` }}
-                  />
+                  ))}
+                  
+                  {/* Playhead */}
+                  <div className="absolute top-0 bottom-0 w-px bg-rose-500 z-10 pointer-events-none shadow-[0_0_10px_rgba(244,63,94,0.8)]" style={{ left: `${playheadTimeSec * zoomPxPerSec}px` }}>
+                    <div className="absolute -top-3 -left-1.5 w-3 h-3 bg-rose-500 rotate-45" />
+                  </div>
                 </div>
               </div>
-            );
-          })}
-        </div>
-
-        {/* Mix Bus Submixing Bar in Timeline */}
-        <div className="border-t border-white/10 bg-[#080a0f] p-3">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2">
-              <SlidersHorizontal className="w-4 h-4 text-[#a3ff12]" />
-              <span className="text-xs font-mono font-bold text-white uppercase tracking-wider">
-                Mix Buses & Subgroups
-              </span>
-              <span className="text-[10px] font-mono text-zinc-500">
-                (Route multiple tracks to a shared bus fader)
-              </span>
             </div>
-            <button
-              onClick={() => setIsMixBusesOpen(!isMixBusesOpen)}
-              className="text-xs font-mono text-zinc-400 hover:text-white px-2 py-1 bg-white/5 rounded border border-white/5"
-            >
-              {isMixBusesOpen ? "Collapse Buses ▲" : "Expand Buses ▼"}
-            </button>
+            
+            {/* Zoom Controls (Floating Bottom Right of Timeline) */}
+            <div className="absolute bottom-24 sm:bottom-4 right-4 z-20 flex items-center gap-1 bg-[#12151e]/80 backdrop-blur border border-white/10 p-1 rounded-lg">
+              <button onClick={() => setZoomPxPerSec((z) => Math.max(40, z - 20))} className="p-1.5 rounded bg-white/5 hover:bg-white/10 text-zinc-300" title="Zoom Out">
+                <ZoomOut className="w-4 h-4" />
+              </button>
+              <span className="text-[10px] font-mono text-zinc-500 w-8 text-center">{zoomPxPerSec}</span>
+              <button onClick={() => setZoomPxPerSec((z) => Math.min(220, z + 20))} className="p-1.5 rounded bg-white/5 hover:bg-white/10 text-zinc-300" title="Zoom In">
+                <ZoomIn className="w-4 h-4" />
+              </button>
+            </div>
           </div>
 
-          {isMixBusesOpen && (
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 pt-1">
-              {buses.map((bus) => {
-                const routedTracksCount = project.tracks.filter(
-                  (t) => (t.busId || "").toLowerCase() === bus.id.toLowerCase()
-                ).length;
-                const busDb =
-                  bus.volume > 0.001
-                    ? (20 * Math.log10(bus.volume)).toFixed(1)
-                    : "-∞";
-
-                return (
-                  <div
-                    key={bus.id}
-                    className={`bg-[#0d1017] border rounded-xl p-2.5 flex flex-col justify-between transition-all ${
-                      bus.muted
-                        ? "border-rose-500/30 opacity-70"
-                        : bus.soloed
-                        ? "border-amber-400/50 shadow-[0_0_12px_rgba(251,191,36,0.2)]"
-                        : "border-white/10 hover:border-white/20"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-1.5">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <span
-                          className="w-2.5 h-2.5 rounded-full shrink-0"
-                          style={{ backgroundColor: bus.color }}
-                        />
-                        <span className="text-xs font-mono font-bold text-zinc-200 truncate">
-                          {bus.name}
-                        </span>
-                      </div>
-                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-white/5 text-zinc-400">
-                        {routedTracksCount} trk
-                      </span>
-                    </div>
-
-                    {/* Mute & Solo Buttons */}
-                    <div className="flex items-center gap-1 mb-2">
-                      <button
-                        onClick={() => handleBusToggleMute(bus.id)}
-                        className={`flex-1 py-0.5 rounded text-[9px] font-mono font-bold transition-all ${
-                          bus.muted
-                            ? "bg-rose-500 text-white font-bold"
-                            : "bg-white/5 text-zinc-400 hover:bg-white/10 hover:text-white"
-                        }`}
-                      >
-                        MUTE
-                      </button>
-                      <button
-                        onClick={() => handleBusToggleSolo(bus.id)}
-                        className={`flex-1 py-0.5 rounded text-[9px] font-mono font-bold transition-all ${
-                          bus.soloed
-                            ? "bg-amber-400 text-black font-bold"
-                            : "bg-white/5 text-zinc-400 hover:bg-white/10 hover:text-white"
-                        }`}
-                      >
-                        SOLO
-                      </button>
-                    </div>
-
-                    {/* Fader */}
-                    <div className="space-y-1">
-                      <div className="flex justify-between text-[9px] font-mono text-zinc-400">
-                        <span>BUS GAIN</span>
-                        <span className="text-zinc-200 font-bold">{busDb} dB</span>
-                      </div>
-                      <input
-                        type="range"
-                        min="0"
-                        max="1.5"
-                        step="0.01"
-                        value={bus.volume}
-                        onChange={(e) =>
-                          handleBusVolumeChange(bus.id, parseFloat(e.target.value))
-                        }
-                        className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer"
-                        style={{ accentColor: bus.color }}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+          {/* Bottom Contextual Panel (Inspector) */}
+          <div className="h-48 sm:h-64 shrink-0 bg-[#0d1017] border-t border-white/10 overflow-y-auto">
+            {inspectingClip && selectedTrackId ? (
+              <ClipInspector
+                clip={inspectingClip}
+                trackName={project.tracks.find(t => t.id === selectedTrackId)?.name || ""}
+                trackColor={project.tracks.find(t => t.id === selectedTrackId)?.color || "#fff"}
+                onClose={() => setInspectingClip(null)}
+                onUpdateClip={(updated) => {}}
+                onSplitAtPlayhead={(clipId) => {}}
+                onDuplicateClip={(clipId) => {}}
+                onDeleteClip={(clipId) => {}}
+                playheadTimeSec={playheadTimeSec}
+              />
+            ) : (
+              <div className="h-full flex items-center justify-center text-zinc-600 text-xs font-mono select-none">
+                Select an audio clip to inspect and edit.
+              </div>
+            )}
+          </div>
         </div>
-      </div>
 
-      {/* Studio Utility Navigation Tabs */}
-      <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-white/5 px-2 mt-4">
-        {(["timeline", "looper", "drums", "mixer", "projects"] as const).map((tab) => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`px-5 py-2.5 rounded-xl text-xs font-mono font-bold transition-all capitalize cursor-pointer ${
-              activeTab === tab
-                ? "bg-[#a3ff12]/15 text-[#a3ff12] border border-[#a3ff12]/30 shadow-[0_0_15px_rgba(163,255,18,0.1)]"
-                : "bg-white/5 text-zinc-400 border border-transparent hover:text-white hover:bg-white/10"
-            }`}
-          >
-            {tab === "timeline"
-              ? "Close Utility Panel"
-              : tab === "looper"
-              ? "Looper Station"
-              : tab === "drums"
-              ? "Drum Machine & Metronome"
-              : tab === "mixer"
-              ? "Mixer Console"
-              : "Projects"}
-          </button>
-        ))}
-      </div>
-
-      {activeTab === "looper" && (
-        <div className="bg-[#0b0e14] border border-white/10 rounded-2xl shadow-2xl p-2 min-h-[500px]">
+        {/* LOOPER TAB */}
+        <div className={`flex-col h-full overflow-y-auto p-2 sm:p-4 ${activeTab === "looper" ? "flex" : "hidden"}`}>
           <LooperStation onCommitToStudio={handleCommitLooperTrack} />
         </div>
-      )}
 
-      {activeTab === "drums" && (
-        <div className="bg-[#0b0e14] border border-white/10 rounded-2xl shadow-2xl p-4 min-h-[500px]">
+        {/* DRUMS TAB */}
+        <div className={`flex-col h-full overflow-y-auto p-2 sm:p-4 ${activeTab === "drums" ? "flex" : "hidden"}`}>
           <DrumMetronome />
         </div>
-      )}
 
-      {activeTab === "mixer" && (
-        <div className="bg-[#0b0e14] border border-white/10 rounded-2xl shadow-2xl p-6 min-h-[550px]">
-          <div className="flex items-center justify-between mb-6 pb-4 border-b border-white/10">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-[#a3ff12]/10 rounded-xl border border-[#a3ff12]/30">
-                <Sliders className="w-5 h-5 text-[#a3ff12]" />
-              </div>
-              <div>
-                <h3 className="text-sm font-mono font-bold text-white tracking-wide">
-                  STUDIO MIXING CONSOLE
-                </h3>
-                <p className="text-xs font-mono text-zinc-400">
-                  Per-track 3-band EQ, dynamics compression, reverb sends, and submix bus routing
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-mono px-2.5 py-1 rounded bg-white/5 border border-white/10 text-zinc-300">
-                {project.tracks.length} Channels • {buses.length} Submix Buses
-              </span>
-            </div>
-          </div>
-
-          {/* Mixing Strips Grid */}
-          <div className="flex gap-4 overflow-x-auto pb-4 items-stretch">
-            {/* Track Channel Strips */}
+        {/* MIXER TAB */}
+        <div className={`flex-col h-full overflow-y-auto p-4 ${activeTab === "mixer" ? "flex" : "hidden"}`}>
+          <div className="flex gap-4 items-stretch h-full overflow-x-auto pb-4 scrollbar-none">
+            {/* Tracks Strips */}
             {project.tracks.map((track) => {
               const peak = trackPeaks[track.id] || 0;
               const isClip = clippingTracks[track.id] || false;
-              const lowG = track.eq?.lowGainDb ?? 0;
-              const midG = track.eq?.midGainDb ?? 0;
-              const highG = track.eq?.highGainDb ?? 0;
-              const revG = track.insertEffects?.reverbSendLevel ?? 0;
-              const compOn = !!track.insertEffects?.compressorEnabled;
-              const compThresh = track.insertEffects?.compressorThresholdDb ?? -24;
-              const compRat = track.insertEffects?.compressorRatio ?? 4;
-              const volDb =
-                track.volume > 0.001
-                  ? (20 * Math.log10(track.volume)).toFixed(1)
-                  : "-∞";
-
+              const volDb = track.volume > 0.001 ? (20 * Math.log10(track.volume)).toFixed(1) : "-∞";
               return (
-                <div
-                  key={track.id}
-                  className={`w-44 shrink-0 bg-[#0e121b] border rounded-xl p-3 flex flex-col justify-between select-none ${
-                    track.id === selectedTrackId
-                      ? "border-[#a3ff12]/50 shadow-[0_0_15px_rgba(163,255,18,0.15)]"
-                      : "border-white/10"
-                  }`}
-                >
-                  {/* Channel Header */}
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <span
-                          className="w-2.5 h-2.5 rounded-full shrink-0"
-                          style={{ backgroundColor: track.color }}
-                        />
-                        <span className="text-xs font-mono font-bold text-white truncate">
-                          {track.name}
-                        </span>
-                      </div>
-                      <span className="text-[8px] font-mono px-1 rounded bg-white/10 text-zinc-400">
-                        CH
-                      </span>
-                    </div>
-
-                    {/* Mix Bus Select */}
-                    <div className="mb-3">
-                      <div className="text-[8px] font-mono text-zinc-400 mb-0.5">ROUTING</div>
-                      <select
-                        value={track.busId || "master"}
-                        onChange={(e) => handleTrackBusChange(track.id, e.target.value)}
-                        className="w-full bg-black/50 border border-white/15 text-[9px] font-mono text-zinc-200 rounded px-1.5 py-1 outline-none cursor-pointer"
-                      >
-                        <option value="master">Master (Direct)</option>
-                        <option value="guitars">Guitars Bus</option>
-                        <option value="drums">Drums Bus</option>
-                        <option value="vocals">Vocals Bus</option>
-                        <option value="bass">Bass Bus</option>
-                        <option value="keys">Keys / FX Bus</option>
-                      </select>
-                    </div>
-
-                    {/* 3-Band EQ Strip */}
-                    <div className="bg-black/40 p-2 rounded border border-white/5 mb-3 space-y-1.5 text-[8px] font-mono">
-                      <div className="text-zinc-400 font-bold flex justify-between">
-                        <span>EQ SECTION</span>
-                        <span className="text-zinc-500">±12dB</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-zinc-400">HI (4k)</span>
-                        <input
-                          type="range"
-                          min="-12"
-                          max="12"
-                          step="0.5"
-                          value={highG}
-                          onChange={(e) => handleTrackEqChange(track.id, "high", parseFloat(e.target.value))}
-                          className="w-20 h-1 bg-zinc-800 rounded accent-[#ec4899]"
-                        />
-                        <span className="text-[8px] text-zinc-300 w-6 text-right">
-                          {highG > 0 ? `+${highG}` : highG}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-zinc-400">MID (1k)</span>
-                        <input
-                          type="range"
-                          min="-12"
-                          max="12"
-                          step="0.5"
-                          value={midG}
-                          onChange={(e) => handleTrackEqChange(track.id, "mid", parseFloat(e.target.value))}
-                          className="w-20 h-1 bg-zinc-800 rounded accent-[#38bdf8]"
-                        />
-                        <span className="text-[8px] text-zinc-300 w-6 text-right">
-                          {midG > 0 ? `+${midG}` : midG}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-zinc-400">LOW (200)</span>
-                        <input
-                          type="range"
-                          min="-12"
-                          max="12"
-                          step="0.5"
-                          value={lowG}
-                          onChange={(e) => handleTrackEqChange(track.id, "low", parseFloat(e.target.value))}
-                          className="w-20 h-1 bg-zinc-800 rounded accent-[#a3ff12]"
-                        />
-                        <span className="text-[8px] text-zinc-300 w-6 text-right">
-                          {lowG > 0 ? `+${lowG}` : lowG}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* FX Strip: Reverb Send & Compressor */}
-                    <div className="bg-black/40 p-2 rounded border border-white/5 mb-3 space-y-1.5 text-[8px] font-mono">
-                      <div className="flex items-center justify-between">
-                        <span className="text-zinc-400">REVERB SEND</span>
-                        <span className="text-purple-400 font-bold">{Math.round(revG * 100)}%</span>
-                      </div>
-                      <input
-                        type="range"
-                        min="0"
-                        max="1"
-                        step="0.01"
-                        value={revG}
-                        onChange={(e) => handleTrackReverbSendChange(track.id, parseFloat(e.target.value))}
-                        className="w-full h-1 bg-zinc-800 rounded accent-purple-400"
-                      />
-
-                      <div className="flex items-center justify-between pt-1 border-t border-white/5">
-                        <span className="text-zinc-400 font-bold">COMP</span>
-                        <button
-                          onClick={() =>
-                            handleTrackCompressorChange(track.id, {
-                              enabled: !compOn,
-                              thresholdDb: compThresh,
-                              ratio: compRat,
-                            })
-                          }
-                          className={`px-1.5 py-0.5 rounded text-[8px] font-bold ${
-                            compOn ? "bg-amber-400 text-black" : "bg-white/10 text-zinc-400"
-                          }`}
-                        >
-                          {compOn ? "ON" : "OFF"}
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Pan Slider */}
-                    <div className="mb-3">
-                      <div className="flex justify-between text-[8px] font-mono text-zinc-400 mb-1">
-                        <span>PAN</span>
-                        <span className="text-zinc-200">
-                          {track.pan === 0
-                            ? "C"
-                            : track.pan < 0
-                            ? `L${Math.round(Math.abs(track.pan) * 100)}`
-                            : `R${Math.round(track.pan * 100)}`}
-                        </span>
-                      </div>
-                      <input
-                        type="range"
-                        min="-1"
-                        max="1"
-                        step="0.05"
-                        value={track.pan}
-                        onChange={(e) => handleTrackPanChange(track.id, parseFloat(e.target.value))}
-                        className="w-full h-1 bg-zinc-800 rounded accent-[#38bdf8]"
-                      />
-                    </div>
-
-                    {/* Mute / Solo / Rec */}
-                    <div className="grid grid-cols-3 gap-1 mb-3">
-                      <button
-                        onClick={() => handleArmTrack(track.id)}
-                        className={`py-1 rounded text-[9px] font-mono font-bold ${
-                          track.id === armedTrackId
-                            ? "bg-rose-500 text-white animate-pulse"
-                            : "bg-white/5 text-zinc-400 hover:text-white"
-                        }`}
-                      >
-                        REC
-                      </button>
-                      <button
-                        onClick={() => handleToggleMute(track.id)}
-                        className={`py-1 rounded text-[9px] font-mono font-bold ${
-                          track.muted
-                            ? "bg-rose-500 text-white font-bold"
-                            : "bg-white/5 text-zinc-400 hover:text-white"
-                        }`}
-                      >
-                        M
-                      </button>
-                      <button
-                        onClick={() => handleToggleSolo(track.id)}
-                        className={`py-1 rounded text-[9px] font-mono font-bold ${
-                          track.soloed
-                            ? "bg-amber-400 text-black font-bold"
-                            : "bg-white/5 text-zinc-400 hover:text-white"
-                        }`}
-                      >
-                        S
-                      </button>
+                <div key={track.id} className="w-32 sm:w-40 shrink-0 bg-[#0e121b] border border-white/10 rounded-xl p-3 flex flex-col justify-between">
+                  <div className="flex flex-col gap-2 mb-4">
+                    <span className="text-xs font-mono font-bold text-white truncate text-center bg-white/5 rounded py-1" style={{ borderTop: `2px solid ${track.color}`}}>
+                      {track.name}
+                    </span>
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => handleToggleMute(track.id)} className={`flex-1 py-1 rounded text-[10px] font-mono font-bold ${track.muted ? "bg-rose-500 text-white" : "bg-white/5 text-zinc-400"}`}>M</button>
+                      <button onClick={() => handleToggleSolo(track.id)} className={`flex-1 py-1 rounded text-[10px] font-mono font-bold ${track.soloed ? "bg-amber-400 text-black" : "bg-white/5 text-zinc-400"}`}>S</button>
                     </div>
                   </div>
-
-                  {/* Fader + Meter Area */}
-                  <div className="flex items-center gap-3 bg-black/30 p-2 rounded border border-white/5">
-                    {/* Vertical VU Meter */}
-                    <div className="w-2.5 h-32 bg-zinc-900 rounded overflow-hidden flex flex-col-reverse relative">
-                      <div
-                        className="w-full transition-all duration-75"
-                        style={{
-                          height: `${Math.min(100, peak * 100)}%`,
-                          backgroundColor: peak > 0.9 ? "#f43f5e" : peak > 0.7 ? "#fbbf24" : "#a3ff12",
-                        }}
-                      />
-                      {isClip && (
-                        <div className="absolute top-0 left-0 right-0 h-1.5 bg-rose-500 animate-pulse" />
-                      )}
-                    </div>
-
-                    {/* Vertical Volume Slider */}
-                    <div className="flex-1 flex flex-col items-center justify-between h-32 py-1">
-                      <span className="text-[8px] font-mono text-zinc-300 font-bold">{volDb} dB</span>
-                      <input
-                        type="range"
-                        min="0"
-                        max="1.2"
-                        step="0.01"
-                        value={track.volume}
-                        onChange={(e) => handleTrackVolumeChange(track.id, parseFloat(e.target.value))}
-                        className="w-24 h-1 bg-zinc-800 rounded -rotate-90 appearance-none cursor-pointer accent-[#a3ff12]"
-                      />
-                      <span className="text-[8px] font-mono text-zinc-500">VOL</span>
-                    </div>
+                  
+                  <div className="flex-1 relative flex justify-center mb-4 min-h-[150px]">
+                     <input type="range" min="0" max="1.5" step="0.01" value={track.volume} onChange={(e) => handleTrackVolumeChange(track.id, parseFloat(e.target.value))}
+                       className="absolute h-full appearance-none bg-transparent cursor-pointer"
+                       style={{ writingMode: 'bt-lr', WebkitAppearance: 'slider-vertical', width: '20px' } as any}
+                     />
+                  </div>
+                  
+                  <div className="text-center">
+                     <span className="text-[10px] font-mono text-zinc-400">{volDb} dB</span>
                   </div>
                 </div>
               );
             })}
-
-            {/* Submix Bus Channel Strips */}
-            <div className="border-l border-white/10 pl-4 flex gap-3">
-              {buses.map((bus) => {
-                const routedTracks = project.tracks.filter(
-                  (t) => (t.busId || "").toLowerCase() === bus.id.toLowerCase()
-                );
-                const busDb =
-                  bus.volume > 0.001
-                    ? (20 * Math.log10(bus.volume)).toFixed(1)
-                    : "-∞";
-
-                return (
-                  <div
-                    key={bus.id}
-                    className={`w-36 shrink-0 bg-[#0a0d14] border rounded-xl p-3 flex flex-col justify-between select-none ${
-                      bus.muted
-                        ? "border-rose-500/30 opacity-70"
-                        : bus.soloed
-                        ? "border-amber-400/50 shadow-[0_0_12px_rgba(251,191,36,0.2)]"
-                        : "border-white/10"
-                    }`}
-                  >
-                    <div>
-                      <div className="flex items-center gap-1.5 mb-1.5">
-                        <span
-                          className="w-2.5 h-2.5 rounded-full shrink-0"
-                          style={{ backgroundColor: bus.color }}
-                        />
-                        <span className="text-xs font-mono font-bold text-zinc-200 truncate">
-                          {bus.name}
-                        </span>
-                      </div>
-                      <span className="text-[9px] font-mono text-zinc-500 block mb-3">
-                        {routedTracks.length} tracks routed
-                      </span>
-
-                      {/* Mute & Solo */}
-                      <div className="grid grid-cols-2 gap-1 mb-4">
-                        <button
-                          onClick={() => handleBusToggleMute(bus.id)}
-                          className={`py-1 rounded text-[9px] font-mono font-bold ${
-                            bus.muted
-                              ? "bg-rose-500 text-white font-bold"
-                              : "bg-white/5 text-zinc-400 hover:text-white"
-                          }`}
-                        >
-                          MUTE
-                        </button>
-                        <button
-                          onClick={() => handleBusToggleSolo(bus.id)}
-                          className={`py-1 rounded text-[9px] font-mono font-bold ${
-                            bus.soloed
-                              ? "bg-amber-400 text-black font-bold"
-                              : "bg-white/5 text-zinc-400 hover:text-white"
-                          }`}
-                        >
-                          SOLO
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Bus Fader Area */}
-                    <div className="flex items-center justify-center bg-black/40 p-2 rounded border border-white/5 h-44 flex-col">
-                      <span className="text-[9px] font-mono text-zinc-300 font-bold mb-2">
-                        {busDb} dB
-                      </span>
-                      <input
-                        type="range"
-                        min="0"
-                        max="1.5"
-                        step="0.01"
-                        value={bus.volume}
-                        onChange={(e) => handleBusVolumeChange(bus.id, parseFloat(e.target.value))}
-                        className="w-28 h-1 bg-zinc-800 rounded -rotate-90 appearance-none cursor-pointer my-auto"
-                        style={{ accentColor: bus.color }}
-                      />
-                      <span className="text-[8px] font-mono text-zinc-500 mt-2">BUS SUB</span>
-                    </div>
-                  </div>
-                );
-              })}
+            
+            {/* Master Strip */}
+            <div className="w-32 sm:w-40 shrink-0 bg-black/40 border border-[#a3ff12]/20 rounded-xl p-3 flex flex-col justify-between ml-4">
+              <div className="flex flex-col gap-2 mb-4">
+                <span className="text-xs font-mono font-bold text-[#a3ff12] truncate text-center bg-[#a3ff12]/10 rounded py-1">
+                  MASTER
+                </span>
+              </div>
+              <div className="flex-1 relative flex justify-center mb-4 min-h-[150px]">
+                {/* Master meter can go here */}
+                <div className="w-4 h-full bg-black rounded-full overflow-hidden flex flex-col justify-end border border-white/10">
+                   <div className="w-full bg-[#a3ff12]" style={{ height: `${Math.min(100, Math.max(0, inputLevel.rms * 100)) }%` }} />
+                </div>
+              </div>
             </div>
           </div>
         </div>
-      )}
 
-      {activeTab === "projects" && (
-        <div className="bg-[#0b0e14] border border-white/10 rounded-2xl shadow-2xl min-h-[500px] overflow-hidden">
-          <ProjectsModal
-            inline={true}
-            currentProject={project}
-            savedProjects={savedProjects}
-            onClose={() => setActiveTab("timeline")}
-            onSelectProject={handleSelectProject}
-            onDeleteProject={handleDeleteProject}
-            onNewProject={handleNewProject}
-            onSaveAs={handleSaveAs}
-          />
-        </div>
-      )}
+      </div>
 
-      {/* CLIP INSPECTOR MODAL */}
-      {inspectingClip && (
-        <ClipInspector
-          clip={inspectingClip}
-          trackName={
-            project.tracks.find((t) => (t.clips || []).some((c) => c.id === inspectingClip.id))
-              ?.name || "Guitar Track"
-          }
-          trackColor={
-            project.tracks.find((t) => (t.clips || []).some((c) => c.id === inspectingClip.id))
-              ?.color || "#a3ff12"
-          }
-          playheadTimeSec={playheadTimeSec}
-          onClose={() => setInspectingClip(null)}
-          onUpdateClip={handleUpdateInspectingClip}
-          onSplitAtPlayhead={handleSplitAtPlayhead}
-          onDuplicateClip={handleDuplicateClip}
-          onDeleteClip={handleDeleteClip}
-        />
-      )}
-
-      {/* PROJECTS LIBRARY MODAL (for top button) */}
       {isProjectsModalOpen && (
-        <ProjectsModal
-          currentProject={project}
-          savedProjects={savedProjects}
-          onClose={() => setIsProjectsModalOpen(false)}
-          onSelectProject={handleSelectProject}
-          onDeleteProject={handleDeleteProject}
-          onNewProject={handleNewProject}
-          onSaveAs={handleSaveAs}
-        />
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="w-full max-w-4xl max-h-[80vh] flex flex-col bg-[#0b0e14] border border-white/10 rounded-2xl overflow-hidden shadow-2xl relative">
+            <button onClick={() => setIsProjectsModalOpen(false)} className="absolute top-4 right-4 p-2 text-zinc-400 hover:text-white bg-white/5 hover:bg-white/10 rounded-lg transition-colors z-50">
+              <X className="w-4 h-4" />
+            </button>
+            <div className="flex-1 overflow-y-auto">
+              <ProjectsModal
+                inline={true}
+                currentProject={project}
+                savedProjects={savedProjects}
+                onClose={() => setIsProjectsModalOpen(false)}
+                onSelectProject={(loaded) => {
+                  transport.stop();
+                  setProject(loaded);
+                  transport.setBpm(loaded.bpm || 120);
+                  transport.setKeySig(loaded.keySig || "Am");
+                  transport.setTimeSig(loaded.timeSig || "4/4");
+                  setIsProjectsModalOpen(false);
+                  setActiveTab("tracks");
+                }}
+                onDeleteProject={handleDeleteSavedProject}
+                onNewProject={handleNewProject}
+                onSaveAs={handleSaveProject}
+              />
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

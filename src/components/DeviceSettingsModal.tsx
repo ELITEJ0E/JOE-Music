@@ -20,6 +20,14 @@ import {
 import { audioEngine } from "../audio/audioContext";
 import { midiManager, MidiDevice } from "../audio/midiManager";
 import { guitarSynth } from "../audio/guitarSynth";
+import { transport } from "../audio/transport";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./ui/select";
 
 interface DeviceSettingsModalProps {
   isOpen: boolean;
@@ -30,7 +38,7 @@ export const DeviceSettingsModal: React.FC<DeviceSettingsModalProps> = ({
   isOpen,
   onClose,
 }) => {
-  const [activeTab, setActiveTab] = useState<"hardware" | "audio" | "midi">("hardware");
+  const [activeTab, setActiveTab] = useState<"hardware" | "audio" | "midi" | "diagnostics">("hardware");
   const [audioInputDevices, setAudioInputDevices] = useState<MediaDeviceInfo[]>([]);
   const [audioOutputDevices, setAudioOutputDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedInputId, setSelectedInputId] = useState<string>(audioEngine.getInputDeviceId());
@@ -45,6 +53,27 @@ export const DeviceSettingsModal: React.FC<DeviceSettingsModalProps> = ({
 
   const stopToneRef = useRef<(() => void) | null>(null);
   const meterAnimRef = useRef<number | null>(null);
+
+  const [diagData, setDiagData] = useState<any>(null);
+
+  useEffect(() => {
+    if (activeTab === "diagnostics") {
+      const interval = setInterval(() => {
+        const ctx = audioEngine.getContext();
+        setDiagData({
+          state: ctx.state,
+          sampleRate: ctx.sampleRate,
+          consumers: audioEngine.getActiveConsumers(),
+          trackCount: audioEngine.getMicStreamTracksCount(),
+          monitoring: audioEngine.getIsMonitoring(),
+          recording: audioEngine.getInputState() === "RECORDING",
+          nodeCount: 9, // Blocks mapped
+          bpm: transport.getState().bpm
+        });
+      }, 500);
+      return () => clearInterval(interval);
+    }
+  }, [activeTab]);
 
   // Handle ESC key press to close dialog
   useEffect(() => {
@@ -248,6 +277,16 @@ export const DeviceSettingsModal: React.FC<DeviceSettingsModalProps> = ({
           >
             MIDI Controllers
           </button>
+          <button
+            onClick={() => setActiveTab("diagnostics")}
+            className={`px-4 py-2 rounded-xl font-mono text-xs font-bold transition-all cursor-pointer shrink-0 ${
+              activeTab === "diagnostics"
+                ? "bg-[#a3ff12] text-black shadow-[0_0_12px_rgba(163,255,18,0.4)]"
+                : "bg-white/5 text-zinc-400 hover:text-white"
+            }`}
+          >
+            Diagnostics (Dev)
+          </button>
         </div>
 
         {/* Scrollable Content Area */}
@@ -338,21 +377,25 @@ export const DeviceSettingsModal: React.FC<DeviceSettingsModalProps> = ({
                       Input Hardware Source
                     </span>
                   </label>
-                  <select
-                    value={selectedInputId}
-                    onChange={(e) => handleInputChange(e.target.value)}
-                    className="w-full bg-[#12151a] text-xs font-mono text-white border border-white/10 rounded-xl px-3 py-3 focus:outline-none focus:border-[#a3ff12]/50 cursor-pointer"
+                  <Select
+                    value={selectedInputId || "default"}
+                    onValueChange={(val) => handleInputChange(val)}
                   >
-                    {audioInputDevices.length > 0 ? (
-                      audioInputDevices.map((dev) => (
-                        <option key={dev.deviceId} value={dev.deviceId}>
-                          {dev.label || `Audio Input (${dev.deviceId.slice(0, 8)}...)`}
-                        </option>
-                      ))
-                    ) : (
-                      <option value="default">Default System Microphone</option>
-                    )}
-                  </select>
+                    <SelectTrigger className="h-11 text-xs font-mono px-3 bg-[#12151a] border-white/10 rounded-xl focus:border-[#a3ff12]/50">
+                      <SelectValue placeholder="Input Device" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {audioInputDevices.length > 0 ? (
+                        audioInputDevices.map((dev) => (
+                          <SelectItem key={dev.deviceId} value={dev.deviceId}>
+                            {dev.label || `Audio Input (${dev.deviceId.slice(0, 8)}...)`}
+                          </SelectItem>
+                        ))
+                      ) : (
+                        <SelectItem value="default">Default System Microphone</SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 <div className="space-y-2">
@@ -362,21 +405,25 @@ export const DeviceSettingsModal: React.FC<DeviceSettingsModalProps> = ({
                       Output Destination
                     </span>
                   </label>
-                  <select
-                    value={selectedOutputId}
-                    onChange={(e) => handleOutputChange(e.target.value)}
-                    className="w-full bg-[#12151a] text-xs font-mono text-white border border-white/10 rounded-xl px-3 py-3 focus:outline-none focus:border-[#a3ff12]/50 cursor-pointer"
+                  <Select
+                    value={selectedOutputId || "default"}
+                    onValueChange={(val) => handleOutputChange(val)}
                   >
-                    {audioOutputDevices.length > 0 ? (
-                      audioOutputDevices.map((dev) => (
-                        <option key={dev.deviceId} value={dev.deviceId}>
-                          {dev.label || `Audio Output (${dev.deviceId.slice(0, 8)}...)`}
-                        </option>
-                      ))
-                    ) : (
-                      <option value="default">Default System Audio Output</option>
-                    )}
-                  </select>
+                    <SelectTrigger className="h-11 text-xs font-mono px-3 bg-[#12151a] border-white/10 rounded-xl focus:border-[#a3ff12]/50">
+                      <SelectValue placeholder="Output Device" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {audioOutputDevices.length > 0 ? (
+                        audioOutputDevices.map((dev) => (
+                          <SelectItem key={dev.deviceId} value={dev.deviceId}>
+                            {dev.label || `Audio Output (${dev.deviceId.slice(0, 8)}...)`}
+                          </SelectItem>
+                        ))
+                      ) : (
+                        <SelectItem value="default">Default System Audio Output</SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
 
@@ -459,6 +506,61 @@ export const DeviceSettingsModal: React.FC<DeviceSettingsModalProps> = ({
                     No external MIDI hardware detected.<br/>Plug in a USB/Bluetooth MIDI pedal or keyboard to map stomp buttons.
                   </div>
                 )}
+              </div>
+            </div>
+          )}
+
+          {/* DIAGNOSTICS TAB */}
+          {activeTab === "diagnostics" && diagData && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-mono text-zinc-400 flex items-center">
+                  <Activity className="w-3.5 h-3.5 text-[#a3ff12] mr-1.5" />
+                  Audio Engine Diagnostics
+                </label>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+                <div className="bg-white/5 p-3 rounded-xl border border-white/5">
+                  <div className="text-[9px] text-zinc-400 uppercase mb-1">AUDIO CONTEXT</div>
+                  <div className={`font-bold ${diagData.state === "running" ? "text-[#a3ff12]" : "text-amber-500"}`}>
+                    {diagData.state.toUpperCase()}
+                  </div>
+                </div>
+                <div className="bg-white/5 p-3 rounded-xl border border-white/5">
+                  <div className="text-[9px] text-zinc-400 uppercase mb-1">SAMPLE RATE</div>
+                  <div className="font-bold text-white">{diagData.sampleRate} Hz</div>
+                </div>
+                <div className="bg-white/5 p-3 rounded-xl border border-white/5">
+                  <div className="text-[9px] text-zinc-400 uppercase mb-1">INPUT CONSUMERS</div>
+                  <div className="font-bold text-white">
+                    {diagData.consumers.length > 0 ? diagData.consumers.join(", ") : "NONE"}
+                  </div>
+                </div>
+                <div className="bg-white/5 p-3 rounded-xl border border-white/5">
+                  <div className="text-[9px] text-zinc-400 uppercase mb-1">MEDIA TRACKS</div>
+                  <div className="font-bold text-white">{diagData.trackCount} Active</div>
+                </div>
+                <div className="bg-white/5 p-3 rounded-xl border border-white/5">
+                  <div className="text-[9px] text-zinc-400 uppercase mb-1">MONITORING</div>
+                  <div className={`font-bold ${diagData.monitoring ? "text-[#a3ff12]" : "text-zinc-600"}`}>
+                    {diagData.monitoring ? "ENABLED" : "DISABLED"}
+                  </div>
+                </div>
+                <div className="bg-white/5 p-3 rounded-xl border border-white/5">
+                  <div className="text-[9px] text-zinc-400 uppercase mb-1">RECORDING FLAG</div>
+                  <div className={`font-bold ${diagData.recording ? "text-red-500" : "text-zinc-600"}`}>
+                    {diagData.recording ? "ACTIVE" : "INACTIVE"}
+                  </div>
+                </div>
+                <div className="bg-white/5 p-3 rounded-xl border border-white/5">
+                  <div className="text-[9px] text-zinc-400 uppercase mb-1">DSP BLOCKS</div>
+                  <div className="font-bold text-white">{diagData.nodeCount} Configured</div>
+                </div>
+                <div className="bg-white/5 p-3 rounded-xl border border-white/5">
+                  <div className="text-[9px] text-zinc-400 uppercase mb-1">TRANSPORT BPM</div>
+                  <div className="font-bold text-white">{diagData.bpm} BPM</div>
+                </div>
               </div>
             </div>
           )}

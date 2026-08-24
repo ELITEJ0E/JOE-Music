@@ -25,7 +25,9 @@ import { guitarSynth } from "../audio/guitarSynth";
 import { analyzeAudioFile } from "../audio/audioAnalyzer";
 import { audioEngine } from "../audio/audioContext";
 import { SongAnalysis, SavedSong } from "../types";
+import { resolveChordFinderState, transposeChordSymbol } from "../music/chordTransposer";
 import { ChordDiagram } from "./ChordDiagram";
+import { CustomConfirmDialog } from "./ui/CustomConfirmDialog";
 import {
   saveSongToDB,
   loadSongsFromDB,
@@ -100,6 +102,20 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
   const [slowDown, setSlowDown] = useState(false);
   const [voicingIndex, setVoicingIndex] = useState(1);
   const [isRepeating, setIsRepeating] = useState(false);
+  const [dialog, setDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    confirmText?: string;
+    cancelText?: string;
+    onConfirm: () => void;
+    type?: "confirm" | "alert" | "error" | "success";
+  }>({
+    isOpen: false,
+    title: "",
+    message: "",
+    onConfirm: () => {},
+  });
 
   // Timeline dragging & hover states
   const [isDraggingTimeline, setIsDraggingTimeline] = useState(false);
@@ -257,10 +273,22 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
 
   const getDisplayChord = (idx: number) => {
     if (!segments || segments.length === 0 || idx < 0 || idx >= segments.length) {
-      return { chord: "-", timeLabel: "-" };
+      return {
+        detectedChord: "-",
+        transposedChord: "-",
+        shapeChord: "-",
+        timeLabel: "-",
+        isValid: false,
+        confidence: 0,
+      };
     }
     const seg = segments[idx];
-    return { chord: seg.chord, timeLabel: formatTime(seg.startTime) };
+    const resolved = resolveChordFinderState(seg.chord, transpose, capo, activeSong?.key);
+    return {
+      ...resolved,
+      timeLabel: formatTime(seg.startTime),
+      confidence: seg.confidence || 90,
+    };
   };
 
   const prevChord = getDisplayChord(activeIdx - 1);
@@ -362,7 +390,14 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
       setAnalysisProgress(null);
       abortControllerRef.current = null;
       if (err.message !== "Analysis cancelled by user.") {
-        alert("Error analyzing audio file. Please try another audio format.");
+        setDialog({
+          isOpen: true,
+          title: "Analysis Failed",
+          message: "An error occurred while analyzing the audio file. Please try another standard audio format like WAV or MP3.",
+          confirmText: "OK",
+          type: "error",
+          onConfirm: () => setDialog((prev) => ({ ...prev, isOpen: false })),
+        });
       }
     }
   };
@@ -382,7 +417,14 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
       const data = await response.json();
 
       if (!response.ok) {
-        alert(data.error || "Failed to analyze song.");
+        setDialog({
+          isOpen: true,
+          title: "Song Search Failed",
+          message: data.error || "Failed to search and analyze song. Please check your query or try again.",
+          confirmText: "OK",
+          type: "alert",
+          onConfirm: () => setDialog((prev) => ({ ...prev, isOpen: false })),
+        });
       } else {
         data.title = data.title + " (AI-Estimated Chords)";
         data.id = `yt-analyzed-${Date.now()}`;
@@ -414,7 +456,14 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
       }
     } catch (err) {
       console.error(err);
-      alert("Network error while contacting analysis server.");
+      setDialog({
+        isOpen: true,
+        title: "Database Server Offline",
+        message: "A network error occurred while contacting the AI analysis server. Check your connection or try again later.",
+        confirmText: "OK",
+        type: "error",
+        onConfirm: () => setDialog((prev) => ({ ...prev, isOpen: false })),
+      });
     } finally {
       setAnalysisProgress(null);
     }
@@ -435,28 +484,49 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
         await audioEngine.acquireInput("chord-finder");
         setIsLiveMic(true);
       } catch (err) {
-        alert("Microphone permission required for live listening.");
+        setDialog({
+          isOpen: true,
+          title: "Microphone Access Required",
+          message: "Please authorize microphone access to enable real-time chord and key detection.",
+          confirmText: "OK",
+          type: "alert",
+          onConfirm: () => setDialog((prev) => ({ ...prev, isOpen: false })),
+        });
       }
     }
   };
 
   const handleDeleteSong = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    await deleteSongFromDB(id);
-    const updatedSongs = await loadSongsFromDB();
-    setSavedSongs(updatedSongs);
+    const songToDelete = savedSongs.find((s) => s.id === id);
+    const songTitle = songToDelete ? `"${songToDelete.title}"` : "this song";
 
-    if (activeSong?.id === id) {
-      if (updatedSongs.length > 0) {
-        setActiveSong(updatedSongs[0]);
-        saveLastPlayedSongId(updatedSongs[0].id);
-      } else {
-        setActiveSong(null);
-        saveLastPlayedSongId("");
-      }
-      setCurrentTime(0);
-      setIsPlaying(false);
-    }
+    setDialog({
+      isOpen: true,
+      title: "Delete Saved Song",
+      message: `Are you sure you want to delete ${songTitle} and its chord sheet from your library?`,
+      confirmText: "Delete",
+      cancelText: "Cancel",
+      type: "confirm",
+      onConfirm: async () => {
+        await deleteSongFromDB(id);
+        const updatedSongs = await loadSongsFromDB();
+        setSavedSongs(updatedSongs);
+
+        if (activeSong?.id === id) {
+          if (updatedSongs.length > 0) {
+            setActiveSong(updatedSongs[0]);
+            saveLastPlayedSongId(updatedSongs[0].id);
+          } else {
+            setActiveSong(null);
+            saveLastPlayedSongId("");
+          }
+          setCurrentTime(0);
+          setIsPlaying(false);
+        }
+        setDialog((prev) => ({ ...prev, isOpen: false }));
+      },
+    });
   };
 
   const loadSavedSong = async (song: SavedSong) => {
@@ -472,12 +542,13 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
     setIsPlaying(false);
   };
 
-  // Resolve active guitar voicing
+  // Resolve active guitar voicing based strictly on shapeChord
   const activeSegment = segments[activeIdx];
-  const activeVoicingResult: GuitarVoicingResult = activeSong
-    ? resolveGuitarChord(activeChord.chord, {
+  const activeVoicingResult: GuitarVoicingResult = activeSong && activeChord.isValid
+    ? resolveGuitarChord(activeChord.shapeChord, {
         keyContext: activeSong.key,
-        detectionConfidence: activeSegment?.confidence || 90,
+        detectionConfidence: activeChord.confidence,
+        voicingIndex,
       })
     : {
         detectedChord: "-",
@@ -487,6 +558,9 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
         detectionConfidence: 0,
         voicingConfidence: 0,
         hasExactSlashVoicing: false,
+        availableVoicingsCount: 0,
+        allVoicings: [],
+        selectedVoicingIndex: 1,
       };
 
   const lastPlayedId = getLastPlayedSongId();
@@ -685,7 +759,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                   {/* Previous Chord */}
                   <div className="text-center opacity-40">
                     <div className="text-2xl sm:text-3xl font-bold font-mono text-zinc-300">
-                      {prevChord.chord}
+                      {prevChord.transposedChord}
                     </div>
                     <span className="text-[10px] font-mono text-zinc-500">{prevChord.timeLabel}</span>
                   </div>
@@ -693,8 +767,20 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                   {/* Active Main Chord */}
                   <div className="text-center transform scale-110 sm:scale-125">
                     <div className="text-4xl sm:text-5xl font-black font-mono text-[#a3ff12] drop-shadow-[0_0_20px_rgba(163,255,18,0.4)]">
-                      {activeChord.chord}
+                      {activeChord.transposedChord}
                     </div>
+                    {capo > 0 && activeChord.isValid && (
+                      <div className="mt-1 flex items-center justify-center gap-1.5">
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-sky-500/20 text-sky-400 border border-sky-500/30">
+                          Capo {capo} • Play {activeChord.shapeChord} shape
+                        </span>
+                      </div>
+                    )}
+                    {transpose !== 0 && activeChord.isValid && (
+                      <div className="text-[9px] font-mono text-zinc-400 mt-0.5">
+                        Sounding (Original: {activeChord.detectedChord})
+                      </div>
+                    )}
                     <span className="text-[11px] font-mono font-bold text-zinc-300 mt-1 block">
                       {activeChord.timeLabel}
                     </span>
@@ -703,7 +789,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                   {/* Next Chord */}
                   <div className="text-center opacity-40">
                     <div className="text-2xl sm:text-3xl font-bold font-mono text-zinc-300">
-                      {nextChord.chord}
+                      {nextChord.transposedChord}
                     </div>
                     <span className="text-[10px] font-mono text-zinc-500">{nextChord.timeLabel}</span>
                   </div>
@@ -714,9 +800,16 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                   <div className="flex flex-col items-center">
                     <div className="bg-[#13161a] rounded-2xl p-4 border border-white/10 shadow-2xl relative">
                       <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs font-mono font-bold text-white">
-                          {activeVoicingResult.voicing.name}
-                        </span>
+                        <div className="flex flex-col">
+                          <span className="text-xs font-mono font-bold text-white">
+                            {capo > 0 ? `${activeChord.shapeChord} Shape` : activeChord.transposedChord}
+                          </span>
+                          {capo > 0 && (
+                            <span className="text-[9px] font-mono text-sky-400">
+                              Capo {capo} = {activeChord.transposedChord} Sounding
+                            </span>
+                          )}
+                        </div>
                         <div className="flex items-center gap-1.5">
                           {activeVoicingResult.voicingType === "exact" && (
                             <span className="px-2 py-0.5 rounded-full text-[9px] font-mono font-bold bg-[#a3ff12]/10 text-[#a3ff12] border border-[#a3ff12]/20">
@@ -754,7 +847,8 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                         barre={activeVoicingResult.voicing.barre}
                         position={activeVoicingResult.voicing.baseFret}
                         cagedShape={activeVoicingResult.voicing.cagedShape}
-                        title={activeChord.chord}
+                        title={capo > 0 ? `${activeChord.shapeChord} (Capo ${capo})` : activeChord.transposedChord}
+                        capo={capo}
                       />
                     </div>
 
@@ -770,7 +864,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                       No guitar voicing available
                     </span>
                     <span className="text-[11px] font-mono text-zinc-500 max-w-[220px]">
-                      {activeVoicingResult.simplificationReason || `No safe diagram for ${activeChord.chord}`}
+                      {activeVoicingResult.simplificationReason || `No safe diagram for ${activeChord.shapeChord}`}
                     </span>
                   </div>
                 )}
@@ -841,6 +935,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                     {segments.map((seg, idx) => {
                       const leftPct = duration > 0 ? (seg.startTime / duration) * 100 : 0;
                       const isCurrentSeg = currentTime >= seg.startTime && currentTime <= seg.endTime;
+                      const segmentTransposed = transposeChordSymbol(seg.chord, transpose, activeSong?.key);
                       return (
                         <div
                           key={seg.id || idx}
@@ -852,7 +947,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                           style={{ left: `${leftPct}%` }}
                         >
                           <span className="bg-black/60 px-1 py-0.5 rounded backdrop-blur-xs">
-                            {seg.chord}
+                            {segmentTransposed}
                           </span>
                         </div>
                       );
@@ -891,7 +986,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                       {/* Floating Active Drag Tooltip */}
                       {isDraggingTimeline && (
                         <div className="absolute -top-8 -translate-x-1/2 bg-black/95 border border-[#a3ff12] px-2.5 py-1 rounded-lg text-[10px] font-mono text-[#a3ff12] font-extrabold shadow-2xl whitespace-nowrap">
-                          {formatTime(currentTime)} {activeChord.chord !== "-" ? `• ${activeChord.chord}` : ""}
+                          {formatTime(currentTime)} {activeChord.transposedChord !== "-" ? `• ${activeChord.transposedChord}` : ""}
                         </div>
                       )}
                     </div>
@@ -988,7 +1083,18 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
             <div className="grid grid-cols-2 gap-3">
               {/* Transpose */}
               <div className="bg-white/5 p-3 rounded-xl space-y-1.5 border border-white/5">
-                <span className="text-[10px] font-mono text-zinc-400 uppercase font-bold">Transpose</span>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-mono text-zinc-400 uppercase font-bold">Transpose</span>
+                  {transpose !== 0 && (
+                    <button
+                      onClick={() => setTranspose(0)}
+                      className="text-[9px] font-mono text-zinc-400 hover:text-white transition-colors underline"
+                      title="Reset Transpose to 0"
+                    >
+                      Reset
+                    </button>
+                  )}
+                </div>
                 <div className="flex items-center justify-between">
                   <button
                     onClick={() => setTranspose((t) => Math.max(-12, t - 1))}
@@ -996,8 +1102,8 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                   >
                     -
                   </button>
-                  <span className="text-xs font-mono font-bold text-white">
-                    {transpose >= 0 ? `+${transpose}` : transpose}
+                  <span className={`text-xs font-mono font-bold ${transpose !== 0 ? "text-[#a3ff12]" : "text-white"}`}>
+                    {transpose > 0 ? `+${transpose}` : transpose}
                   </span>
                   <button
                     onClick={() => setTranspose((t) => Math.min(12, t + 1))}
@@ -1010,7 +1116,18 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
 
               {/* Capo */}
               <div className="bg-white/5 p-3 rounded-xl space-y-1.5 border border-white/5">
-                <span className="text-[10px] font-mono text-zinc-400 uppercase font-bold">Capo</span>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-mono text-zinc-400 uppercase font-bold">Capo</span>
+                  {capo !== 0 && (
+                    <button
+                      onClick={() => setCapo(0)}
+                      className="text-[9px] font-mono text-sky-400 hover:text-white transition-colors underline"
+                      title="Remove Capo"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
                 <div className="flex items-center justify-between">
                   <button
                     onClick={() => setCapo((c) => Math.max(0, c - 1))}
@@ -1018,7 +1135,9 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                   >
                     -
                   </button>
-                  <span className="text-xs font-mono font-bold text-white">{capo}</span>
+                  <span className={`text-xs font-mono font-bold ${capo > 0 ? "text-sky-400" : "text-white"}`}>
+                    {capo > 0 ? `Fret ${capo}` : "0"}
+                  </span>
                   <button
                     onClick={() => setCapo((c) => Math.min(12, c + 1))}
                     className="w-6 h-6 rounded bg-white/10 text-zinc-300 hover:text-white flex items-center justify-center text-xs font-bold"
@@ -1066,22 +1185,32 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
             <div className="space-y-1.5 pt-1">
               <div className="flex justify-between text-[11px] font-mono text-zinc-400">
                 <span>VOICING</span>
-                <span className="text-[#a3ff12] font-bold">Standard Open</span>
+                <span className="text-[#a3ff12] font-bold">
+                  {activeVoicingResult.voicing?.cagedShape
+                    ? `${activeVoicingResult.voicing.cagedShape}-Shape (${voicingIndex}/${Math.max(1, activeVoicingResult.availableVoicingsCount || 1)})`
+                    : `Voicing ${voicingIndex} of ${Math.max(1, activeVoicingResult.availableVoicingsCount || 1)}`}
+                </span>
               </div>
               <div className="grid grid-cols-3 gap-2">
-                {[1, 2, 3].map((v) => (
-                  <button
-                    key={v}
-                    onClick={() => setVoicingIndex(v)}
-                    className={`py-1.5 rounded-lg text-xs font-mono font-bold transition-all cursor-pointer ${
-                      voicingIndex === v
-                        ? "bg-[#a3ff12] text-black"
-                        : "bg-white/5 text-zinc-400 hover:text-white"
-                    }`}
-                  >
-                    {v}
-                  </button>
-                ))}
+                {[1, 2, 3].map((v) => {
+                  const isAvailable = !activeVoicingResult.availableVoicingsCount || v <= activeVoicingResult.availableVoicingsCount;
+                  return (
+                    <button
+                      key={v}
+                      onClick={() => setVoicingIndex(v)}
+                      disabled={!isAvailable}
+                      className={`py-1.5 rounded-lg text-xs font-mono font-bold transition-all cursor-pointer ${
+                        voicingIndex === v
+                          ? "bg-[#a3ff12] text-black shadow-md"
+                          : isAvailable
+                          ? "bg-white/5 text-zinc-400 hover:text-white hover:bg-white/10"
+                          : "bg-white/[0.02] text-zinc-600 cursor-not-allowed opacity-40"
+                      }`}
+                    >
+                      {v}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -1367,6 +1496,17 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
           </div>
         </div>
       )}
+
+      <CustomConfirmDialog
+        isOpen={dialog.isOpen}
+        title={dialog.title}
+        message={dialog.message}
+        confirmText={dialog.confirmText}
+        cancelText={dialog.cancelText}
+        type={dialog.type}
+        onConfirm={dialog.onConfirm}
+        onCancel={() => setDialog((prev) => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 };

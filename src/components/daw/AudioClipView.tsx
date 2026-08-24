@@ -8,9 +8,9 @@ interface AudioClipViewProps {
   zoomPxPerSec: number;
   isSelected: boolean;
   onSelect: (clipId: string) => void;
-  onMove: (clipId: string, newStartTime: number) => void;
-  onTrimLeft: (clipId: string, deltaSec: number) => void;
-  onTrimRight: (clipId: string, deltaSec: number) => void;
+  onMove: (newStartTime: number) => void;
+  onTrimLeft: (deltaSec: number) => void;
+  onTrimRight: (deltaSec: number) => void;
   onOpenInspector: (clip: AudioClip) => void;
   onSplitAtPlayhead?: (clipId: string) => void;
   onDuplicate?: (clipId: string) => void;
@@ -195,11 +195,11 @@ export const AudioClipView: React.FC<AudioClipViewProps> = ({
       if (Math.abs(finalDeltaX) >= 1) {
         if (mode === "move") {
           const newStart = Math.max(0, initialStartTimeRef.current + finalDeltaSec);
-          onMove(clip.id, newStart);
+          onMove(newStart);
         } else if (mode === "trim-left") {
-          onTrimLeft(clip.id, finalDeltaSec);
+          onTrimLeft(finalDeltaSec);
         } else if (mode === "trim-right") {
-          onTrimRight(clip.id, finalDeltaSec);
+          onTrimRight(finalDeltaSec);
         }
       }
     };

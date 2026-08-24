@@ -229,21 +229,71 @@ self.onmessage = function (e) {
     const maxBpm = 200;
     const minLag = Math.max(1, Math.floor((60 / maxBpm) * fps));
     const maxLag = Math.min(onsetEnvelope.length - 1, Math.ceil((60 / minBpm) * fps));
-
-    let bestLag = minLag;
-    let maxCorr = -Infinity;
-
+    
+    // Calculate autocorrelation
+    const autocor = new Float32Array(maxLag + 1);
     if (maxLag > minLag && onsetEnvelope.length > maxLag) {
       for (let lag = minLag; lag <= maxLag; lag++) {
         let sum = 0;
-        const limit = onsetEnvelope.length - lag;
+        const limit = normOnset.length - lag;
         for (let i = 0; i < limit; i++) {
           sum += normOnset[i] * normOnset[i + lag];
         }
-        if (sum > maxCorr) {
-          maxCorr = sum;
+        autocor[lag] = sum;
+      }
+    }
+
+    // Find local maxima (peaks)
+    interface Peak { lag: number; score: number; }
+    let peaks: Peak[] = [];
+    for (let lag = minLag + 1; lag < maxLag; lag++) {
+      if (autocor[lag] > autocor[lag - 1] && autocor[lag] > autocor[lag + 1]) {
+        peaks.push({ lag, score: autocor[lag] });
+      }
+    }
+    
+    // Sort peaks by score descending
+    peaks.sort((a, b) => b.score - a.score);
+    const topPeaks = peaks.slice(0, 5);
+
+    let bestLag = minLag;
+    let bestScore = -Infinity;
+    
+    // Evaluate harmonic/half-tempo consistency
+    // A good beat period will have strong harmonics at lag/2, 2*lag, etc.
+    topPeaks.forEach(peak => {
+       const lag = peak.lag;
+       let totalScore = peak.score;
+       
+       // Check 1/2 tempo (2x lag)
+       const doubleLag = lag * 2;
+       if (doubleLag <= maxLag) {
+          totalScore += 0.5 * autocor[doubleLag];
+       }
+       
+       // Check 2x tempo (0.5x lag)
+       const halfLag = Math.round(lag / 2);
+       if (halfLag >= minLag) {
+          totalScore += 0.5 * autocor[halfLag];
+       }
+
+       // Penalize extreme tempos slightly to prefer "normal" music (100-140 BPM)
+       const bpmCand = 60 / ((lag * hopSize) / sampleRate);
+       if (bpmCand < 80 || bpmCand > 160) {
+          totalScore *= 0.9; 
+       }
+       
+       if (totalScore > bestScore) {
+          bestScore = totalScore;
           bestLag = lag;
-        }
+       }
+    });
+
+    if (topPeaks.length === 0) {
+      // Fallback
+      let maxCorr = -Infinity;
+      for (let lag = minLag; lag <= maxLag; lag++) {
+         if (autocor[lag] > maxCorr) { maxCorr = autocor[lag]; bestLag = lag; }
       }
     }
 
@@ -251,6 +301,9 @@ self.onmessage = function (e) {
     let estimatedBpm = Math.round(60 / beatIntervalSec);
     if (estimatedBpm < 60) estimatedBpm = 60;
     if (estimatedBpm > 200) estimatedBpm = 200;
+    
+    // Approximate confidence
+    const bpmConfidence = Math.min(99, Math.max(0, Math.round((autocor[bestLag] / (onsetSum || 1)) * 100)));
 
     // (b) Phase offset estimation: test ~20 phase offsets within one beat period against real onset energy
     const numPhaseCandidates = 20;
@@ -780,6 +833,9 @@ self.onmessage = function (e) {
           chromaFrameCount: chromagram.length,
           bassFrameCount: bassChromagram.length,
           keyResult: estimatedKey,
+          estimatedBpm,
+          beatIntervalSec,
+          bpmConfidence,
           numChordStates: nStates,
           observationMatrixDims: `${numFrames}x${nStates}`,
           hasNaNOrInf,

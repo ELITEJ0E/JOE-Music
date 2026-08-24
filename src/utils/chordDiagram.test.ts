@@ -1,6 +1,54 @@
+import { describe, it, expect } from "vitest";
 import { calculateStartFret } from "../components/ChordDiagram";
 import { validateChordDatabase } from "./chordValidation";
 import { CHORD_DATABASE } from "../data/chordDatabase";
+
+describe("Chord Diagram Rendering & Start Fret Calculation", () => {
+  it("validates the CHORD_DATABASE without syntax errors", () => {
+    const report = validateChordDatabase(CHORD_DATABASE);
+    expect(report.invalidCount).toBe(0);
+  });
+
+  it("calculates correct startFret for open and barre positions", () => {
+    const testCases = [
+      {
+        name: "C Major Open",
+        frets: ["x", 3, 2, 0, 1, 0],
+        barre: undefined,
+        expectedStartFret: 1,
+      },
+      {
+        name: "C Major A-shape (3rd fret)",
+        frets: ["x", 3, 5, 5, 5, 3],
+        barre: { fret: 3, fromString: 1, toString: 5 },
+        expectedStartFret: 3,
+      },
+      {
+        name: "C Major E-shape (8th fret)",
+        frets: [8, 10, 10, 9, 8, 8],
+        barre: { fret: 8, fromString: 0, toString: 5 },
+        expectedStartFret: 8,
+      },
+      {
+        name: "F Major",
+        frets: [1, 3, 3, 2, 1, 1],
+        barre: { fret: 1, fromString: 0, toString: 5 },
+        expectedStartFret: 1,
+      },
+      {
+        name: "F# Minor",
+        frets: [2, 4, 4, 2, 2, 2],
+        barre: { fret: 2, fromString: 0, toString: 5 },
+        expectedStartFret: 2,
+      },
+    ];
+
+    for (const tc of testCases) {
+      const startFret = calculateStartFret(tc.frets as (number | "x")[], tc.barre);
+      expect(startFret).toBe(tc.expectedStartFret);
+    }
+  });
+});
 
 export function runChordDiagramTests() {
   console.log("=== RUNNING CHORD DATABASE & DIAGRAM TESTS ===");

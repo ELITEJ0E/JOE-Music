@@ -6,12 +6,14 @@ export interface FretboardViewProps {
   chord?: ChordDefinition;
   fretsCount?: number;
   showMode?: "chord" | "scale" | "notes";
+  capo?: number;
 }
 
 export const FretboardView: React.FC<FretboardViewProps> = ({ 
   chord, 
   fretsCount = 12,
-  showMode = "chord" 
+  showMode = "chord",
+  capo = 0
 }) => {
   const strings = [0, 1, 2, 3, 4, 5]; // 6th to 1st
 
@@ -54,6 +56,23 @@ export const FretboardView: React.FC<FretboardViewProps> = ({
   return (
     <div className="w-full overflow-x-auto custom-scrollbar pb-4">
       <div className="relative min-w-[600px] h-48 bg-[#1c1c1c] rounded-lg border border-zinc-700 flex flex-col justify-between py-2 px-4">
+        {/* Capo Indicator Bar */}
+        {capo > 0 && capo <= fretsCount && (
+          <div
+            className="absolute top-0 bottom-0 z-20 pointer-events-none flex flex-col items-center justify-between"
+            style={{
+              left: `${(capo / (fretsCount + 1)) * 100}%`,
+              width: "12px",
+              transform: "translateX(-50%)",
+            }}
+          >
+            <div className="px-1.5 py-0.5 bg-sky-500 text-black rounded text-[9px] font-mono font-bold shadow-lg whitespace-nowrap -mt-3">
+              CAPO {capo}
+            </div>
+            <div className="w-2 h-full bg-sky-400/80 rounded-sm shadow-[0_0_8px_rgba(56,189,248,0.6)]" />
+          </div>
+        )}
+
         {/* Fret markers */}
         <div className="absolute inset-0 flex">
            {Array.from({length: fretsCount + 1}).map((_, i) => (

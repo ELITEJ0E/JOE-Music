@@ -158,7 +158,7 @@ export default function App() {
             </div>
 
             {/* Scrollable Workstation Module Page */}
-            <main className="flex-1 overflow-y-auto px-4 sm:px-8 py-6 relative z-10 pb-24 md:pb-6">
+            <main className={`flex-1 overflow-y-auto relative z-10 ${activeMode === "studio" || activeMode === "multi-track" ? "p-0 overflow-hidden" : "px-4 sm:px-8 py-6 pb-24 md:pb-6"}`}>
               {activeMode === "home" && (
                 <HomeDashboard
                   onSelectMode={handleSelectMode}

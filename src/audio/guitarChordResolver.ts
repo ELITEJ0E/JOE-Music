@@ -17,12 +17,16 @@ export interface GuitarVoicingResult {
   bassNote?: string;            // e.g. "Bb"
   hasExactSlashVoicing: boolean;
   simplificationReason?: string;
+  availableVoicingsCount?: number;
+  allVoicings?: ChordVoicing[];
+  selectedVoicingIndex?: number;
 }
 
 export interface ResolveOptions {
   keyContext?: string;
   detectionConfidence?: number;
   simplifyIfUnavailable?: boolean;
+  voicingIndex?: number; // 1-indexed voicing selector
 }
 
 export function resolveGuitarChord(
@@ -31,6 +35,7 @@ export function resolveGuitarChord(
 ): GuitarVoicingResult {
   const detectConf = options.detectionConfidence ?? 90;
   const keyCtx = options.keyContext;
+  const requestedVoicingIdx = options.voicingIndex ?? 1;
 
   let norm: NormalizedChord;
   if (typeof input === "string") {
@@ -51,13 +56,16 @@ export function resolveGuitarChord(
       detectionConfidence: 0,
       voicingConfidence: 0,
       hasExactSlashVoicing: false,
-      simplificationReason: "Invalid or malformed chord specification"
+      simplificationReason: "Invalid or malformed chord specification",
+      availableVoicingsCount: 0,
+      allVoicings: [],
+      selectedVoicingIndex: 1
     };
   }
 
   const detectedLabel = norm.canonicalLabel;
   
-  // Use new procedural parser
+  // Use procedural parser
   const parsed = parseChordSymbol(detectedLabel);
   
   if (!parsed.isValid || !parsed.chord) {
@@ -69,14 +77,14 @@ export function resolveGuitarChord(
       detectionConfidence: detectConf,
       voicingConfidence: 0,
       hasExactSlashVoicing: false,
-      simplificationReason: "Unsupported chord symbol"
+      simplificationReason: "Unsupported chord symbol",
+      availableVoicingsCount: 0,
+      allVoicings: [],
+      selectedVoicingIndex: 1
     };
   }
   
-  // Power chords handling using procedural powerChordResolver if we want to retain it,
-  // or use the generator. Since the old one worked fine for 5 chords, we can keep it
-  // or use the new procedural. Let's just use the procedural one if it gives good results,
-  // but wait, `resolvePowerChord` is specific and good for "B5". Let's use it for exact "5" match.
+  // Power chords handling
   if (parsed.chord.quality === "5") {
       const pVoicing = resolvePowerChord(parsed.chord.rootName, parsed.chord.bassName);
       if (pVoicing) {
@@ -88,42 +96,51 @@ export function resolveGuitarChord(
            detectionConfidence: detectConf,
            voicingConfidence: 90,
            hasExactSlashVoicing: false,
-           bassNote: parsed.chord.bassName
+           bassNote: parsed.chord.bassName,
+           availableVoicingsCount: 1,
+           allVoicings: [pVoicing],
+           selectedVoicingIndex: 1
          };
       }
   }
 
-  // Generate voicings!
+  // Generate procedural voicings
   const generated = generateVoicings(parsed.chord, { maxFretSpan: 4, maxFret: 15 });
   
   if (generated.length > 0) {
-    const best = generated[0];
-    const voicing: ChordVoicing = {
-      id: "procedural-" + detectedLabel,
+    const allVoicings: ChordVoicing[] = generated.map((g, idx) => ({
+      id: `procedural-${detectedLabel}-${idx + 1}`,
       name: detectedLabel,
       root: parsed.chord.rootName,
       quality: parsed.chord.quality,
-      frets: best.frets,
-      fingers: best.fingers,
-      barre: best.barre,
-      baseFret: best.baseFret,
-      notes: best.notes,
-      intervals: best.intervals,
-      cagedShape: best.cagedShape,
-      voicingType: best.type,
-      difficulty: best.type === "exact" ? "Intermediate" : "Beginner"
-    };
+      frets: g.frets,
+      fingers: g.fingers,
+      barre: g.barre,
+      baseFret: g.baseFret,
+      notes: g.notes,
+      intervals: g.intervals,
+      cagedShape: g.cagedShape,
+      voicingType: g.type,
+      difficulty: g.type === "exact" ? (g.baseFret <= 3 ? "Beginner" : "Intermediate") : "Beginner"
+    }));
+
+    const clampedIdx = Math.max(1, Math.min(requestedVoicingIdx, allVoicings.length));
+    const selectedVoicing = allVoicings[clampedIdx - 1];
+    const selectedGen = generated[clampedIdx - 1];
     
     return {
       detectedChord: detectedLabel,
-      displayChord: best.type === "simplified" ? `${parsed.chord.rootName}${parsed.chord.quality}` : detectedLabel,
-      voicing,
-      voicingType: best.type,
+      displayChord: selectedGen.type === "simplified" ? `${parsed.chord.rootName}${parsed.chord.quality}` : detectedLabel,
+      voicing: selectedVoicing,
+      voicingType: selectedGen.type,
       detectionConfidence: detectConf,
-      voicingConfidence: best.type === "exact" ? 95 : 70,
+      voicingConfidence: selectedGen.type === "exact" ? 95 : 70,
       bassNote: parsed.chord.bassName,
-      hasExactSlashVoicing: parsed.chord.bass !== undefined && best.type === "exact",
-      simplificationReason: best.type === "simplified" ? "Simplified voicing used" : undefined
+      hasExactSlashVoicing: parsed.chord.bass !== undefined && selectedGen.type === "exact",
+      simplificationReason: selectedGen.type === "simplified" ? "Simplified voicing used" : undefined,
+      availableVoicingsCount: allVoicings.length,
+      allVoicings,
+      selectedVoicingIndex: clampedIdx
     };
   }
   
@@ -136,6 +153,9 @@ export function resolveGuitarChord(
     voicingConfidence: 0,
     hasExactSlashVoicing: false,
     bassNote: parsed.chord.bassName,
-    simplificationReason: "No playable voicing found"
+    simplificationReason: "No playable voicing found",
+    availableVoicingsCount: 0,
+    allVoicings: [],
+    selectedVoicingIndex: 1
   };
 }

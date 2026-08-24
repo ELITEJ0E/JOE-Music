@@ -24,6 +24,14 @@ import { audioEngine } from "../audio/audioContext";
 import { DEFAULT_TONE_PRESETS } from "../data/presetsDatabase";
 import { TonePreset, PedalConfig } from "../types";
 import { savePresetToDB, loadPresetsFromDB } from "../utils/storage";
+import { CustomConfirmDialog } from "./ui/CustomConfirmDialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./ui/select";
 
 export const ToneStudio: React.FC = () => {
   const [presets, setPresets] = useState<TonePreset[]>(DEFAULT_TONE_PRESETS);
@@ -38,6 +46,24 @@ export const ToneStudio: React.FC = () => {
   const [masterDb, setMasterDb] = useState<number>(-100);
   const [latencyMs, setLatencyMs] = useState<number>(4.2);
   const [activePedalId, setActivePedalId] = useState<string | null>(DEFAULT_TONE_PRESETS[0].pedals[0].id);
+  const [dialog, setDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    confirmText?: string;
+    cancelText?: string;
+    onConfirm?: () => void;
+    type?: "confirm" | "alert" | "error" | "success";
+    showInput?: boolean;
+    inputDefaultValue?: string;
+    inputPlaceholder?: string;
+    onConfirmWithInput?: (val: string) => void;
+  }>({
+    isOpen: false,
+    title: "",
+    message: "",
+    onConfirm: () => {},
+  });
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const animRef = useRef<number | null>(null);
@@ -204,7 +230,14 @@ export const ToneStudio: React.FC = () => {
         await audioEngine.acquireInput("tone-studio", { enableMonitoring: isMonitoring });
       }
     } catch (err) {
-      alert("Microphone permission is required for real guitar tone processing.");
+      setDialog({
+        isOpen: true,
+        title: "Microphone Access Required",
+        message: "Microphone/audio input permission is required for real-time guitar tone processing.",
+        confirmText: "OK",
+        type: "alert",
+        onConfirm: () => setDialog((prev) => ({ ...prev, isOpen: false })),
+      });
     }
   };
 
@@ -213,22 +246,44 @@ export const ToneStudio: React.FC = () => {
   };
 
   const handleSaveCustomPreset = async () => {
-    const customName = prompt("Enter a name for your custom guitar rig preset:", `${activePreset.name} (Custom)`);
-    if (!customName) return;
+    setDialog({
+      isOpen: true,
+      title: "Save Custom Rig Preset",
+      message: "Enter a custom name for your guitar signal chain and DSP parameters preset.",
+      confirmText: "Save Preset",
+      cancelText: "Cancel",
+      showInput: true,
+      inputDefaultValue: `${activePreset.name} (Custom)`,
+      inputPlaceholder: "e.g., Warm British Crunch, Heavy Octafuzz...",
+      onConfirm: () => {}, // Not used when onConfirmWithInput is defined
+      onConfirmWithInput: async (customName) => {
+        if (!customName.trim()) {
+          setDialog((prev) => ({
+            ...prev,
+            title: "Name Required",
+            message: "Please specify a name for your custom preset to save it.",
+            type: "error",
+            showInput: false,
+          }));
+          return;
+        }
 
-    const newPreset: TonePreset = {
-      id: `custom-${Date.now()}`,
-      name: customName,
-      category: activePreset.category,
-      description: "User customized signal chain and DSP parameters.",
-      pedals: JSON.parse(JSON.stringify(pedals)),
-    };
+        const newPreset: TonePreset = {
+          id: `custom-${Date.now()}`,
+          name: customName.trim(),
+          category: activePreset.category,
+          description: "User customized signal chain and DSP parameters.",
+          pedals: JSON.parse(JSON.stringify(pedals)),
+        };
 
-    await savePresetToDB(newPreset);
-    setPresets((prev) => [newPreset, ...prev]);
-    setActivePreset(newPreset);
-    setSaveSuccess(true);
-    setTimeout(() => setSaveSuccess(false), 2000);
+        await savePresetToDB(newPreset);
+        setPresets((prev) => [newPreset, ...prev]);
+        setActivePreset(newPreset);
+        setSaveSuccess(true);
+        setTimeout(() => setSaveSuccess(false), 2000);
+        setDialog((prev) => ({ ...prev, isOpen: false }));
+      },
+    });
   };
 
   return (
@@ -547,15 +602,19 @@ export const ToneStudio: React.FC = () => {
                         <label className="text-[11px] font-mono text-zinc-400 uppercase tracking-wider block">
                           Cabinet Speaker IR
                         </label>
-                        <select
+                        <Select
                           value={val as string}
-                          onChange={(e) => handleParamChange(activePedal.id, key, e.target.value)}
-                          className="w-full bg-black/40 text-sm font-mono text-white border border-white/10 rounded-xl px-4 py-3 focus:outline-none focus:border-[#a3ff12]"
+                          onValueChange={(newVal) => handleParamChange(activePedal.id, key, newVal)}
                         >
-                          <option value="4x12 Vintage" className="bg-[#13161a]">4x12 Vintage Celestion V30</option>
-                          <option value="2x12 Open Back" className="bg-[#13161a]">2x12 Open Back Fender Tweed</option>
-                          <option value="1x12 Tweed" className="bg-[#13161a]">1x12 Studio Direct Amp</option>
-                        </select>
+                          <SelectTrigger className="h-11 text-xs font-mono px-4 bg-black/40 border-white/10 rounded-xl focus:border-[#a3ff12]">
+                            <SelectValue placeholder="Cabinet IR" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="4x12 Vintage">4x12 Vintage Celestion V30</SelectItem>
+                            <SelectItem value="2x12 Open Back">2x12 Open Back Fender Tweed</SelectItem>
+                            <SelectItem value="1x12 Tweed">1x12 Studio Direct Amp</SelectItem>
+                          </SelectContent>
+                        </Select>
                       </div>
                     );
                   }
@@ -647,6 +706,21 @@ export const ToneStudio: React.FC = () => {
           })}
         </div>
       </div>
+
+      <CustomConfirmDialog
+        isOpen={dialog.isOpen}
+        title={dialog.title}
+        message={dialog.message}
+        confirmText={dialog.confirmText}
+        cancelText={dialog.cancelText}
+        type={dialog.type}
+        showInput={dialog.showInput}
+        inputDefaultValue={dialog.inputDefaultValue}
+        inputPlaceholder={dialog.inputPlaceholder}
+        onConfirm={dialog.onConfirm || (() => {})}
+        onConfirmWithInput={dialog.onConfirmWithInput}
+        onCancel={() => setDialog((prev) => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 };

@@ -14,6 +14,13 @@ import {
   Sliders,
 } from "lucide-react";
 import { DAWTrack } from "../../types";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../ui/select";
 
 interface TrackHeaderProps {
   track: DAWTrack;
@@ -36,6 +43,7 @@ interface TrackHeaderProps {
   onResetClipping?: () => void;
   onEqChange?: (trackId: string, band: "low" | "mid" | "high", value: number) => void;
   onReverbSendChange?: (trackId: string, value: number) => void;
+  onInputSourceChange?: (trackId: string, source: "dry" | "processed") => void;
   onCompressorChange?: (trackId: string, config: { enabled: boolean; thresholdDb: number; ratio: number }) => void;
   onBusChange?: (trackId: string, busId: string) => void;
 }
@@ -63,6 +71,7 @@ export const TrackHeader: React.FC<TrackHeaderProps> = ({
   onReverbSendChange,
   onCompressorChange,
   onBusChange,
+  onInputSourceChange,
 }) => {
   const [isEditingName, setIsEditingName] = useState<boolean>(false);
   const [nameVal, setNameVal] = useState<string>(track.name);
@@ -462,18 +471,22 @@ export const TrackHeader: React.FC<TrackHeaderProps> = ({
                     {track.busId || "Master"}
                   </span>
                 </div>
-                <select
+                <Select
                   value={track.busId || "master"}
-                  onChange={(e) => onBusChange?.(track.id, e.target.value)}
-                  className="w-full bg-[#12151e] border border-white/15 text-[9px] font-mono text-zinc-200 rounded px-1 py-0.5 outline-none cursor-pointer"
+                  onValueChange={(val) => onBusChange?.(track.id, val)}
                 >
-                  <option value="master">Master (Direct)</option>
-                  <option value="guitars">Guitars Bus</option>
-                  <option value="drums">Drums Bus</option>
-                  <option value="vocals">Vocals Bus</option>
-                  <option value="bass">Bass Bus</option>
-                  <option value="keys">Keys / FX Bus</option>
-                </select>
+                  <SelectTrigger className="h-[22px] text-[8px] px-1 bg-[#12151e] border-white/15 focus:ring-0">
+                    <SelectValue placeholder="Bus" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="master">Master (Direct)</SelectItem>
+                    <SelectItem value="guitars">Guitars Bus</SelectItem>
+                    <SelectItem value="drums">Drums Bus</SelectItem>
+                    <SelectItem value="vocals">Vocals Bus</SelectItem>
+                    <SelectItem value="bass">Bass Bus</SelectItem>
+                    <SelectItem value="keys">Keys / FX Bus</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
 
@@ -535,25 +548,29 @@ export const TrackHeader: React.FC<TrackHeaderProps> = ({
                       {compRatio}:1
                     </span>
                   </div>
-                  <select
+                  <Select
                     disabled={!compEnabled}
-                    value={compRatio}
-                    onChange={(e) =>
+                    value={String(compRatio)}
+                    onValueChange={(val) =>
                       onCompressorChange?.(track.id, {
                         enabled: compEnabled,
                         thresholdDb: compThreshold,
-                        ratio: parseFloat(e.target.value),
+                        ratio: parseFloat(val),
                       })
                     }
-                    className={`w-full bg-[#12151e] border border-white/15 text-[8px] font-mono text-zinc-200 rounded px-1 py-0.5 outline-none cursor-pointer ${
-                      !compEnabled ? "opacity-40 cursor-not-allowed" : ""
-                    }`}
                   >
-                    <option value="2">2:1 (Gentle)</option>
-                    <option value="4">4:1 (Standard)</option>
-                    <option value="8">8:1 (Punchy)</option>
-                    <option value="12">12:1 (Heavy)</option>
-                  </select>
+                    <SelectTrigger className={`h-[22px] text-[8px] px-1 bg-[#12151e] border-white/15 focus:ring-0 ${
+                      !compEnabled ? "opacity-40 cursor-not-allowed" : ""
+                    }`}>
+                      <SelectValue placeholder="Ratio" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="2">2:1 (Gentle)</SelectItem>
+                      <SelectItem value="4">4:1 (Standard)</SelectItem>
+                      <SelectItem value="8">8:1 (Punchy)</SelectItem>
+                      <SelectItem value="12">12:1 (Heavy)</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
             </div>

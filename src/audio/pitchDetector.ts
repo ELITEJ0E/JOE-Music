@@ -40,7 +40,8 @@ export function detectPitch(
   buffer: Float32Array,
   sampleRate: number,
   minFreq: number = 40, // Low B / Drop A bass and guitar
-  maxFreq: number = 1200 // High frets
+  maxFreq: number = 1200, // High frets
+  previousFrequency?: number
 ): { frequency: number; clarity: number } | null {
   const bufferSize = buffer.length;
 
@@ -83,7 +84,6 @@ export function detectPitch(
   // cmndf(0) = 1; cmndf(tau) = d(tau) / ((1/tau) * sum(d(1..tau)))
   const cmndf = new Float32Array(maxPeriod + 1);
   cmndf[0] = 1;
-
   let runningSum = 0;
   for (let tau = 1; tau <= maxPeriod; tau++) {
     runningSum += d[tau];
@@ -95,24 +95,56 @@ export function detectPitch(
   }
 
   // 4. Absolute threshold and local minimum search
-  // Walk tau from minPeriod upward and pick the FIRST tau where cmndf drops below threshold
-  // AND is a local minimum
   const threshold = 0.15;
-  let bestTau = -1;
-
+  let minima: {tau: number, value: number}[] = [];
+  
   for (let tau = minPeriod; tau < maxPeriod; tau++) {
     if (cmndf[tau] < threshold) {
+      let startTau = tau;
       // Find the bottom of this local valley
       while (tau + 1 <= maxPeriod && cmndf[tau + 1] < cmndf[tau]) {
         tau++;
       }
-      bestTau = tau;
-      break;
+      minima.push({ tau: tau, value: cmndf[tau] });
     }
   }
 
-  // Fallback: If no tau crossed the threshold, pick the global minimum in [minPeriod, maxPeriod]
-  if (bestTau === -1) {
+  let bestTau = -1;
+  
+  if (minima.length > 0) {
+    // Octave error resistance:
+    // Prefer the first minimum, but check if there's a sub-harmonic (longer tau / half frequency)
+    // that is also a strong minimum and aligns better with previous history.
+    bestTau = minima[0].tau;
+    
+    if (previousFrequency && previousFrequency > minFreq) {
+      const prevTau = sampleRate / previousFrequency;
+      let closestTau = minima[0].tau;
+      let minDiff = Math.abs(minima[0].tau - prevTau);
+      
+      for (let i = 1; i < minima.length; i++) {
+        const diff = Math.abs(minima[i].tau - prevTau);
+        // If we have another minimum that is closer to previous frequency 
+        // AND its cmndf value is still good, prefer it to prevent octave jumps
+        if (diff < minDiff && minima[i].value < threshold + 0.1) {
+          minDiff = diff;
+          closestTau = minima[i].tau;
+        }
+      }
+      bestTau = closestTau;
+    } else {
+      // Without history, if we see a strong minimum at ~2x the first tau, it might be the true fundamental
+      // while the first tau is a strong harmonic.
+      for (let i = 1; i < minima.length; i++) {
+         if (Math.abs(minima[i].tau - 2 * minima[0].tau) < 5) {
+             if (minima[i].value < threshold * 1.5) { // somewhat lenient if it's an octave below
+                 bestTau = minima[i].tau;
+             }
+         }
+      }
+    }
+  } else {
+    // Fallback: If no tau crossed the threshold, pick the global minimum in [minPeriod, maxPeriod]
     let globalMinVal = Infinity;
     for (let tau = minPeriod; tau <= maxPeriod; tau++) {
       if (cmndf[tau] < globalMinVal) {
@@ -159,9 +191,10 @@ export function analyzePitchFrame(
   buffer: Float32Array,
   sampleRate: number,
   targetTuningFrequencies: number[],
-  referenceA4: number = 440
+  referenceA4: number = 440,
+  previousFrequency?: number
 ): TunerResult | null {
-  const result = detectPitch(buffer, sampleRate);
+  const result = detectPitch(buffer, sampleRate, 40, 1200, previousFrequency);
   if (!result) return null;
 
   const { frequency, clarity } = result;

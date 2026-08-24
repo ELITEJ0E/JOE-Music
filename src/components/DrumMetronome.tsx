@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { Clock, Play, Square, Volume2, Sparkles, Sliders, Music } from "lucide-react";
+import { transport } from "../audio/transport";
 import { drumEngine, DrumStyle, DrumPatternConfig, PRESET_DRUM_PATTERNS } from "../audio/drumEngine";
 
 export const DrumMetronome: React.FC = () => {
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [bpm, setBpm] = useState(120);
+  const [isPlaying, setIsPlaying] = useState(transport.getState().isPlaying);
+  const [bpm, setBpm] = useState(transport.getState().bpm);
   const [activePresetName, setActivePresetName] = useState<DrumStyle>("Rock 4/4");
   const [currentStep, setCurrentStep] = useState<number>(0);
   const [metronomeOnly, setMetronomeOnly] = useState<boolean>(false);
@@ -12,19 +13,33 @@ export const DrumMetronome: React.FC = () => {
 
   useEffect(() => {
     const unsubStep = drumEngine.subscribeStep((step) => setCurrentStep(step));
+    const unsubTransport = transport.subscribe((state) => {
+      setIsPlaying(state.isPlaying);
+      setBpm(state.bpm);
+      drumEngine.setBpm(state.bpm);
+    });
+    
+    // Sync initial state
+    drumEngine.setBpm(transport.getState().bpm);
+    
     return () => {
       unsubStep();
+      unsubTransport();
     };
   }, []);
+  
+  // React to play/stop changes
+  useEffect(() => {
+    if (isPlaying) {
+      drumEngine.start();
+    } else {
+      drumEngine.stop();
+      setCurrentStep(0);
+    }
+  }, [isPlaying]);
 
   const handleTogglePlay = () => {
-    if (isPlaying) {
-      drumEngine.stop();
-      setIsPlaying(false);
-    } else {
-      drumEngine.start();
-      setIsPlaying(true);
-    }
+    transport.togglePlay();
   };
 
   const handleSelectPreset = (style: DrumStyle) => {
@@ -33,8 +48,7 @@ export const DrumMetronome: React.FC = () => {
   };
 
   const handleBpmChange = (newBpm: number) => {
-    setBpm(newBpm);
-    drumEngine.setBpm(newBpm);
+    transport.setBpm(newBpm);
   };
 
   const pattern = drumEngine.getCurrentPattern();

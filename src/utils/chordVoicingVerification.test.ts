@@ -1,8 +1,24 @@
+import { describe, it, expect } from "vitest";
 import { ChordVoicing } from "../types";
 import { parseChordLabel, pitchClassOfNote, normalizeNoteSpelling } from "../audio/chordNormalizer";
 import { findChordByName, CHORD_DATABASE } from "../data/chordDatabase";
 import { resolveGuitarChord } from "../audio/guitarChordResolver";
 import { resolvePowerChord } from "../audio/powerChordResolver";
+
+describe("Chord Voicing Semantic Verification", () => {
+  it("strictly validates voicing chord tones against chord formula", () => {
+    const aOpenVoicing = findChordByName("A");
+    expect(aOpenVoicing).toBeDefined();
+
+    const verifiedA = verifyVoicingForChord("A", aOpenVoicing!);
+    expect(verifiedA.voicingType).toBe("exact");
+    expect(verifiedA.missingChordTones.length).toBe(0);
+
+    const verifiedAadd9 = verifyVoicingForChord("Aadd9", aOpenVoicing!);
+    expect(verifiedAadd9.missingChordTones).toContain("B");
+    expect(verifiedAadd9.voicingType).toBe("none");
+  });
+});
 
 // Standard tuning open string pitch classes (Low E to High E)
 const OPEN_STRING_PITCH_CLASSES = [4, 9, 2, 7, 11, 4]; // E, A, D, G, B, E

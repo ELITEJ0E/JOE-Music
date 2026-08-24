@@ -1,135 +1,15 @@
-import { audioEngine } from "./audioContext";
-import { PedalConfig } from "../types";
+const fs = require('fs');
+let code = fs.readFileSync('src/audio/pedalboardDsp.ts', 'utf8');
 
-/**
- * Creates soft-clipping polynomial / hyperbolic curve for Tube Screamer overdrive
- */
-function makeOverdriveCurve(amount: number, sampleRate: number = 44100): Float32Array {
-  const k = typeof amount === "number" ? amount : 50;
-  const n_samples = 4096;
-  const curve = new Float32Array(n_samples);
-  const deg = Math.PI / 180;
+// We will add an object to hold the block I/O.
+code = code.replace(
+  'private isInitialized: boolean = false;',
+  'private blocks: Record<string, { in: GainNode, out: GainNode }> = {};\n  private isInitialized: boolean = false;'
+);
 
-  for (let i = 0; i < n_samples; ++i) {
-    const x = (i * 2) / n_samples - 1;
-    // Soft overdrive curve with pleasant odd harmonics
-    curve[i] = ((3 + k) * x * 20 * deg) / (Math.PI + k * Math.abs(x));
-  }
-  return curve;
-}
-
-/**
- * Creates aggressive asymmetrical clipping curve for Metal / Fuzz distortion
- */
-function makeDistortionCurve(amount: number): Float32Array {
-  const k = typeof amount === "number" ? amount : 50;
-  const n_samples = 4096;
-  const curve = new Float32Array(n_samples);
-
-  for (let i = 0; i < n_samples; ++i) {
-    const x = (i * 2) / n_samples - 1;
-    if (x < -0.08) {
-      curve[i] = -0.8 + (x + 0.08) * 0.1;
-    } else if (x > 0.08) {
-      curve[i] = Math.tanh(x * (k / 10 + 1));
-    } else {
-      curve[i] = x * (k / 12 + 1);
-    }
-  }
-  return curve;
-}
-
-/**
- * Creates synthetic impulse response buffer for cabinet & room reverberation
- */
-function createSyntheticReverbImpulse(
-  ctx: AudioContext,
-  duration: number = 2.5,
-  decay: number = 2.0,
-  reverse: boolean = false
-): AudioBuffer {
-  const sampleRate = ctx.sampleRate;
-  const length = Math.floor(sampleRate * duration);
-  const impulse = ctx.createBuffer(2, length, sampleRate);
-  const left = impulse.getChannelData(0);
-  const right = impulse.getChannelData(1);
-
-  for (let i = 0; i < length; i++) {
-    const n = reverse ? length - 1 - i : i;
-    const factor = Math.pow(1 - n / length, decay);
-    // Stereo decorrelated diffusion
-    left[i] = (Math.random() * 2 - 1) * factor;
-    right[i] = (Math.random() * 2 - 1) * factor;
-  }
-  return impulse;
-}
-
-export class PedalboardDSPChain {
-  private ctx: AudioContext | null = null;
-  private inputNode: GainNode | null = null;
-  private outputNode: GainNode | null = null;
-
-  // Individual Pedal Sub-graphs
-  // 1. Noise Gate
-  private noiseGateNode: GainNode | null = null;
-  private noiseGateParams = { threshold: -45, active: true };
-
-  // 2. Compressor
-  private compressorNode: DynamicsCompressorNode | null = null;
-  private compMakeupGain: GainNode | null = null;
-
-  // 3. Overdrive
-  private odPreFilter: BiquadFilterNode | null = null; // Tube screamer 720Hz mid hump
-  private odShaper: WaveShaperNode | null = null;
-  private odPostFilter: BiquadFilterNode | null = null;
-  private odDryGain: GainNode | null = null;
-  private odWetGain: GainNode | null = null;
-
-  // 4. Distortion / Fuzz
-  private distShaper: WaveShaperNode | null = null;
-  private distToneFilter: BiquadFilterNode | null = null;
-  private distDryGain: GainNode | null = null;
-  private distWetGain: GainNode | null = null;
-
-  // 5. Amp Head & Tone Stack
-  private ampGain: GainNode | null = null;
-  private ampShaper: WaveShaperNode | null = null;
-  private ampBass: BiquadFilterNode | null = null;
-  private ampMid: BiquadFilterNode | null = null;
-  private ampTreble: BiquadFilterNode | null = null;
-  private ampPresence: BiquadFilterNode | null = null;
-  private ampCabinetConvolver: ConvolverNode | null = null;
-  private ampCabFilter: BiquadFilterNode | null = null;
-
-  // 6. Stereo Chorus
-  private chorusDelayL: DelayNode | null = null;
-  private chorusDelayR: DelayNode | null = null;
-  private chorusLFO: OscillatorNode | null = null;
-  private chorusLFOGainL: GainNode | null = null;
-  private chorusLFOGainR: GainNode | null = null;
-  private chorusDryGain: GainNode | null = null;
-  private chorusWetGain: GainNode | null = null;
-
-  // 7. Delay
-  private delayNode: DelayNode | null = null;
-  private delayFeedbackGain: GainNode | null = null;
-  private delayDampFilter: BiquadFilterNode | null = null;
-  private delayDryGain: GainNode | null = null;
-  private delayWetGain: GainNode | null = null;
-
-  // 8. Reverb
-  private reverbConvolver: ConvolverNode | null = null;
-  private reverbDryGain: GainNode | null = null;
-  private reverbWetGain: GainNode | null = null;
-
-  // 9. Master Limiter
-  private limiterNode: DynamicsCompressorNode | null = null;
-
-  private blocks: Record<string, { in: GainNode, out: GainNode }> = {};
-  private isInitialized: boolean = false;
-  private isProcessingLiveMic: boolean = false;
-  private micInputSource: MediaStreamAudioSourceNode | null = null;
-
+// We need to modify the init() function to wrap blocks.
+const initRegex = /public init\(\) \{[\s\S]*?this\.isInitialized = true;\n  \}/;
+const newInit = `
   public init() {
     if (this.isInitialized) return;
     this.ctx = audioEngine.getContext();
@@ -187,6 +67,7 @@ export class PedalboardDSPChain {
       this.distToneFilter = this.ctx!.createBiquadFilter();
       const distWet = this.ctx!.createGain();
       const distDry = this.ctx!.createGain();
+      // ... keep it simple for now, we just need it available
       bIn.connect(this.distShaper);
       this.distShaper.connect(this.distToneFilter);
       this.distToneFilter.connect(distWet);
@@ -272,20 +153,14 @@ export class PedalboardDSPChain {
 
     this.isInitialized = true;
   }
+`;
 
-  public getInputNode(): GainNode {
-    this.init();
-    return this.inputNode!;
-  }
+code = code.replace(initRegex, newInit.trim());
 
-  public getOutputNode(): GainNode {
-    this.init();
-    return this.outputNode!;
-  }
+// Now rewrite applyPedalConfig to route dynamically
+const applyConfigRegex = /public applyPedalConfig\(pedals: PedalConfig\[\]\) \{[\s\S]*?case "reverb":[\s\S]*?break;\n      \}\n    \}\);\n  \}/;
 
-  /**
-   * Applies complete pedal configuration parameters from preset
-   */
+const newApplyConfig = `
   public applyPedalConfig(pedals: PedalConfig[]) {
     this.init();
     if (!this.ctx) return;
@@ -402,34 +277,8 @@ export class PedalboardDSPChain {
     // Connect the end of the chain to the limiter
     currentConnection.connect(this.limiterNode!);
   }
+`;
 
-  /**
-   * Connects live physical guitar microphone input directly through the DSP effects pedal chain!
-   */
-  public async toggleLiveMicMonitoring(enable: boolean): Promise<boolean> {
-    this.init();
-    if (enable) {
-      try {
-        const { source } = await audioEngine.acquireInput("pedalboard");
-        this.micInputSource = source;
-        this.isProcessingLiveMic = true;
-        return true;
-      } catch (err) {
-        console.error("Live monitoring activation failed:", err);
-        this.isProcessingLiveMic = false;
-        return false;
-      }
-    } else {
-      audioEngine.releaseInput("pedalboard");
-      this.micInputSource = null;
-      this.isProcessingLiveMic = false;
-      return false;
-    }
-  }
+code = code.replace(applyConfigRegex, newApplyConfig.trim());
 
-  public getIsLiveMonitoring(): boolean {
-    return this.isProcessingLiveMic;
-  }
-}
-
-export const pedalboardDsp = new PedalboardDSPChain();
+fs.writeFileSync('src/audio/pedalboardDsp.ts', code);
