@@ -105,9 +105,19 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
   const [isDraggingTimeline, setIsDraggingTimeline] = useState(false);
   const [hoverTimelineTime, setHoverTimelineTime] = useState<number | null>(null);
   const timelineRef = useRef<HTMLDivElement | null>(null);
+  const dragTargetTimeRef = useRef<number>(0);
+  const rafIdRef = useRef<number | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+      }
+    };
+  }, []);
 
   // Load saved songs from database and restore last played song on mount
   useEffect(() => {
@@ -266,7 +276,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
     }
   };
 
-  // Draggable timeline interaction handlers
+  // Draggable timeline interaction handlers with rAF throttling for 60fps performance
   const handleTimelinePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!activeSong || duration <= 0) return;
     setIsDraggingTimeline(true);
@@ -277,6 +287,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
     const rect = e.currentTarget.getBoundingClientRect();
     const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
     const targetTime = (x / rect.width) * duration;
+    dragTargetTimeRef.current = targetTime;
     seekToTime(targetTime);
   };
 
@@ -288,12 +299,23 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
     setHoverTimelineTime(targetTime);
 
     if (isDraggingTimeline) {
-      seekToTime(targetTime);
+      dragTargetTimeRef.current = targetTime;
+      if (rafIdRef.current === null) {
+        rafIdRef.current = requestAnimationFrame(() => {
+          seekToTime(dragTargetTimeRef.current);
+          rafIdRef.current = null;
+        });
+      }
     }
   };
 
   const handleTimelinePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
     if (isDraggingTimeline) {
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
+      seekToTime(dragTargetTimeRef.current);
       setIsDraggingTimeline(false);
       try {
         e.currentTarget.releasePointerCapture(e.pointerId);
@@ -608,7 +630,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
       {activeSong ? (
         <div className="frosted-card rounded-3xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center space-x-3.5">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-900 to-purple-900 flex items-center justify-center text-white border border-white/10 shrink-0">
+            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#122204] to-[#070b02] flex items-center justify-center text-[#a3ff12] border border-[#a3ff12]/30 shadow-[0_0_12px_rgba(163,255,18,0.2)] shrink-0">
               <Music className="w-6 h-6" />
             </div>
             <div>

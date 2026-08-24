@@ -67,8 +67,10 @@ export const TunerPanel: React.FC = () => {
   const centsSmoothRef = useRef<number>(0);
   const freqSmoothRef = useRef<number>(0);
 
-  // Clean unmount release
+  // Clean unmount release and force monitor gain to 0 immediately on mount
   useEffect(() => {
+    const ctx = audioEngine.getContext();
+    audioEngine.getMonitorGainNode().gain.setValueAtTime(0.0, ctx.currentTime);
     return () => {
       audioEngine.releaseInput("tuner");
       if (stopToneRef.current) stopToneRef.current();
@@ -129,9 +131,10 @@ export const TunerPanel: React.FC = () => {
     const buffer = new Float32Array(analyser.fftSize);
     bufferRef.current = buffer;
 
+    audioEngine.getMonitorGainNode().gain.setValueAtTime(0.0, ctx.currentTime);
     let sourceNode: MediaStreamAudioSourceNode | null = null;
     audioEngine
-      .acquireInput("tuner")
+      .acquireInput("tuner", { enableMonitoring: false })
       .then(({ source }) => {
         if (!isMounted) return;
         sourceNode = source;
@@ -206,7 +209,9 @@ export const TunerPanel: React.FC = () => {
   const toggleListening = async () => {
     if (!isListening) {
       try {
-        await audioEngine.acquireInput("tuner");
+        const ctx = audioEngine.getContext();
+        audioEngine.getMonitorGainNode().gain.setValueAtTime(0.0, ctx.currentTime);
+        await audioEngine.acquireInput("tuner", { enableMonitoring: false });
         setIsListening(true);
       } catch (err) {
         alert("Microphone permission is required for tuning.");

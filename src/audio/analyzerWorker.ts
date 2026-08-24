@@ -211,23 +211,80 @@ self.onmessage = function (e) {
     }
 
     reportProgress("Beat Tracking...", 65);
-    // Dynamic peak picking for beat grid
+    // (a) Tempo estimation via autocorrelation of onset envelope across 60-200 BPM range
+    const fps = sampleRate / hopSize;
     let onsetSum = 0;
     for (let i = 0; i < onsetEnvelope.length; i++) onsetSum += onsetEnvelope[i];
     const onsetMean = onsetSum / (onsetEnvelope.length || 1);
-    let onsetVar = 0;
-    for (let i = 0; i < onsetEnvelope.length; i++) {
-      const d = onsetEnvelope[i] - onsetMean;
-      onsetVar += d * d;
-    }
-    const onsetStd = Math.sqrt(onsetVar / (onsetEnvelope.length || 1));
-    const onsetThreshold = Math.max(1.2, onsetMean + 0.8 * onsetStd);
 
-    const beats = [];
-    for (let i = 1; i < onsetEnvelope.length - 1; i++) {
-      if (onsetEnvelope[i] > onsetEnvelope[i-1] && onsetEnvelope[i] > onsetEnvelope[i+1] && onsetEnvelope[i] > onsetThreshold) {
-        beats.push((i * hopSize) / sampleRate);
+    // Standardized / zero-mean onset envelope
+    const normOnset = new Float32Array(onsetEnvelope.length);
+    for (let i = 0; i < onsetEnvelope.length; i++) {
+      normOnset[i] = onsetEnvelope[i] - onsetMean;
+    }
+
+    // BPM bounds: 60 to 200 BPM
+    // Beat period in seconds = 60 / BPM => lag in frames = (60 / BPM) * fps
+    const minBpm = 60;
+    const maxBpm = 200;
+    const minLag = Math.max(1, Math.floor((60 / maxBpm) * fps));
+    const maxLag = Math.min(onsetEnvelope.length - 1, Math.ceil((60 / minBpm) * fps));
+
+    let bestLag = minLag;
+    let maxCorr = -Infinity;
+
+    if (maxLag > minLag && onsetEnvelope.length > maxLag) {
+      for (let lag = minLag; lag <= maxLag; lag++) {
+        let sum = 0;
+        const limit = onsetEnvelope.length - lag;
+        for (let i = 0; i < limit; i++) {
+          sum += normOnset[i] * normOnset[i + lag];
+        }
+        if (sum > maxCorr) {
+          maxCorr = sum;
+          bestLag = lag;
+        }
       }
+    }
+
+    const beatIntervalSec = Math.max(0.25, Math.min(1.25, (bestLag * hopSize) / sampleRate));
+    let estimatedBpm = Math.round(60 / beatIntervalSec);
+    if (estimatedBpm < 60) estimatedBpm = 60;
+    if (estimatedBpm > 200) estimatedBpm = 200;
+
+    // (b) Phase offset estimation: test ~20 phase offsets within one beat period against real onset energy
+    const numPhaseCandidates = 20;
+    let bestPhaseOffset = 0;
+    let bestPhaseScore = -Infinity;
+
+    for (let p = 0; p < numPhaseCandidates; p++) {
+      const candidateOffset = (p / numPhaseCandidates) * beatIntervalSec;
+      let score = 0;
+      let beatTime = candidateOffset;
+      while (beatTime < duration) {
+        const frameIdx = Math.round((beatTime * sampleRate) / hopSize);
+        if (frameIdx >= 0 && frameIdx < onsetEnvelope.length) {
+          score += onsetEnvelope[frameIdx];
+        }
+        beatTime += beatIntervalSec;
+      }
+      if (score > bestPhaseScore) {
+        bestPhaseScore = score;
+        bestPhaseOffset = candidateOffset;
+      }
+    }
+
+    // Generate tempo-locked, evenly-spaced beat grid
+    const beats = [];
+    let currentBeatTime = bestPhaseOffset;
+    while (currentBeatTime < duration) {
+      if (currentBeatTime >= 0) {
+        beats.push(Number(currentBeatTime.toFixed(3)));
+      }
+      currentBeatTime += beatIntervalSec;
+    }
+    if (beats.length === 0) {
+      beats.push(0);
     }
     beats.sort((a, b) => a - b);
     
@@ -245,12 +302,6 @@ self.onmessage = function (e) {
       }
       return minDiff;
     }
-
-    // Estimate BPM
-    const minutes = duration / 60;
-    let estimatedBpm = Math.round((beats.length / (minutes || 1)) / 4);
-    if (estimatedBpm < 60) estimatedBpm *= 2;
-    if (estimatedBpm > 200) estimatedBpm = Math.round(estimatedBpm / 2);
 
     reportProgress("Beat-Aware Adaptive HMM Viterbi Decoding...", 75);
     if (numFrames < 4) {

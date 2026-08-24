@@ -34,7 +34,7 @@ export function frequencyToNoteInfo(
 }
 
 /**
- * Autocorrelation / YIN hybrid pitch detector with parabolic peak interpolation
+ * True YIN (CMNDF) pitch detector with parabolic peak interpolation
  */
 export function detectPitch(
   buffer: Float32Array,
@@ -44,7 +44,7 @@ export function detectPitch(
 ): { frequency: number; clarity: number } | null {
   const bufferSize = buffer.length;
 
-  // 1. Calculate RMS volume
+  // 1. Calculate RMS volume for noise gate
   let sumSquares = 0;
   for (let i = 0; i < bufferSize; i++) {
     sumSquares += buffer[i] * buffer[i];
@@ -56,57 +56,94 @@ export function detectPitch(
     return null;
   }
 
-  // 2. Compute Autocorrelation with Difference function (YIN-style)
-  const minPeriod = Math.floor(sampleRate / maxFreq);
+  // 2. Compute Difference function d(tau) = sum((buffer[i] - buffer[i+tau])^2)
+  const minPeriod = Math.max(1, Math.floor(sampleRate / maxFreq));
   const maxPeriod = Math.min(bufferSize - 1, Math.floor(sampleRate / minFreq));
 
-  // Autocorrelation buffer
-  const correlations = new Float32Array(maxPeriod + 1);
-
-  for (let lag = minPeriod; lag <= maxPeriod; lag++) {
-    let sum = 0;
-    for (let i = 0; i < bufferSize - lag; i++) {
-      sum += buffer[i] * buffer[i + lag];
-    }
-    correlations[lag] = sum;
-  }
-
-  // 3. Find global maximum peak in lag range
-  let maxCorr = -1;
-  let bestLag = -1;
-
-  for (let lag = minPeriod; lag <= maxPeriod; lag++) {
-    if (correlations[lag] > maxCorr) {
-      maxCorr = correlations[lag];
-      bestLag = lag;
-    }
-  }
-
-  if (bestLag === -1 || maxCorr <= 0) {
+  if (minPeriod >= maxPeriod || maxPeriod >= bufferSize) {
     return null;
   }
 
-  // 4. Parabolic peak interpolation for sub-sample accuracy
-  let interpolatedLag = bestLag;
-  if (bestLag > minPeriod && bestLag < maxPeriod) {
-    const alpha = correlations[bestLag - 1];
-    const beta = correlations[bestLag];
-    const gamma = correlations[bestLag + 1];
-    const denominator = 2 * (2 * beta - alpha - gamma);
-    if (denominator !== 0) {
-      const delta = (alpha - gamma) / denominator;
-      interpolatedLag = bestLag + delta;
+  const windowSize = bufferSize - maxPeriod;
+  if (windowSize <= 0) {
+    return null;
+  }
+
+  const d = new Float32Array(maxPeriod + 1);
+  for (let tau = 1; tau <= maxPeriod; tau++) {
+    let sum = 0;
+    for (let i = 0; i < windowSize; i++) {
+      const diff = buffer[i] - buffer[i + tau];
+      sum += diff * diff;
+    }
+    d[tau] = sum;
+  }
+
+  // 3. Compute Cumulative Mean Normalized Difference Function (CMNDF):
+  // cmndf(0) = 1; cmndf(tau) = d(tau) / ((1/tau) * sum(d(1..tau)))
+  const cmndf = new Float32Array(maxPeriod + 1);
+  cmndf[0] = 1;
+
+  let runningSum = 0;
+  for (let tau = 1; tau <= maxPeriod; tau++) {
+    runningSum += d[tau];
+    if (runningSum === 0) {
+      cmndf[tau] = 1;
+    } else {
+      cmndf[tau] = d[tau] / ((1 / tau) * runningSum);
     }
   }
 
-  const frequency = sampleRate / interpolatedLag;
+  // 4. Absolute threshold and local minimum search
+  // Walk tau from minPeriod upward and pick the FIRST tau where cmndf drops below threshold
+  // AND is a local minimum
+  const threshold = 0.15;
+  let bestTau = -1;
 
-  // Clarity calculation (normalized relative to zero-lag power)
-  let zeroLagPower = 0;
-  for (let i = 0; i < bufferSize; i++) {
-    zeroLagPower += buffer[i] * buffer[i];
+  for (let tau = minPeriod; tau < maxPeriod; tau++) {
+    if (cmndf[tau] < threshold) {
+      // Find the bottom of this local valley
+      while (tau + 1 <= maxPeriod && cmndf[tau + 1] < cmndf[tau]) {
+        tau++;
+      }
+      bestTau = tau;
+      break;
+    }
   }
-  const clarity = zeroLagPower > 0 ? Math.min(1, Math.max(0, maxCorr / zeroLagPower)) : 0;
+
+  // Fallback: If no tau crossed the threshold, pick the global minimum in [minPeriod, maxPeriod]
+  if (bestTau === -1) {
+    let globalMinVal = Infinity;
+    for (let tau = minPeriod; tau <= maxPeriod; tau++) {
+      if (cmndf[tau] < globalMinVal) {
+        globalMinVal = cmndf[tau];
+        bestTau = tau;
+      }
+    }
+  }
+
+  if (bestTau <= 0 || bestTau > maxPeriod) {
+    return null;
+  }
+
+  // 5. Parabolic interpolation around chosen tau for sub-sample accuracy
+  let interpolatedTau = bestTau;
+  if (bestTau > minPeriod && bestTau < maxPeriod) {
+    const alpha = cmndf[bestTau - 1];
+    const beta = cmndf[bestTau];
+    const gamma = cmndf[bestTau + 1];
+    const denominator = 2 * (alpha - 2 * beta + gamma);
+    if (denominator !== 0) {
+      const delta = (alpha - gamma) / denominator;
+      if (Math.abs(delta) < 1) {
+        interpolatedTau = bestTau + delta;
+      }
+    }
+  }
+
+  const frequency = sampleRate / interpolatedTau;
+  const rawClarity = 1 - cmndf[bestTau];
+  const clarity = Math.max(0, Math.min(1, rawClarity));
 
   if (clarity < 0.30 || frequency < minFreq || frequency > maxFreq) {
     return null;

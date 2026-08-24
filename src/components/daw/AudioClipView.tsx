@@ -34,7 +34,9 @@ export const AudioClipView: React.FC<AudioClipViewProps> = ({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const [dragMode, setDragMode] = useState<"move" | "trim-left" | "trim-right" | null>(null);
+  const [liveDeltaPx, setLiveDeltaPx] = useState<number>(0);
   const dragStartXRef = useRef<number>(0);
+  const lastDeltaXRef = useRef<number>(0);
   const initialStartTimeRef = useRef<number>(0);
   const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number } | null>(null);
 
@@ -42,6 +44,22 @@ export const AudioClipView: React.FC<AudioClipViewProps> = ({
   const clipWidthPx = Math.max(16, clip.duration * zoomPxPerSec);
   const fadeInPx = Math.min(clipWidthPx, (clip.fadeInSec || 0.005) * zoomPxPerSec);
   const fadeOutPx = Math.min(clipWidthPx, (clip.fadeOutSec || 0.005) * zoomPxPerSec);
+
+  let visualLeftPx = clipLeftPx;
+  let visualWidthPx = clipWidthPx;
+
+  if (isDragging) {
+    if (dragMode === "move") {
+      visualLeftPx = Math.max(0, clipLeftPx + liveDeltaPx);
+    } else if (dragMode === "trim-left") {
+      const maxLeftTrim = clipWidthPx - 16;
+      const effectiveTrimPx = Math.max(-clipLeftPx, Math.min(maxLeftTrim, liveDeltaPx));
+      visualLeftPx = clipLeftPx + effectiveTrimPx;
+      visualWidthPx = Math.max(16, clipWidthPx - effectiveTrimPx);
+    } else if (dragMode === "trim-right") {
+      visualWidthPx = Math.max(16, clipWidthPx + liveDeltaPx);
+    }
+  }
 
   // Draw Waveform on canvas
   useEffect(() => {
@@ -151,28 +169,39 @@ export const AudioClipView: React.FC<AudioClipViewProps> = ({
 
     setIsDragging(true);
     setDragMode(mode);
+    setLiveDeltaPx(0);
     dragStartXRef.current = e.clientX;
+    lastDeltaXRef.current = 0;
     initialStartTimeRef.current = clip.startTime;
 
     const handleMouseMove = (moveEvent: MouseEvent) => {
       const deltaX = moveEvent.clientX - dragStartXRef.current;
-      const deltaSec = deltaX / zoomPxPerSec;
-
-      if (mode === "move") {
-        const newStart = Math.max(0, initialStartTimeRef.current + deltaSec);
-        onMove(clip.id, newStart);
-      } else if (mode === "trim-left") {
-        onTrimLeft(clip.id, deltaSec);
-      } else if (mode === "trim-right") {
-        onTrimRight(clip.id, deltaSec);
-      }
+      lastDeltaXRef.current = deltaX;
+      setLiveDeltaPx(deltaX);
     };
 
     const handleMouseUp = () => {
+      const finalDeltaX = lastDeltaXRef.current;
+      const finalDeltaSec = finalDeltaX / zoomPxPerSec;
+
       setIsDragging(false);
       setDragMode(null);
+      setLiveDeltaPx(0);
+      lastDeltaXRef.current = 0;
+
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
+
+      if (Math.abs(finalDeltaX) >= 1) {
+        if (mode === "move") {
+          const newStart = Math.max(0, initialStartTimeRef.current + finalDeltaSec);
+          onMove(clip.id, newStart);
+        } else if (mode === "trim-left") {
+          onTrimLeft(clip.id, finalDeltaSec);
+        } else if (mode === "trim-right") {
+          onTrimRight(clip.id, finalDeltaSec);
+        }
+      }
     };
 
     window.addEventListener("mousemove", handleMouseMove);
@@ -205,8 +234,8 @@ export const AudioClipView: React.FC<AudioClipViewProps> = ({
             : "border-white/15 hover:border-white/40 z-10"
         } ${isDragging ? "cursor-grabbing opacity-90" : "cursor-grab"}`}
         style={{
-          left: `${clipLeftPx}px`,
-          width: `${clipWidthPx}px`,
+          left: `${visualLeftPx}px`,
+          width: `${visualWidthPx}px`,
         }}
       >
         {/* Waveform Canvas */}
