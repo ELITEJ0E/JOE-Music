@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { SunoPlaylistResponse, SunoTrack, MY_SUNO_PLAYLISTS } from "../lib/suno-playlists";
+import { SunoPlaylistResponse, SunoTrack, SUNO_PLAYLIST_ALIASES } from "../lib/suno-playlists";
+import { SUNO_CATALOG_MASTER } from "../lib/suno-catalog-data";
 
 interface UseSunoPlaylistResult {
   playlist: SunoPlaylistResponse | null;
@@ -13,148 +14,76 @@ interface UseSunoPlaylistResult {
   loadMore: () => Promise<void>;
 }
 
-// Built-in fail-safe songs manifest for static hosting / Vercel SPA
-const CLIENT_FALLBACK_PLAYLISTS: Record<string, SunoPlaylistResponse> = {
-  "ff247038-e0ae-4778-989d-0529e575027b": {
-    id: "ff247038-e0ae-4778-989d-0529e575027b",
-    title: "Joel's Originals",
-    name: "Joel's Originals",
-    description: "Original songs, pop funk rhythms, and exclusive compositions",
-    imageUrl: "https://cdn2.suno.ai/1bc7ee09-ee52-487a-85c7-568e961bbc3d.jpeg",
-    userDisplayName: "ELITEJOE",
-    totalTracks: 5,
-    hasMore: false,
-    tracks: [
-      {
-        id: "bd216e5e-4604-48e2-ac6e-7f1698044908",
-        title: "红唇转圈",
-        artist: "ELITEJOE",
-        album: "Joel's Originals",
-        duration: 185,
-        audioUrl: "https://cdn1.suno.ai/bd216e5e-4604-48e2-ac6e-7f1698044908.mp3",
-        imageUrl: "https://cdn2.suno.ai/1bc7ee09-ee52-487a-85c7-568e961bbc3d.jpeg",
-        tags: ["Pop Funk", "Phonk-Pop", "154 BPM", "Clean Bass"],
-        lyrics: "[Intro]\n靠近一点 别眨眼\n我在这边 看清楚点"
-      },
-      {
-        id: "269a9621-677f-4864-8193-4b2265cd73cc",
-        title: "Light It Up Tonight",
-        artist: "ELITEJOE",
-        album: "Joel's Originals",
-        duration: 210,
-        audioUrl: "https://cdn1.suno.ai/269a9621-677f-4864-8193-4b2265cd73cc.mp3",
-        imageUrl: "https://cdn2.suno.ai/cdea3ba4-5f38-4462-968f-1fb74ba5ac92.jpeg",
-        tags: ["Electronic", "Synth Pop", "Driving Groove"],
-        lyrics: "[Verse 1]\nNeon lights across the floor\nMoving close and wanting more"
-      },
-      {
-        id: "aff5c48b-1c9a-48e1-8f3a-75e6dc9b6165",
-        title: "Sweetheart Pulse",
-        artist: "ELITEJOE",
-        album: "Joel's Originals",
-        duration: 198,
-        audioUrl: "https://cdn1.suno.ai/aff5c48b-1c9a-48e1-8f3a-75e6dc9b6165.mp3",
-        imageUrl: "https://cdn2.suno.ai/image_aff5c48b-1c9a-48e1-8f3a-75e6dc9b6165.jpeg",
-        tags: ["R&B", "Melodic", "Warm Bass"],
-        lyrics: "[Verse 1]\nEvery heartbeat keeping time\nKnowing that you are truly mine"
-      },
-      {
-        id: "6234dc9e-ba8b-46f6-a071-67ade0b1da8c",
-        title: "Blink Twice",
-        artist: "ELITEJOE",
-        album: "Joel's Originals",
-        duration: 230,
-        audioUrl: "https://cdn1.suno.ai/6234dc9e-ba8b-46f6-a071-67ade0b1da8c.mp3",
-        imageUrl: "https://cdn2.suno.ai/1efe9cb2-dd3b-47c4-b0ad-c8efa5e4e139.jpeg",
-        tags: ["K-Pop", "J-Pop Fusion", "124 BPM", "B Major"],
-        lyrics: "[Intro]\n(Ooh-ah)\nYeah yeah\nBlink twice\nBlink twice"
-      },
-      {
-        id: "37bc2d3a-a30d-4d27-9ca4-d8f727463931",
-        title: "You Were There",
-        artist: "ELITEJOE",
-        album: "Joel's Originals",
-        duration: 231,
-        audioUrl: "https://cdn1.suno.ai/37bc2d3a-a30d-4d27-9ca4-d8f727463931.mp3",
-        imageUrl: "https://cdn2.suno.ai/7697a8ed-b029-451b-b54f-e5ba5b947890.jpeg",
-        tags: ["Worship", "Acoustic Anthem", "Piano Intro", "Emotional"],
-        lyrics: "[Intro]\nOh… Yeah…\nI was searching through the quiet and the storm\nYou were there to keep me warm"
-      }
-    ]
-  },
-  "627c2d15-0cca-4c07-91b3-5f203c981e6e": {
-    id: "627c2d15-0cca-4c07-91b3-5f203c981e6e",
-    title: "Worship & Praise",
-    name: "Worship & Praise",
-    description: "Devotional songs, acoustic guitar arrangements, and uplifting melodies",
-    imageUrl: "https://cdn2.suno.ai/7697a8ed-b029-451b-b54f-e5ba5b947890.jpeg",
-    userDisplayName: "ELITEJOE",
-    totalTracks: 2,
-    hasMore: false,
-    tracks: [
-      {
-        id: "37bc2d3a-a30d-4d27-9ca4-d8f727463931",
-        title: "You Were There",
-        artist: "ELITEJOE",
-        album: "Worship & Praise",
-        duration: 231,
-        audioUrl: "https://cdn1.suno.ai/37bc2d3a-a30d-4d27-9ca4-d8f727463931.mp3",
-        imageUrl: "https://cdn2.suno.ai/7697a8ed-b029-451b-b54f-e5ba5b947890.jpeg",
-        tags: ["Worship", "Acoustic Anthem", "Piano Intro", "Emotional"],
-        lyrics: "[Intro]\nOh… Yeah…\nI was searching through the quiet and the storm\nYou were there to keep me warm"
-      },
-      {
-        id: "bd216e5e-4604-48e2-ac6e-7f1698044908-w",
-        title: "Grace Overflowing",
-        artist: "ELITEJOE",
-        album: "Worship & Praise",
-        duration: 215,
-        audioUrl: "https://cdn1.suno.ai/269a9621-677f-4864-8193-4b2265cd73cc.mp3",
-        imageUrl: "https://cdn2.suno.ai/7697a8ed-b029-451b-b54f-e5ba5b947890.jpeg",
-        tags: ["Worship", "Electric Guitar", "Pad Ambience"],
-        lyrics: "Your grace is enough for me\nStanding in your presence"
-      }
-    ]
-  },
-  "34ac065b-e68e-4dfa-9780-00c49bae047a": {
-    id: "34ac065b-e68e-4dfa-9780-00c49bae047a",
-    title: "Upcoming Releases",
-    name: "Upcoming Releases",
-    description: "Fresh tracks, guitar vibes, and synth-pop arrangements",
-    imageUrl: "https://cdn2.suno.ai/1efe9cb2-dd3b-47c4-b0ad-c8efa5e4e139.jpeg",
-    userDisplayName: "ELITEJOE",
-    totalTracks: 2,
-    hasMore: false,
-    tracks: [
-      {
-        id: "6234dc9e-ba8b-46f6-a071-67ade0b1da8c",
-        title: "Blink Twice",
-        artist: "ELITEJOE",
-        album: "Upcoming Releases",
-        duration: 230,
-        audioUrl: "https://cdn1.suno.ai/6234dc9e-ba8b-46f6-a071-67ade0b1da8c.mp3",
-        imageUrl: "https://cdn2.suno.ai/1efe9cb2-dd3b-47c4-b0ad-c8efa5e4e139.jpeg",
-        tags: ["K-Pop", "J-Pop Fusion", "124 BPM", "B Major"],
-        lyrics: "[Intro]\n(Ooh-ah)\nYeah yeah\nBlink twice\nBlink twice"
-      },
-      {
-        id: "aff5c48b-1c9a-48e1-8f3a-75e6dc9b6165-u",
-        title: "Neon Horizon",
-        artist: "ELITEJOE",
-        album: "Upcoming Releases",
-        duration: 198,
-        audioUrl: "https://cdn1.suno.ai/aff5c48b-1c9a-48e1-8f3a-75e6dc9b6165.mp3",
-        imageUrl: "https://cdn2.suno.ai/image_aff5c48b-1c9a-48e1-8f3a-75e6dc9b6165.jpeg",
-        tags: ["Synthwave", "Guitar Solo", "Future Retro"],
-        lyrics: "Driving into the neon horizon\nWhere the chords never fade"
-      }
-    ]
-  }
-};
-
 // In-memory cache for fast responsive playlist switching
 const playlistCache = new Map<string, { data: SunoPlaylistResponse; timestamp: number }>();
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes cache
+
+// Client-side direct CORS proxies fallback if Vercel /api/suno-playlist is unavailable
+async function fetchViaClientProxies(targetId: string): Promise<SunoPlaylistResponse | null> {
+  const proxies = [
+    `https://api.allorigins.win/get?url=${encodeURIComponent(`https://studio-api.prod.suno.com/api/playlist/${targetId}/?page=1`)}`,
+    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(`https://studio-api.prod.suno.com/api/playlist/${targetId}/?page=1`)}`,
+    `https://corsproxy.io/?url=${encodeURIComponent(`https://studio-api.prod.suno.com/api/playlist/${targetId}/?page=1`)}`
+  ];
+
+  for (const proxyUrl of proxies) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 4000);
+      const res = await fetch(proxyUrl, { signal: controller.signal });
+      clearTimeout(timeout);
+
+      if (!res.ok) continue;
+
+      let json: any;
+      const text = await res.text();
+      try {
+        const parsed = JSON.parse(text);
+        json = parsed.contents ? JSON.parse(parsed.contents) : parsed;
+      } catch {
+        continue;
+      }
+
+      const clips = json.playlist_clips || json.clips || [];
+      if (clips.length > 0) {
+        const tracks: SunoTrack[] = clips.map((c: any) => {
+          const clip = c.clip || c;
+          const clipId = clip.id || `trk-${Math.random().toString(36).slice(2, 9)}`;
+          const audioUrl = clip.audio_url || `https://cdn1.suno.ai/${clipId}.mp3`;
+          const imageUrl = clip.image_large_url || clip.image_url || `https://cdn2.suno.ai/image_${clipId}.jpeg`;
+          return {
+            id: clipId,
+            title: clip.title || "Untitled Track",
+            artist: clip.display_name || json.user_display_name || "ELITEJOE",
+            album: json.name || "Joel's Music",
+            duration: Math.round(clip.metadata?.duration || clip.duration || 185),
+            audioUrl: audioUrl,
+            imageUrl: imageUrl,
+            lyrics: clip.metadata?.prompt || clip.prompt || clip.lyrics || "",
+            tags: ["Guitar", "Original"],
+            createdAt: clip.created_at || new Date().toISOString()
+          };
+        });
+
+        return {
+          id: targetId,
+          name: json.name || "Joel's Music",
+          title: json.name || "Joel's Music",
+          description: json.description || "Original Music Collection",
+          imageUrl: json.image_url || (tracks[0]?.imageUrl) || "",
+          userDisplayName: json.user_display_name || "ELITEJOE",
+          tracks: tracks,
+          totalTracks: json.num_total_results || tracks.length,
+          hasMore: false
+        };
+      }
+    } catch {
+      // try next proxy
+    }
+  }
+
+  return null;
+}
 
 export function useSunoPlaylist(playlistId: string): UseSunoPlaylistResult {
   const [playlist, setPlaylist] = useState<SunoPlaylistResponse | null>(null);
@@ -175,7 +104,8 @@ export function useSunoPlaylist(playlistId: string): UseSunoPlaylistResult {
     async (targetPage: number = 1, append: boolean = false) => {
       if (!playlistId) return;
 
-      const cacheKey = `${playlistId}-p-${targetPage}`;
+      const normalizedId = SUNO_PLAYLIST_ALIASES[playlistId] || playlistId;
+      const cacheKey = `${normalizedId}-p-${targetPage}`;
       const cached = playlistCache.get(cacheKey);
       const isFresh = cached && Date.now() - cached.timestamp < CACHE_TTL_MS;
 
@@ -194,9 +124,8 @@ export function useSunoPlaylist(playlistId: string): UseSunoPlaylistResult {
       setError(null);
 
       try {
-        const res = await fetch(`/api/suno-playlist?id=${encodeURIComponent(playlistId)}&page=${targetPage}`);
+        const res = await fetch(`/api/suno-playlist?id=${encodeURIComponent(normalizedId)}&page=${targetPage}`);
         
-        // Handle cases where Vercel or host serves HTML index.html on 404 or missing server route
         const contentType = res.headers.get("content-type") || "";
         if (!res.ok || !contentType.includes("application/json")) {
           throw new Error(`Endpoint returned status ${res.status}`);
@@ -204,7 +133,7 @@ export function useSunoPlaylist(playlistId: string): UseSunoPlaylistResult {
 
         const data: SunoPlaylistResponse = await res.json();
 
-        if (isMountedRef.current) {
+        if (isMountedRef.current && data?.tracks && data.tracks.length > 0) {
           playlistCache.set(cacheKey, { data, timestamp: Date.now() });
 
           setPlaylist((prev) => {
@@ -220,15 +149,32 @@ export function useSunoPlaylist(playlistId: string): UseSunoPlaylistResult {
           });
 
           setPage(targetPage);
+          setIsLoading(false);
+          setIsLoadingMore(false);
+          return;
         }
+        throw new Error("No tracks in API response");
       } catch (err: any) {
-        console.warn("API proxy unavailable, switching to local catalog fallback:", err?.message);
+        console.warn("[Suno] Primary API proxy error, trying client proxies & master catalog:", err?.message);
         
-        // Instant graceful client-side fallback for static Vercel deployments
-        const fallback = CLIENT_FALLBACK_PLAYLISTS[playlistId] || CLIENT_FALLBACK_PLAYLISTS["ff247038-e0ae-4778-989d-0529e575027b"];
-        if (isMountedRef.current && fallback) {
-          playlistCache.set(cacheKey, { data: fallback, timestamp: Date.now() });
-          setPlaylist(fallback);
+        // Attempt client-side proxy fetch
+        if (!append) {
+          const clientData = await fetchViaClientProxies(normalizedId);
+          if (isMountedRef.current && clientData && clientData.tracks.length > 0) {
+            playlistCache.set(cacheKey, { data: clientData, timestamp: Date.now() });
+            setPlaylist(clientData);
+            setError(null);
+            setIsLoading(false);
+            setIsLoadingMore(false);
+            return;
+          }
+        }
+
+        // Resilient full fallback using complete 93-track SUNO_CATALOG_MASTER
+        const masterFallback = SUNO_CATALOG_MASTER[normalizedId] || SUNO_CATALOG_MASTER["ff247038-e0ae-4778-989d-0529e575027b"];
+        if (isMountedRef.current && masterFallback) {
+          playlistCache.set(cacheKey, { data: masterFallback, timestamp: Date.now() });
+          setPlaylist(masterFallback);
           setError(null);
         } else if (isMountedRef.current) {
           setError("Failed to fetch playlist data.");

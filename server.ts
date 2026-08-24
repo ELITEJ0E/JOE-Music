@@ -3,6 +3,7 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
 import { GoogleGenAI } from "@google/genai";
+import { SUNO_CATALOG_MASTER } from "./src/lib/suno-catalog-data";
 
 dotenv.config();
 
@@ -338,18 +339,40 @@ Provide a concise, practical, high-value guitar instruction response. Mention sp
 
     // Step 1: Direct Suno Studio Prod API (Proven Joelify Endpoint)
     try {
-      const prodApiUrl = `https://studio-api.prod.suno.com/api/playlist/${encodeURIComponent(targetId)}/?page=${page}`;
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 6000);
-      const response = await fetch(prodApiUrl, { headers: browserHeaders, signal: controller.signal });
-      clearTimeout(timeout);
+      let currentPage = page;
+      let allClips: any[] = [];
+      let meta: any = null;
 
-      if (response.ok) {
+      // If requested page 1, fetch all pages up to 5 to get full playlist
+      const maxPages = page === 1 ? 5 : page;
+      while (currentPage <= maxPages) {
+        const prodApiUrl = `https://studio-api.prod.suno.com/api/playlist/${encodeURIComponent(targetId)}/?page=${currentPage}`;
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5000);
+        const response = await fetch(prodApiUrl, { headers: browserHeaders, signal: controller.signal });
+        clearTimeout(timeout);
+
+        if (!response.ok) break;
+
         const json = await response.json();
+        meta = json;
         const clips = json.playlist_clips || json.clips || [];
-        if (clips.length > 0 || json.name) {
-          foundData = json;
+        if (clips.length > 0) {
+          allClips = allClips.concat(clips);
         }
+
+        if (clips.length < 20 || !json.has_more || page !== 1) {
+          break;
+        }
+        currentPage++;
+      }
+
+      if (allClips.length > 0 && meta) {
+        foundData = {
+          ...meta,
+          playlist_clips: allClips,
+          num_total_results: allClips.length
+        };
       }
     } catch (e: any) {
       console.warn(`studio-api.prod.suno.com attempt failed for ${targetId}:`, e?.message);
@@ -529,82 +552,17 @@ Provide a concise, practical, high-value guitar instruction response. Mention sp
       }
     }
 
-    // High quality resilient fallback playlist dataset with real playable audio
-    const fallbackAudioSamples = [
-      {
-        title: "红唇转圈",
-        artist: "ELITEJOE",
-        duration: 185,
-        audioUrl: "https://cdn1.suno.ai/bd216e5e-4604-48e2-ac6e-7f1698044908.mp3",
-        imageUrl: "https://cdn2.suno.ai/1bc7ee09-ee52-487a-85c7-568e961bbc3d.jpeg",
-        tags: ["Pop Funk", "Phonk-Pop", "154 BPM", "Clean Bass"],
-        lyrics: "[Intro]\n靠近一点 别眨眼\n我在这边 看清楚点"
-      },
-      {
-        title: "Light It Up Tonight",
-        artist: "ELITEJOE",
-        duration: 210,
-        audioUrl: "https://cdn1.suno.ai/269a9621-677f-4864-8193-4b2265cd73cc.mp3",
-        imageUrl: "https://cdn2.suno.ai/cdea3ba4-5f38-4462-968f-1fb74ba5ac92.jpeg",
-        tags: ["Electronic", "Synth Pop", "Driving Groove"],
-        lyrics: "[Verse 1]\nNeon lights across the floor\nMoving close and wanting more"
-      },
-      {
-        title: "You Were There",
-        artist: "ELITEJOE",
-        duration: 231,
-        audioUrl: "https://cdn1.suno.ai/37bc2d3a-a30d-4d27-9ca4-d8f727463931.mp3",
-        imageUrl: "https://cdn2.suno.ai/7697a8ed-b029-451b-b54f-e5ba5b947890.jpeg",
-        tags: ["Worship", "Acoustic Anthem", "Piano Intro", "Emotional"],
-        lyrics: "[Intro]\nOh… Yeah…\nI was searching through the quiet and the storm\nYou were there to keep me warm"
-      },
-      {
-        title: "Blink Twice",
-        artist: "ELITEJOE",
-        duration: 230,
-        audioUrl: "https://cdn1.suno.ai/6234dc9e-ba8b-46f6-a071-67ade0b1da8c.mp3",
-        imageUrl: "https://cdn2.suno.ai/1efe9cb2-dd3b-47c4-b0ad-c8efa5e4e139.jpeg",
-        tags: ["K-Pop", "J-Pop Fusion", "124 BPM", "B Major"],
-        lyrics: "[Intro]\n(Ooh-ah)\nYeah yeah\nBlink twice\nBlink twice"
-      },
-      {
-        title: "Sweetheart Pulse",
-        artist: "ELITEJOE",
-        duration: 198,
-        audioUrl: "https://cdn1.suno.ai/aff5c48b-1c9a-48e1-8f3a-75e6dc9b6165.mp3",
-        imageUrl: "https://cdn2.suno.ai/image_aff5c48b-1c9a-48e1-8f3a-75e6dc9b6165.jpeg",
-        tags: ["R&B", "Melodic", "Warm Bass"],
-        lyrics: "[Verse 1]\nEvery heartbeat keeping time\nKnowing that you are truly mine"
-      }
-    ];
-
-    const fallbackTracks = fallbackAudioSamples.map((sample, idx) => ({
-      id: `${targetId}-trk-${idx + 1}`,
-      title: sample.title,
-      artist: sample.artist,
-      album: "Joel's Music",
-      duration: sample.duration,
-      audioUrl: sample.audioUrl,
-      imageUrl: sample.imageUrl,
-      lyrics: sample.lyrics,
-      tags: sample.tags,
-      createdAt: new Date(Date.now() - idx * 86400000).toISOString(),
-      playCount: 1820 + idx * 310,
-      upvoteCount: 145 + idx * 28,
-      audio_url: sample.audioUrl,
-      image_url: sample.imageUrl,
-      created_at: new Date(Date.now() - idx * 86400000).toISOString()
-    }));
-
+    // Guaranteed Resilient Fallback containing ALL 93+ songs from SUNO_CATALOG_MASTER
+    const fallback = SUNO_CATALOG_MASTER[targetId] || SUNO_CATALOG_MASTER["ff247038-e0ae-4778-989d-0529e575027b"];
     res.json({
       id: rawId,
-      title: "Joel's Originals",
-      name: "Joel's Originals",
-      description: "Original songs and guitar compositions by ELITEJOE.",
-      imageUrl: "https://cdn2.suno.ai/1bc7ee09-ee52-487a-85c7-568e961bbc3d.jpeg",
-      userDisplayName: "ELITEJOE",
-      tracks: fallbackTracks,
-      totalTracks: fallbackTracks.length,
+      title: fallback.title,
+      name: fallback.name || fallback.title,
+      description: fallback.description,
+      imageUrl: fallback.imageUrl,
+      userDisplayName: fallback.userDisplayName || "ELITEJOE",
+      tracks: fallback.tracks,
+      totalTracks: fallback.tracks.length,
       hasMore: false
     });
   });
