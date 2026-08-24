@@ -64,13 +64,15 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  // Fetch playlist data using the server-side API proxy
+  // Fetch playlist data using the server-side API proxy with background resync
   const {
     playlist,
     tracks,
     isLoading,
+    isSyncing,
     isLoadingMore,
     error,
+    lastSynced,
     refresh,
     loadMore,
     hasMore,
@@ -278,14 +280,20 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
 
           {/* Action Bar */}
           <div className="flex items-center gap-2.5 self-start md:self-auto">
+            {isSyncing && (
+              <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#a3ff12]/10 border border-[#a3ff12]/30 text-[11px] font-mono text-[#a3ff12] animate-in fade-in duration-200">
+                <span className="w-2 h-2 rounded-full bg-[#a3ff12] animate-ping" />
+                <span>Syncing latest songs...</span>
+              </div>
+            )}
             <button
               onClick={refresh}
-              disabled={isLoading}
+              disabled={isLoading || isSyncing}
               className="px-3.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-300 hover:text-white font-mono text-xs flex items-center gap-2 transition-colors cursor-pointer disabled:opacity-50"
-              title="Refresh Songs"
+              title="Force Sync / Refresh Songs"
             >
-              <RefreshCw className={`w-4 h-4 ${isLoading ? "animate-spin text-[#a3ff12]" : ""}`} />
-              <span>Refresh</span>
+              <RefreshCw className={`w-4 h-4 ${(isLoading || isSyncing) ? "animate-spin text-[#a3ff12]" : ""}`} />
+              <span>{isSyncing ? "Syncing..." : "Sync"}</span>
             </button>
           </div>
         </div>
@@ -417,6 +425,18 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
                 <Clock className="w-3.5 h-3.5 text-sky-400" />
                 <span>{formatDuration(tracks.reduce((acc, t) => acc + (t.duration || 180), 0))} Total</span>
               </span>
+              <span>•</span>
+              {isSyncing ? (
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-mono text-[#a3ff12] bg-[#a3ff12]/10 px-2.5 py-0.5 rounded-full border border-[#a3ff12]/30">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#a3ff12] animate-ping" />
+                  Updating in background...
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-mono text-zinc-400 bg-white/5 px-2.5 py-0.5 rounded-full border border-white/10">
+                  <Check className="w-3 h-3 text-[#a3ff12]" />
+                  Cached & Synced
+                </span>
+              )}
             </div>
 
             {/* Action Buttons */}
@@ -482,7 +502,7 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
         )}
 
         {/* Track Listing */}
-        {isLoading ? (
+        {(isLoading && tracks.length === 0) ? (
           <div className="flex flex-col items-center justify-center py-20 space-y-3">
             <Loader2 className="w-8 h-8 text-[#a3ff12] animate-spin" />
             <div className="text-xs font-mono text-zinc-400">Loading songs...</div>

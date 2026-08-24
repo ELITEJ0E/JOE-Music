@@ -206,6 +206,32 @@ export interface AudioClip {
   color?: string;
 }
 
+export interface TrackEqConfig {
+  lowGainDb: number;
+  midGainDb: number;
+  highGainDb: number;
+}
+
+export interface TrackInsertEffectsConfig {
+  reverbSendLevel: number;
+  compressorEnabled: boolean;
+  compressorThresholdDb: number;
+  compressorRatio: number;
+}
+
+export const DEFAULT_TRACK_EQ: TrackEqConfig = {
+  lowGainDb: 0,
+  midGainDb: 0,
+  highGainDb: 0,
+};
+
+export const DEFAULT_TRACK_INSERT_EFFECTS: TrackInsertEffectsConfig = {
+  reverbSendLevel: 0,
+  compressorEnabled: false,
+  compressorThresholdDb: -24,
+  compressorRatio: 4,
+};
+
 export interface DAWTrack {
   id: string;
   name: string;
@@ -217,6 +243,9 @@ export interface DAWTrack {
   armed?: boolean;
   monitoring?: boolean;
   clips: AudioClip[];
+  eq?: TrackEqConfig;
+  insertEffects?: TrackInsertEffectsConfig;
+  busId?: string; // which mix bus this track routes to, undefined / "master" = master
   // Legacy / convenience fields
   audioBuffer?: AudioBuffer | null;
   audioBlob?: Blob;

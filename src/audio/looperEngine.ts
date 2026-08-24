@@ -1,5 +1,5 @@
 import { audioEngine } from "./audioContext";
-import { LooperTrack, DAWTrack } from "../types";
+import { LooperTrack, DAWTrack, DEFAULT_TRACK_EQ, DEFAULT_TRACK_INSERT_EFFECTS } from "../types";
 import { audioBufferToWavBlob, extractWaveformPeaks } from "./wavEncoder";
 
 class LooperEngine {
@@ -453,6 +453,9 @@ class LooperEngine {
           color,
         },
       ],
+      eq: { ...DEFAULT_TRACK_EQ },
+      insertEffects: { ...DEFAULT_TRACK_INSERT_EFFECTS },
+      busId: "master",
       audioBuffer: track.buffer,
       audioBlob: blob,
       recording: false,

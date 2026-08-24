@@ -2,23 +2,109 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { SunoPlaylistResponse, SunoTrack, SUNO_PLAYLIST_ALIASES } from "../lib/suno-playlists";
 import { SUNO_CATALOG_MASTER } from "../lib/suno-catalog-data";
 
-interface UseSunoPlaylistResult {
+interface CachedEntry {
+  data: SunoPlaylistResponse;
+  timestamp: number;
+}
+
+export interface UseSunoPlaylistResult {
   playlist: SunoPlaylistResponse | null;
   tracks: SunoTrack[];
   isLoading: boolean;
+  isSyncing: boolean;
   isLoadingMore: boolean;
   error: string | null;
+  lastSynced: number | null;
   page: number;
   hasMore: boolean;
   refresh: () => Promise<void>;
   loadMore: () => Promise<void>;
 }
 
-// In-memory cache for fast responsive playlist switching
-const playlistCache = new Map<string, { data: SunoPlaylistResponse; timestamp: number }>();
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes cache
+const LOCAL_STORAGE_PREFIX = "guitar_studio_suno_cache_";
+const MEMORY_CACHE = new Map<string, CachedEntry>();
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes fresh window
 
-// Client-side direct CORS proxies fallback if Vercel /api/suno-playlist is unavailable
+/**
+ * Synchronously retrieves cached playlist from Memory Map, LocalStorage, or Master Catalog.
+ * Guarantees instantaneous song display with zero empty state flicker.
+ */
+export function getCachedPlaylist(playlistId: string): SunoPlaylistResponse {
+  if (!playlistId) {
+    const defaultMaster = SUNO_CATALOG_MASTER["ff247038-e0ae-4778-989d-0529e575027b"];
+    return defaultMaster;
+  }
+
+  const normalizedId = SUNO_PLAYLIST_ALIASES[playlistId.trim()] || playlistId.trim();
+
+  // 1. Check in-memory map
+  const mem = MEMORY_CACHE.get(normalizedId);
+  if (mem?.data?.tracks && mem.data.tracks.length > 0) {
+    return mem.data;
+  }
+
+  // 2. Check persistent browser LocalStorage
+  if (typeof window !== "undefined") {
+    try {
+      const raw = localStorage.getItem(`${LOCAL_STORAGE_PREFIX}${normalizedId}`);
+      if (raw) {
+        const parsed: CachedEntry = JSON.parse(raw);
+        if (parsed?.data?.tracks && parsed.data.tracks.length > 0) {
+          MEMORY_CACHE.set(normalizedId, parsed);
+          return parsed.data;
+        }
+      }
+    } catch {
+      // Ignore localStorage errors
+    }
+  }
+
+  // 3. Fallback to pre-bundled Master Catalog (contains all 92+ songs)
+  const master = SUNO_CATALOG_MASTER[normalizedId] || SUNO_CATALOG_MASTER["ff247038-e0ae-4778-989d-0529e575027b"];
+  if (master?.tracks && master.tracks.length > 0) {
+    MEMORY_CACHE.set(normalizedId, { data: master, timestamp: Date.now() });
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem(`${LOCAL_STORAGE_PREFIX}${normalizedId}`, JSON.stringify({ data: master, timestamp: Date.now() }));
+      } catch {
+        // Ignore quota errors
+      }
+    }
+    return master;
+  }
+
+  return {
+    id: normalizedId,
+    name: "Joel's Music",
+    title: "Joel's Music",
+    description: "Original Songs & Arrangements",
+    tracks: [],
+    totalTracks: 0,
+    hasMore: false,
+  };
+}
+
+/**
+ * Persists playlist data to both in-memory Map and LocalStorage.
+ */
+function savePlaylistToCache(playlistId: string, data: SunoPlaylistResponse): void {
+  const normalizedId = SUNO_PLAYLIST_ALIASES[playlistId.trim()] || playlistId.trim();
+  const entry: CachedEntry = { data, timestamp: Date.now() };
+
+  MEMORY_CACHE.set(normalizedId, entry);
+
+  if (typeof window !== "undefined") {
+    try {
+      localStorage.setItem(`${LOCAL_STORAGE_PREFIX}${normalizedId}`, JSON.stringify(entry));
+    } catch {
+      // Ignore storage errors
+    }
+  }
+}
+
+/**
+ * Client-side direct CORS proxies fallback if Vercel /api/suno-playlist is unavailable
+ */
 async function fetchViaClientProxies(targetId: string): Promise<SunoPlaylistResponse | null> {
   const proxies = [
     `https://api.allorigins.win/get?url=${encodeURIComponent(`https://studio-api.prod.suno.com/api/playlist/${targetId}/?page=1`)}`,
@@ -86,11 +172,18 @@ async function fetchViaClientProxies(targetId: string): Promise<SunoPlaylistResp
 }
 
 export function useSunoPlaylist(playlistId: string): UseSunoPlaylistResult {
-  const [playlist, setPlaylist] = useState<SunoPlaylistResponse | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  // 1. Instantly initialize state from synchronous cache (never shows 0 songs!)
+  const [playlist, setPlaylist] = useState<SunoPlaylistResponse | null>(() => getCachedPlaylist(playlistId));
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [isLoading, setIsLoading] = useState<boolean>(() => !playlist || playlist.tracks.length === 0);
   const [isLoadingMore, setIsLoadingMore] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [lastSynced, setLastSynced] = useState<number | null>(() => {
+    const normalized = SUNO_PLAYLIST_ALIASES[playlistId?.trim()] || playlistId?.trim();
+    return MEMORY_CACHE.get(normalized)?.timestamp || null;
+  });
   const [page, setPage] = useState<number>(1);
+
   const isMountedRef = useRef<boolean>(true);
 
   useEffect(() => {
@@ -100,31 +193,32 @@ export function useSunoPlaylist(playlistId: string): UseSunoPlaylistResult {
     };
   }, []);
 
+  /**
+   * Background Fetch & Resync Engine
+   * Updates state seamlessly when new data arrives without flickering 0 songs
+   */
   const fetchPlaylistData = useCallback(
-    async (targetPage: number = 1, append: boolean = false) => {
+    async (targetPage: number = 1, append: boolean = false, forceRefresh: boolean = false) => {
       if (!playlistId) return;
 
-      const normalizedId = SUNO_PLAYLIST_ALIASES[playlistId] || playlistId;
-      const cacheKey = `${normalizedId}-p-${targetPage}`;
-      const cached = playlistCache.get(cacheKey);
-      const isFresh = cached && Date.now() - cached.timestamp < CACHE_TTL_MS;
-
-      if (isFresh && !append) {
-        setPlaylist(cached.data);
-        setIsLoading(false);
-        setError(null);
-        return;
-      }
+      const normalizedId = SUNO_PLAYLIST_ALIASES[playlistId.trim()] || playlistId.trim();
 
       if (append) {
         setIsLoadingMore(true);
       } else {
-        setIsLoading(true);
+        // If we don't have tracks, show loading; otherwise, background sync
+        const currentTracksCount = playlist?.tracks?.length || 0;
+        if (currentTracksCount === 0) {
+          setIsLoading(true);
+        } else {
+          setIsSyncing(true);
+        }
       }
       setError(null);
 
       try {
-        const res = await fetch(`/api/suno-playlist?id=${encodeURIComponent(normalizedId)}&page=${targetPage}`);
+        const cacheBuster = forceRefresh ? `&_t=${Date.now()}` : "";
+        const res = await fetch(`/api/suno-playlist?id=${encodeURIComponent(normalizedId)}&page=${targetPage}${cacheBuster}`);
         
         const contentType = res.headers.get("content-type") || "";
         if (!res.ok || !contentType.includes("application/json")) {
@@ -134,7 +228,8 @@ export function useSunoPlaylist(playlistId: string): UseSunoPlaylistResult {
         const data: SunoPlaylistResponse = await res.json();
 
         if (isMountedRef.current && data?.tracks && data.tracks.length > 0) {
-          playlistCache.set(cacheKey, { data, timestamp: Date.now() });
+          savePlaylistToCache(normalizedId, data);
+          setLastSynced(Date.now());
 
           setPlaylist((prev) => {
             if (!prev || !append) {
@@ -150,72 +245,91 @@ export function useSunoPlaylist(playlistId: string): UseSunoPlaylistResult {
 
           setPage(targetPage);
           setIsLoading(false);
+          setIsSyncing(false);
           setIsLoadingMore(false);
           return;
         }
         throw new Error("No tracks in API response");
       } catch (err: any) {
-        console.warn("[Suno] Primary API proxy error, trying client proxies & master catalog:", err?.message);
+        console.warn("[Suno] Background sync encountered an issue, checking fallback & proxies:", err?.message);
         
-        // Attempt client-side proxy fetch
+        // Attempt client-side proxy fetch if primary failed
         if (!append) {
-          const clientData = await fetchViaClientProxies(normalizedId);
-          if (isMountedRef.current && clientData && clientData.tracks.length > 0) {
-            playlistCache.set(cacheKey, { data: clientData, timestamp: Date.now() });
-            setPlaylist(clientData);
-            setError(null);
-            setIsLoading(false);
-            setIsLoadingMore(false);
-            return;
+          try {
+            const clientData = await fetchViaClientProxies(normalizedId);
+            if (isMountedRef.current && clientData && clientData.tracks.length > 0) {
+              savePlaylistToCache(normalizedId, clientData);
+              setPlaylist(clientData);
+              setLastSynced(Date.now());
+              setError(null);
+              setIsLoading(false);
+              setIsSyncing(false);
+              setIsLoadingMore(false);
+              return;
+            }
+          } catch {
+            // Ignore proxy errors
           }
         }
 
-        // Resilient full fallback using complete 93-track SUNO_CATALOG_MASTER
-        const masterFallback = SUNO_CATALOG_MASTER[normalizedId] || SUNO_CATALOG_MASTER["ff247038-e0ae-4778-989d-0529e575027b"];
-        if (isMountedRef.current && masterFallback) {
-          playlistCache.set(cacheKey, { data: masterFallback, timestamp: Date.now() });
-          setPlaylist(masterFallback);
+        // Resilient fallback to cached/master data
+        const cachedFallback = getCachedPlaylist(normalizedId);
+        if (isMountedRef.current && cachedFallback?.tracks?.length > 0) {
+          setPlaylist(cachedFallback);
           setError(null);
         } else if (isMountedRef.current) {
-          setError("Failed to fetch playlist data.");
+          setError("Failed to sync latest songs.");
         }
       } finally {
         if (isMountedRef.current) {
           setIsLoading(false);
+          setIsSyncing(false);
           setIsLoadingMore(false);
         }
       }
     },
-    [playlistId]
+    [playlistId, playlist?.tracks?.length]
   );
 
+  // When playlistId changes, immediately provide cached songs synchronously and trigger background resync
   useEffect(() => {
+    const cached = getCachedPlaylist(playlistId);
+    setPlaylist(cached);
+    setIsLoading(false);
     setPage(1);
-    fetchPlaylistData(1, false);
-  }, [playlistId, fetchPlaylistData]);
+
+    // Call in background to update / resync
+    fetchPlaylistData(1, false, false);
+  }, [playlistId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const refresh = useCallback(async () => {
-    for (const key of playlistCache.keys()) {
-      if (key.startsWith(playlistId)) {
-        playlistCache.delete(key);
+    const normalizedId = SUNO_PLAYLIST_ALIASES[playlistId.trim()] || playlistId.trim();
+    MEMORY_CACHE.delete(normalizedId);
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.removeItem(`${LOCAL_STORAGE_PREFIX}${normalizedId}`);
+      } catch {
+        // ignore
       }
     }
     setPage(1);
-    await fetchPlaylistData(1, false);
+    await fetchPlaylistData(1, false, true);
   }, [playlistId, fetchPlaylistData]);
 
   const loadMore = useCallback(async () => {
-    if (isLoading || isLoadingMore) return;
+    if (isLoading || isLoadingMore || isSyncing) return;
     const nextPage = page + 1;
-    await fetchPlaylistData(nextPage, true);
-  }, [isLoading, isLoadingMore, page, fetchPlaylistData]);
+    await fetchPlaylistData(nextPage, true, false);
+  }, [isLoading, isLoadingMore, isSyncing, page, fetchPlaylistData]);
 
   return {
     playlist,
     tracks: playlist?.tracks || [],
     isLoading,
+    isSyncing,
     isLoadingMore,
     error,
+    lastSynced,
     page,
     hasMore: Boolean(playlist?.tracks && playlist.tracks.length >= 20),
     refresh,

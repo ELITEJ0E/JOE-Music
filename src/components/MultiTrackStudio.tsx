@@ -38,7 +38,34 @@ import { audioEngine, AudioInputLevel } from "../audio/audioContext";
 import { transport, TransportState } from "../audio/transport";
 import { dawEngine } from "../audio/dawEngine";
 import { dawHistory } from "../audio/dawHistory";
-import { DAWTrack, DAWProject, AudioClip, CountInSetting, GridSnapSetting } from "../types";
+import {
+  DAWTrack,
+  DAWProject,
+  AudioClip,
+  CountInSetting,
+  GridSnapSetting,
+  TrackEqConfig,
+  TrackInsertEffectsConfig,
+  DEFAULT_TRACK_EQ,
+  DEFAULT_TRACK_INSERT_EFFECTS,
+} from "../types";
+
+export interface BusChannelState {
+  id: string;
+  name: string;
+  color: string;
+  volume: number; // 0..1.5
+  muted: boolean;
+  soloed: boolean;
+}
+
+const DEFAULT_BUS_CHANNELS: BusChannelState[] = [
+  { id: "guitars", name: "Guitars Bus", color: "#f59e0b", volume: 1.0, muted: false, soloed: false },
+  { id: "drums", name: "Drums Bus", color: "#ef4444", volume: 1.0, muted: false, soloed: false },
+  { id: "vocals", name: "Vocals Bus", color: "#06b6d4", volume: 1.0, muted: false, soloed: false },
+  { id: "bass", name: "Bass Bus", color: "#8b5cf6", volume: 1.0, muted: false, soloed: false },
+  { id: "keys", name: "Keys / FX Bus", color: "#ec4899", volume: 1.0, muted: false, soloed: false },
+];
 import {
   saveProjectToDB,
   loadProjectsFromDB,
@@ -87,6 +114,9 @@ export const MultiTrackStudio: React.FC<MultiTrackStudioProps> = ({ initialSong 
         armed: false,
         monitoring: false,
         clips: [],
+        eq: { ...DEFAULT_TRACK_EQ },
+        insertEffects: { ...DEFAULT_TRACK_INSERT_EFFECTS },
+        busId: "master",
         inputSource: "processed",
       },
       {
@@ -100,6 +130,9 @@ export const MultiTrackStudio: React.FC<MultiTrackStudioProps> = ({ initialSong 
         armed: false,
         monitoring: false,
         clips: [],
+        eq: { ...DEFAULT_TRACK_EQ },
+        insertEffects: { ...DEFAULT_TRACK_INSERT_EFFECTS },
+        busId: "master",
         inputSource: "processed",
       },
     ],
@@ -130,6 +163,8 @@ export const MultiTrackStudio: React.FC<MultiTrackStudioProps> = ({ initialSong 
   const [inputLevel, setInputLevel] = useState<AudioInputLevel>({ rms: 0, peak: 0, db: -100 });
   const [trackPeaks, setTrackPeaks] = useState<{ [trackId: string]: number }>({});
   const [clippingTracks, setClippingTracks] = useState<{ [trackId: string]: boolean }>({});
+  const [buses, setBuses] = useState<BusChannelState[]>(DEFAULT_BUS_CHANNELS);
+  const [isMixBusesOpen, setIsMixBusesOpen] = useState<boolean>(true);
 
   // Feedback & Operations
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -711,7 +746,10 @@ export const MultiTrackStudio: React.FC<MultiTrackStudioProps> = ({ initialSong 
         gain: 1,
         fadeInSec: 0.01,
         fadeOutSec: 0.01,
-      }]
+      }],
+      eq: { ...DEFAULT_TRACK_EQ },
+      insertEffects: { ...DEFAULT_TRACK_INSERT_EFFECTS },
+      busId: "master",
     };
     const newProj = { ...project, tracks: [...project.tracks, newTrk] };
     dawHistory.pushState(project, "Commit Looper Track");
@@ -736,6 +774,9 @@ export const MultiTrackStudio: React.FC<MultiTrackStudioProps> = ({ initialSong 
       armed: false,
       monitoring: false,
       clips: [],
+      eq: { ...DEFAULT_TRACK_EQ },
+      insertEffects: { ...DEFAULT_TRACK_INSERT_EFFECTS },
+      busId: "master",
       inputSource: "processed",
     };
 
@@ -760,6 +801,9 @@ export const MultiTrackStudio: React.FC<MultiTrackStudioProps> = ({ initialSong 
       id: `trk-dup-${Date.now()}`,
       name: `${target.name} (Copy)`,
       armed: false,
+      eq: target.eq ? { ...target.eq } : { ...DEFAULT_TRACK_EQ },
+      insertEffects: target.insertEffects ? { ...target.insertEffects } : { ...DEFAULT_TRACK_INSERT_EFFECTS },
+      busId: target.busId || "master",
       clips: (target.clips || []).map((c) => ({
         ...c,
         id: `clip-dup-${Date.now()}-${c.id}`,
@@ -794,7 +838,7 @@ export const MultiTrackStudio: React.FC<MultiTrackStudioProps> = ({ initialSong 
     showToast("Track deleted.");
   };
 
-  // Track Controls: Volume / Pan / Mute / Solo / Arm
+  // Track Controls: Volume / Pan / Mute / Solo / Arm / EQ / FX / Bus
   const handleTrackVolumeChange = (trackId: string, val: number) => {
     setProject((prev) => ({
       ...prev,
@@ -809,6 +853,120 @@ export const MultiTrackStudio: React.FC<MultiTrackStudioProps> = ({ initialSong 
       tracks: prev.tracks.map((t) => (t.id === trackId ? { ...t, pan: val } : t)),
     }));
     dawEngine.updateTrackPan(trackId, val);
+  };
+
+  const handleTrackEqChange = (trackId: string, band: "low" | "mid" | "high", value: number) => {
+    setProject((prev) => {
+      const updatedTracks = prev.tracks.map((t) => {
+        if (t.id !== trackId) return t;
+        const currentEq = t.eq || { lowGainDb: 0, midGainDb: 0, highGainDb: 0 };
+        const newEq = {
+          ...currentEq,
+          [band === "low" ? "lowGainDb" : band === "mid" ? "midGainDb" : "highGainDb"]: value,
+        };
+        return { ...t, eq: newEq };
+      });
+      return { ...prev, tracks: updatedTracks };
+    });
+
+    const targetTrack = project.tracks.find((t) => t.id === trackId);
+    dawEngine.updateTrackEq(trackId, band, value);
+  };
+
+  const handleTrackReverbSendChange = (trackId: string, value: number) => {
+    setProject((prev) => ({
+      ...prev,
+      tracks: prev.tracks.map((t) => {
+        if (t.id !== trackId) return t;
+        const currentFx = t.insertEffects || {
+          reverbSendLevel: 0,
+          compressorEnabled: false,
+          compressorThresholdDb: -24,
+          compressorRatio: 4,
+        };
+        return {
+          ...t,
+          insertEffects: {
+            ...currentFx,
+            reverbSendLevel: value,
+          },
+        };
+      }),
+    }));
+    dawEngine.updateTrackReverbSend(trackId, value);
+  };
+
+  const handleTrackCompressorChange = (
+    trackId: string,
+    config: { enabled: boolean; thresholdDb: number; ratio: number }
+  ) => {
+    setProject((prev) => ({
+      ...prev,
+      tracks: prev.tracks.map((t) => {
+        if (t.id !== trackId) return t;
+        const currentFx = t.insertEffects || {
+          reverbSendLevel: 0,
+          compressorEnabled: false,
+          compressorThresholdDb: -24,
+          compressorRatio: 4,
+        };
+        return {
+          ...t,
+          insertEffects: {
+            ...currentFx,
+            compressorEnabled: config.enabled,
+            compressorThresholdDb: config.thresholdDb,
+            compressorRatio: config.ratio,
+          },
+        };
+      }),
+    }));
+    dawEngine.updateTrackCompressor(trackId, config);
+  };
+
+  const handleTrackBusChange = (trackId: string, busId: string) => {
+    const targetBus = busId === "master" || busId === "none" ? undefined : busId;
+    const updatedTracks = project.tracks.map((t) =>
+      t.id === trackId ? { ...t, busId: targetBus } : t
+    );
+    const updated = { ...project, tracks: updatedTracks };
+    commitProjectChange(updated, "Route Track to Bus", false);
+    if (transportState.isPlaying) {
+      dawEngine.startPlayback(updated, transport.getCurrentTime());
+    }
+  };
+
+  const handleBusVolumeChange = (busId: string, volume: number) => {
+    setBuses((prev) => prev.map((b) => (b.id === busId ? { ...b, volume } : b)));
+    dawEngine.updateBusGain(busId, volume);
+  };
+
+  const handleBusToggleMute = (busId: string) => {
+    setBuses((prev) => {
+      return prev.map((b) => {
+        if (b.id !== busId) return b;
+        const nextMuted = !b.muted;
+        dawEngine.updateBusGain(busId, nextMuted ? 0 : b.volume);
+        return { ...b, muted: nextMuted };
+      });
+    });
+  };
+
+  const handleBusToggleSolo = (busId: string) => {
+    setBuses((prev) => {
+      const updated = prev.map((b) =>
+        b.id === busId ? { ...b, soloed: !b.soloed } : b
+      );
+      const anySolo = updated.some((b) => b.soloed);
+      updated.forEach((b) => {
+        if (anySolo) {
+          dawEngine.updateBusGain(b.id, b.soloed ? (b.muted ? 0 : b.volume) : 0);
+        } else {
+          dawEngine.updateBusGain(b.id, b.muted ? 0 : b.volume);
+        }
+      });
+      return updated;
+    });
   };
 
   const handleToggleMute = (trackId: string) => {
@@ -1015,6 +1173,9 @@ export const MultiTrackStudio: React.FC<MultiTrackStudioProps> = ({ initialSong 
           armed: true,
           monitoring: true,
           clips: [],
+          eq: { ...DEFAULT_TRACK_EQ },
+          insertEffects: { ...DEFAULT_TRACK_INSERT_EFFECTS },
+          busId: "master",
           inputSource: "processed",
         },
         {
@@ -1028,6 +1189,9 @@ export const MultiTrackStudio: React.FC<MultiTrackStudioProps> = ({ initialSong 
           armed: false,
           monitoring: false,
           clips: [],
+          eq: { ...DEFAULT_TRACK_EQ },
+          insertEffects: { ...DEFAULT_TRACK_INSERT_EFFECTS },
+          busId: "master",
           inputSource: "processed",
         },
       ],
@@ -1453,6 +1617,10 @@ export const MultiTrackStudio: React.FC<MultiTrackStudioProps> = ({ initialSong 
                     onResetClipping={() =>
                       setClippingTracks((prev) => ({ ...prev, [track.id]: false }))
                     }
+                    onEqChange={handleTrackEqChange}
+                    onReverbSendChange={handleTrackReverbSendChange}
+                    onCompressorChange={handleTrackCompressorChange}
+                    onBusChange={handleTrackBusChange}
                   />
                 </div>
 
@@ -1529,6 +1697,113 @@ export const MultiTrackStudio: React.FC<MultiTrackStudioProps> = ({ initialSong 
             );
           })}
         </div>
+
+        {/* Mix Bus Submixing Bar in Timeline */}
+        <div className="border-t border-white/10 bg-[#080a0f] p-3">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <SlidersHorizontal className="w-4 h-4 text-[#a3ff12]" />
+              <span className="text-xs font-mono font-bold text-white uppercase tracking-wider">
+                Mix Buses & Subgroups
+              </span>
+              <span className="text-[10px] font-mono text-zinc-500">
+                (Route multiple tracks to a shared bus fader)
+              </span>
+            </div>
+            <button
+              onClick={() => setIsMixBusesOpen(!isMixBusesOpen)}
+              className="text-xs font-mono text-zinc-400 hover:text-white px-2 py-1 bg-white/5 rounded border border-white/5"
+            >
+              {isMixBusesOpen ? "Collapse Buses ▲" : "Expand Buses ▼"}
+            </button>
+          </div>
+
+          {isMixBusesOpen && (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 pt-1">
+              {buses.map((bus) => {
+                const routedTracksCount = project.tracks.filter(
+                  (t) => (t.busId || "").toLowerCase() === bus.id.toLowerCase()
+                ).length;
+                const busDb =
+                  bus.volume > 0.001
+                    ? (20 * Math.log10(bus.volume)).toFixed(1)
+                    : "-∞";
+
+                return (
+                  <div
+                    key={bus.id}
+                    className={`bg-[#0d1017] border rounded-xl p-2.5 flex flex-col justify-between transition-all ${
+                      bus.muted
+                        ? "border-rose-500/30 opacity-70"
+                        : bus.soloed
+                        ? "border-amber-400/50 shadow-[0_0_12px_rgba(251,191,36,0.2)]"
+                        : "border-white/10 hover:border-white/20"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span
+                          className="w-2.5 h-2.5 rounded-full shrink-0"
+                          style={{ backgroundColor: bus.color }}
+                        />
+                        <span className="text-xs font-mono font-bold text-zinc-200 truncate">
+                          {bus.name}
+                        </span>
+                      </div>
+                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-white/5 text-zinc-400">
+                        {routedTracksCount} trk
+                      </span>
+                    </div>
+
+                    {/* Mute & Solo Buttons */}
+                    <div className="flex items-center gap-1 mb-2">
+                      <button
+                        onClick={() => handleBusToggleMute(bus.id)}
+                        className={`flex-1 py-0.5 rounded text-[9px] font-mono font-bold transition-all ${
+                          bus.muted
+                            ? "bg-rose-500 text-white font-bold"
+                            : "bg-white/5 text-zinc-400 hover:bg-white/10 hover:text-white"
+                        }`}
+                      >
+                        MUTE
+                      </button>
+                      <button
+                        onClick={() => handleBusToggleSolo(bus.id)}
+                        className={`flex-1 py-0.5 rounded text-[9px] font-mono font-bold transition-all ${
+                          bus.soloed
+                            ? "bg-amber-400 text-black font-bold"
+                            : "bg-white/5 text-zinc-400 hover:bg-white/10 hover:text-white"
+                        }`}
+                      >
+                        SOLO
+                      </button>
+                    </div>
+
+                    {/* Fader */}
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-[9px] font-mono text-zinc-400">
+                        <span>BUS GAIN</span>
+                        <span className="text-zinc-200 font-bold">{busDb} dB</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="1.5"
+                        step="0.01"
+                        value={bus.volume}
+                        onChange={(e) =>
+                          handleBusVolumeChange(bus.id, parseFloat(e.target.value))
+                        }
+                        className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer"
+                        style={{ accentColor: bus.color }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Studio Utility Navigation Tabs */}
@@ -1569,9 +1844,353 @@ export const MultiTrackStudio: React.FC<MultiTrackStudioProps> = ({ initialSong 
       )}
 
       {activeTab === "mixer" && (
-        <div className="bg-[#0b0e14] border border-white/10 rounded-2xl shadow-2xl p-8 min-h-[500px] flex flex-col items-center justify-center">
-           <Sliders className="w-12 h-12 text-zinc-600 mb-4" />
-           <p className="text-zinc-400 font-mono text-sm">Mixer Board coming soon.</p>
+        <div className="bg-[#0b0e14] border border-white/10 rounded-2xl shadow-2xl p-6 min-h-[550px]">
+          <div className="flex items-center justify-between mb-6 pb-4 border-b border-white/10">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-[#a3ff12]/10 rounded-xl border border-[#a3ff12]/30">
+                <Sliders className="w-5 h-5 text-[#a3ff12]" />
+              </div>
+              <div>
+                <h3 className="text-sm font-mono font-bold text-white tracking-wide">
+                  STUDIO MIXING CONSOLE
+                </h3>
+                <p className="text-xs font-mono text-zinc-400">
+                  Per-track 3-band EQ, dynamics compression, reverb sends, and submix bus routing
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-mono px-2.5 py-1 rounded bg-white/5 border border-white/10 text-zinc-300">
+                {project.tracks.length} Channels • {buses.length} Submix Buses
+              </span>
+            </div>
+          </div>
+
+          {/* Mixing Strips Grid */}
+          <div className="flex gap-4 overflow-x-auto pb-4 items-stretch">
+            {/* Track Channel Strips */}
+            {project.tracks.map((track) => {
+              const peak = trackPeaks[track.id] || 0;
+              const isClip = clippingTracks[track.id] || false;
+              const lowG = track.eq?.lowGainDb ?? 0;
+              const midG = track.eq?.midGainDb ?? 0;
+              const highG = track.eq?.highGainDb ?? 0;
+              const revG = track.insertEffects?.reverbSendLevel ?? 0;
+              const compOn = !!track.insertEffects?.compressorEnabled;
+              const compThresh = track.insertEffects?.compressorThresholdDb ?? -24;
+              const compRat = track.insertEffects?.compressorRatio ?? 4;
+              const volDb =
+                track.volume > 0.001
+                  ? (20 * Math.log10(track.volume)).toFixed(1)
+                  : "-∞";
+
+              return (
+                <div
+                  key={track.id}
+                  className={`w-44 shrink-0 bg-[#0e121b] border rounded-xl p-3 flex flex-col justify-between select-none ${
+                    track.id === selectedTrackId
+                      ? "border-[#a3ff12]/50 shadow-[0_0_15px_rgba(163,255,18,0.15)]"
+                      : "border-white/10"
+                  }`}
+                >
+                  {/* Channel Header */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span
+                          className="w-2.5 h-2.5 rounded-full shrink-0"
+                          style={{ backgroundColor: track.color }}
+                        />
+                        <span className="text-xs font-mono font-bold text-white truncate">
+                          {track.name}
+                        </span>
+                      </div>
+                      <span className="text-[8px] font-mono px-1 rounded bg-white/10 text-zinc-400">
+                        CH
+                      </span>
+                    </div>
+
+                    {/* Mix Bus Select */}
+                    <div className="mb-3">
+                      <div className="text-[8px] font-mono text-zinc-400 mb-0.5">ROUTING</div>
+                      <select
+                        value={track.busId || "master"}
+                        onChange={(e) => handleTrackBusChange(track.id, e.target.value)}
+                        className="w-full bg-black/50 border border-white/15 text-[9px] font-mono text-zinc-200 rounded px-1.5 py-1 outline-none cursor-pointer"
+                      >
+                        <option value="master">Master (Direct)</option>
+                        <option value="guitars">Guitars Bus</option>
+                        <option value="drums">Drums Bus</option>
+                        <option value="vocals">Vocals Bus</option>
+                        <option value="bass">Bass Bus</option>
+                        <option value="keys">Keys / FX Bus</option>
+                      </select>
+                    </div>
+
+                    {/* 3-Band EQ Strip */}
+                    <div className="bg-black/40 p-2 rounded border border-white/5 mb-3 space-y-1.5 text-[8px] font-mono">
+                      <div className="text-zinc-400 font-bold flex justify-between">
+                        <span>EQ SECTION</span>
+                        <span className="text-zinc-500">±12dB</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-zinc-400">HI (4k)</span>
+                        <input
+                          type="range"
+                          min="-12"
+                          max="12"
+                          step="0.5"
+                          value={highG}
+                          onChange={(e) => handleTrackEqChange(track.id, "high", parseFloat(e.target.value))}
+                          className="w-20 h-1 bg-zinc-800 rounded accent-[#ec4899]"
+                        />
+                        <span className="text-[8px] text-zinc-300 w-6 text-right">
+                          {highG > 0 ? `+${highG}` : highG}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-zinc-400">MID (1k)</span>
+                        <input
+                          type="range"
+                          min="-12"
+                          max="12"
+                          step="0.5"
+                          value={midG}
+                          onChange={(e) => handleTrackEqChange(track.id, "mid", parseFloat(e.target.value))}
+                          className="w-20 h-1 bg-zinc-800 rounded accent-[#38bdf8]"
+                        />
+                        <span className="text-[8px] text-zinc-300 w-6 text-right">
+                          {midG > 0 ? `+${midG}` : midG}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-zinc-400">LOW (200)</span>
+                        <input
+                          type="range"
+                          min="-12"
+                          max="12"
+                          step="0.5"
+                          value={lowG}
+                          onChange={(e) => handleTrackEqChange(track.id, "low", parseFloat(e.target.value))}
+                          className="w-20 h-1 bg-zinc-800 rounded accent-[#a3ff12]"
+                        />
+                        <span className="text-[8px] text-zinc-300 w-6 text-right">
+                          {lowG > 0 ? `+${lowG}` : lowG}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* FX Strip: Reverb Send & Compressor */}
+                    <div className="bg-black/40 p-2 rounded border border-white/5 mb-3 space-y-1.5 text-[8px] font-mono">
+                      <div className="flex items-center justify-between">
+                        <span className="text-zinc-400">REVERB SEND</span>
+                        <span className="text-purple-400 font-bold">{Math.round(revG * 100)}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.01"
+                        value={revG}
+                        onChange={(e) => handleTrackReverbSendChange(track.id, parseFloat(e.target.value))}
+                        className="w-full h-1 bg-zinc-800 rounded accent-purple-400"
+                      />
+
+                      <div className="flex items-center justify-between pt-1 border-t border-white/5">
+                        <span className="text-zinc-400 font-bold">COMP</span>
+                        <button
+                          onClick={() =>
+                            handleTrackCompressorChange(track.id, {
+                              enabled: !compOn,
+                              thresholdDb: compThresh,
+                              ratio: compRat,
+                            })
+                          }
+                          className={`px-1.5 py-0.5 rounded text-[8px] font-bold ${
+                            compOn ? "bg-amber-400 text-black" : "bg-white/10 text-zinc-400"
+                          }`}
+                        >
+                          {compOn ? "ON" : "OFF"}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Pan Slider */}
+                    <div className="mb-3">
+                      <div className="flex justify-between text-[8px] font-mono text-zinc-400 mb-1">
+                        <span>PAN</span>
+                        <span className="text-zinc-200">
+                          {track.pan === 0
+                            ? "C"
+                            : track.pan < 0
+                            ? `L${Math.round(Math.abs(track.pan) * 100)}`
+                            : `R${Math.round(track.pan * 100)}`}
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min="-1"
+                        max="1"
+                        step="0.05"
+                        value={track.pan}
+                        onChange={(e) => handleTrackPanChange(track.id, parseFloat(e.target.value))}
+                        className="w-full h-1 bg-zinc-800 rounded accent-[#38bdf8]"
+                      />
+                    </div>
+
+                    {/* Mute / Solo / Rec */}
+                    <div className="grid grid-cols-3 gap-1 mb-3">
+                      <button
+                        onClick={() => handleArmTrack(track.id)}
+                        className={`py-1 rounded text-[9px] font-mono font-bold ${
+                          track.id === armedTrackId
+                            ? "bg-rose-500 text-white animate-pulse"
+                            : "bg-white/5 text-zinc-400 hover:text-white"
+                        }`}
+                      >
+                        REC
+                      </button>
+                      <button
+                        onClick={() => handleToggleMute(track.id)}
+                        className={`py-1 rounded text-[9px] font-mono font-bold ${
+                          track.muted
+                            ? "bg-rose-500 text-white font-bold"
+                            : "bg-white/5 text-zinc-400 hover:text-white"
+                        }`}
+                      >
+                        M
+                      </button>
+                      <button
+                        onClick={() => handleToggleSolo(track.id)}
+                        className={`py-1 rounded text-[9px] font-mono font-bold ${
+                          track.soloed
+                            ? "bg-amber-400 text-black font-bold"
+                            : "bg-white/5 text-zinc-400 hover:text-white"
+                        }`}
+                      >
+                        S
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Fader + Meter Area */}
+                  <div className="flex items-center gap-3 bg-black/30 p-2 rounded border border-white/5">
+                    {/* Vertical VU Meter */}
+                    <div className="w-2.5 h-32 bg-zinc-900 rounded overflow-hidden flex flex-col-reverse relative">
+                      <div
+                        className="w-full transition-all duration-75"
+                        style={{
+                          height: `${Math.min(100, peak * 100)}%`,
+                          backgroundColor: peak > 0.9 ? "#f43f5e" : peak > 0.7 ? "#fbbf24" : "#a3ff12",
+                        }}
+                      />
+                      {isClip && (
+                        <div className="absolute top-0 left-0 right-0 h-1.5 bg-rose-500 animate-pulse" />
+                      )}
+                    </div>
+
+                    {/* Vertical Volume Slider */}
+                    <div className="flex-1 flex flex-col items-center justify-between h-32 py-1">
+                      <span className="text-[8px] font-mono text-zinc-300 font-bold">{volDb} dB</span>
+                      <input
+                        type="range"
+                        min="0"
+                        max="1.2"
+                        step="0.01"
+                        value={track.volume}
+                        onChange={(e) => handleTrackVolumeChange(track.id, parseFloat(e.target.value))}
+                        className="w-24 h-1 bg-zinc-800 rounded -rotate-90 appearance-none cursor-pointer accent-[#a3ff12]"
+                      />
+                      <span className="text-[8px] font-mono text-zinc-500">VOL</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+
+            {/* Submix Bus Channel Strips */}
+            <div className="border-l border-white/10 pl-4 flex gap-3">
+              {buses.map((bus) => {
+                const routedTracks = project.tracks.filter(
+                  (t) => (t.busId || "").toLowerCase() === bus.id.toLowerCase()
+                );
+                const busDb =
+                  bus.volume > 0.001
+                    ? (20 * Math.log10(bus.volume)).toFixed(1)
+                    : "-∞";
+
+                return (
+                  <div
+                    key={bus.id}
+                    className={`w-36 shrink-0 bg-[#0a0d14] border rounded-xl p-3 flex flex-col justify-between select-none ${
+                      bus.muted
+                        ? "border-rose-500/30 opacity-70"
+                        : bus.soloed
+                        ? "border-amber-400/50 shadow-[0_0_12px_rgba(251,191,36,0.2)]"
+                        : "border-white/10"
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center gap-1.5 mb-1.5">
+                        <span
+                          className="w-2.5 h-2.5 rounded-full shrink-0"
+                          style={{ backgroundColor: bus.color }}
+                        />
+                        <span className="text-xs font-mono font-bold text-zinc-200 truncate">
+                          {bus.name}
+                        </span>
+                      </div>
+                      <span className="text-[9px] font-mono text-zinc-500 block mb-3">
+                        {routedTracks.length} tracks routed
+                      </span>
+
+                      {/* Mute & Solo */}
+                      <div className="grid grid-cols-2 gap-1 mb-4">
+                        <button
+                          onClick={() => handleBusToggleMute(bus.id)}
+                          className={`py-1 rounded text-[9px] font-mono font-bold ${
+                            bus.muted
+                              ? "bg-rose-500 text-white font-bold"
+                              : "bg-white/5 text-zinc-400 hover:text-white"
+                          }`}
+                        >
+                          MUTE
+                        </button>
+                        <button
+                          onClick={() => handleBusToggleSolo(bus.id)}
+                          className={`py-1 rounded text-[9px] font-mono font-bold ${
+                            bus.soloed
+                              ? "bg-amber-400 text-black font-bold"
+                              : "bg-white/5 text-zinc-400 hover:text-white"
+                          }`}
+                        >
+                          SOLO
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Bus Fader Area */}
+                    <div className="flex items-center justify-center bg-black/40 p-2 rounded border border-white/5 h-44 flex-col">
+                      <span className="text-[9px] font-mono text-zinc-300 font-bold mb-2">
+                        {busDb} dB
+                      </span>
+                      <input
+                        type="range"
+                        min="0"
+                        max="1.5"
+                        step="0.01"
+                        value={bus.volume}
+                        onChange={(e) => handleBusVolumeChange(bus.id, parseFloat(e.target.value))}
+                        className="w-28 h-1 bg-zinc-800 rounded -rotate-90 appearance-none cursor-pointer my-auto"
+                        style={{ accentColor: bus.color }}
+                      />
+                      <span className="text-[8px] font-mono text-zinc-500 mt-2">BUS SUB</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
       )}
 
