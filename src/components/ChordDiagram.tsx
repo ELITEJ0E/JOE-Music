@@ -111,16 +111,17 @@ export const ChordDiagram: React.FC<ChordDiagramProps> = ({
         {isOpenPosition ? (
           <g>
             <rect
-              x={startX - 1}
-              y={topY - 4}
-              width={gridWidth + 2}
-              height={6}
+              x={capo > 0 ? startX - 4 : startX - 1}
+              y={topY - 5}
+              width={capo > 0 ? gridWidth + 8 : gridWidth + 2}
+              height={capo > 0 ? 8 : 6}
               fill={capo > 0 ? "#38bdf8" : "#a3ff12"}
-              rx="3"
+              rx={capo > 0 ? "4" : "3"}
+              filter={capo > 0 ? "drop-shadow(0 0 6px rgba(56,189,248,0.6))" : undefined}
             />
             {capo > 0 && showPositionLabel && (
               <text
-                x={startX - 6}
+                x={startX - 8}
                 y={topY + 1}
                 fill="#38bdf8"
                 fontSize="10"
@@ -272,7 +273,7 @@ export const ChordDiagram: React.FC<ChordDiagramProps> = ({
                 cy="22"
                 r="6"
                 fill="none"
-                stroke="#a3ff12"
+                stroke={capo > 0 ? "#38bdf8" : "#a3ff12"}
                 strokeWidth="2"
                 className={onPluck ? "cursor-pointer hover:fill-[#a3ff12]/30 transition-all" : ""}
                 onClick={() => onPluck?.(5 - sIdx, 0)}

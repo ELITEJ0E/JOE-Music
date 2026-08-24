@@ -5,7 +5,7 @@ import { ChordVoicing } from "../types";
 import { parseChordLabel, normalizeChord, NormalizedChord, RawChordHypothesis } from "./chordNormalizer";
 import { resolvePowerChord } from "./powerChordResolver";
 import { parseChordSymbol } from "../music/chordParser";
-import { generateVoicings } from "../music/chordVoicingGenerator";
+import { generateVoicings, PlayabilityMode } from "../music/chordVoicingGenerator";
 
 export interface GuitarVoicingResult {
   detectedChord: string;        // e.g. "Cm7/Bb" or "B5"
@@ -20,6 +20,8 @@ export interface GuitarVoicingResult {
   availableVoicingsCount?: number;
   allVoicings?: ChordVoicing[];
   selectedVoicingIndex?: number;
+  playabilityMode?: PlayabilityMode;
+  voicingDescription?: string;
 }
 
 export interface ResolveOptions {
@@ -27,6 +29,7 @@ export interface ResolveOptions {
   detectionConfidence?: number;
   simplifyIfUnavailable?: boolean;
   voicingIndex?: number; // 1-indexed voicing selector
+  playabilityMode?: PlayabilityMode;
 }
 
 export function resolveGuitarChord(
@@ -105,7 +108,11 @@ export function resolveGuitarChord(
   }
 
   // Generate procedural voicings
-  const generated = generateVoicings(parsed.chord, { maxFretSpan: 4, maxFret: 15 });
+  const generated = generateVoicings(parsed.chord, {
+    maxFretSpan: 4,
+    maxFret: 15,
+    playabilityMode: options.playabilityMode,
+  });
   
   if (generated.length > 0) {
     const allVoicings: ChordVoicing[] = generated.map((g, idx) => ({
@@ -140,7 +147,9 @@ export function resolveGuitarChord(
       simplificationReason: selectedGen.type === "simplified" ? "Simplified voicing used" : undefined,
       availableVoicingsCount: allVoicings.length,
       allVoicings,
-      selectedVoicingIndex: clampedIdx
+      selectedVoicingIndex: clampedIdx,
+      playabilityMode: options.playabilityMode || "standard",
+      voicingDescription: selectedGen.description
     };
   }
   

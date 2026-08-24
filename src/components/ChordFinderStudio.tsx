@@ -26,6 +26,7 @@ import { analyzeAudioFile } from "../audio/audioAnalyzer";
 import { audioEngine } from "../audio/audioContext";
 import { SongAnalysis, SavedSong } from "../types";
 import { resolveChordFinderState, transposeChordSymbol } from "../music/chordTransposer";
+import { PlayabilityMode } from "../music/chordVoicingGenerator";
 import { ChordDiagram } from "./ChordDiagram";
 import { CustomConfirmDialog } from "./ui/CustomConfirmDialog";
 import {
@@ -101,6 +102,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
   const [loopSection, setLoopSection] = useState(true);
   const [slowDown, setSlowDown] = useState(false);
   const [voicingIndex, setVoicingIndex] = useState(1);
+  const [playabilityMode, setPlayabilityMode] = useState<PlayabilityMode>("standard");
   const [isRepeating, setIsRepeating] = useState(false);
   const [dialog, setDialog] = useState<{
     isOpen: boolean;
@@ -549,6 +551,8 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
         keyContext: activeSong.key,
         detectionConfidence: activeChord.confidence,
         voicingIndex,
+        playabilityMode,
+        simplifyIfUnavailable: simplifyChords,
       })
     : {
         detectedChord: "-",
@@ -561,6 +565,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
         availableVoicingsCount: 0,
         allVoicings: [],
         selectedVoicingIndex: 1,
+        playabilityMode: "standard",
       };
 
   const lastPlayedId = getLastPlayedSongId();
@@ -798,32 +803,34 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                 {/* Guitar Chord Fretboard Diagram */}
                 {activeVoicingResult.voicing ? (
                   <div className="flex flex-col items-center">
-                    <div className="bg-[#13161a] rounded-2xl p-4 border border-white/10 shadow-2xl relative">
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex flex-col">
-                          <span className="text-xs font-mono font-bold text-white">
-                            {capo > 0 ? `${activeChord.shapeChord} Shape` : activeChord.transposedChord}
+                    <div className="bg-[#13161a] rounded-2xl p-4 border border-white/10 shadow-2xl relative w-full max-w-[280px]">
+                      {/* Simple compact header */}
+                      <div className="flex items-center justify-between gap-2 mb-2 pb-2 border-b border-white/10 text-xs font-mono">
+                        <div className="flex items-center gap-1.5 truncate">
+                          <span className="text-[#a3ff12] font-bold text-sm">
+                            {capo > 0 ? `${activeChord.shapeChord} shape` : activeChord.transposedChord}
                           </span>
                           {capo > 0 && (
-                            <span className="text-[9px] font-mono text-sky-400">
-                              Capo {capo} = {activeChord.transposedChord} Sounding
+                            <span className="text-[10px] text-sky-400 font-semibold px-1.5 py-0.5 rounded bg-sky-400/10 border border-sky-400/20">
+                              Capo {capo} ({activeChord.transposedChord})
+                            </span>
+                          )}
+                          {activeVoicingResult.voicing?.cagedShape && !capo && (
+                            <span className="text-[10px] text-zinc-400">
+                              ({activeVoicingResult.voicing.cagedShape}-Shape)
                             </span>
                           )}
                         </div>
-                        <div className="flex items-center gap-1.5">
+
+                        <div className="flex items-center gap-1 shrink-0">
                           {activeVoicingResult.voicingType === "exact" && (
-                            <span className="px-2 py-0.5 rounded-full text-[9px] font-mono font-bold bg-[#a3ff12]/10 text-[#a3ff12] border border-[#a3ff12]/20">
-                              Exact Voicing
-                            </span>
-                          )}
-                          {activeVoicingResult.voicingType === "generated" && (
-                            <span className="px-2 py-0.5 rounded-full text-[9px] font-mono font-bold bg-amber-400/10 text-amber-400 border border-amber-400/20">
-                              Power Shape ({(activeVoicingResult.voicing as any)?.rootString === 6 ? "E" : "A"})
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-[#a3ff12]/10 text-[#a3ff12]">
+                              Exact
                             </span>
                           )}
                           {activeVoicingResult.voicingType === "simplified" && (
-                            <span className="px-2 py-0.5 rounded-full text-[9px] font-mono font-bold bg-yellow-400/10 text-yellow-400 border border-yellow-400/20">
-                              Playable Form
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-yellow-400/10 text-yellow-400">
+                              Playable
                             </span>
                           )}
                           <button
@@ -833,7 +840,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                                 "down"
                               )
                             }
-                            className="p-1.5 rounded-lg bg-[#a3ff12]/10 hover:bg-[#a3ff12]/20 text-[#a3ff12] transition-colors"
+                            className="p-1 rounded bg-[#a3ff12]/10 hover:bg-[#a3ff12]/20 text-[#a3ff12] transition-colors"
                             title="Hear Chord Strum"
                           >
                             <Play className="w-3.5 h-3.5 fill-[#a3ff12]" />
@@ -1179,6 +1186,40 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                   className="w-4 h-4 rounded accent-[#a3ff12]"
                 />
               </label>
+            </div>
+
+            {/* Playability Mode Selector */}
+            <div className="space-y-1.5 pt-1">
+              <div className="flex justify-between text-[11px] font-mono text-zinc-400">
+                <span>PLAYABILITY MODE</span>
+                <span className="text-white font-bold uppercase text-[10px] bg-white/5 px-1.5 py-0.5 rounded border border-white/10">
+                  {playabilityMode}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-1.5 text-[10px] font-mono font-bold">
+                {[
+                  { id: "standard", label: "Standard" },
+                  { id: "easy", label: "Easy / Open" },
+                  { id: "fingerstyle", label: "Fingerstyle" },
+                  { id: "barre", label: "Barre" },
+                  { id: "high", label: "High Pos" },
+                ].map((m) => (
+                  <button
+                    key={m.id}
+                    onClick={() => {
+                      setPlayabilityMode(m.id as PlayabilityMode);
+                      setVoicingIndex(1);
+                    }}
+                    className={`py-1.5 px-2 rounded-lg transition-all cursor-pointer truncate text-left ${
+                      playabilityMode === m.id
+                        ? "bg-[#a3ff12] text-black shadow-md"
+                        : "bg-white/5 text-zinc-400 hover:text-white hover:bg-white/10 border border-white/5"
+                    }`}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {/* Voicing Buttons */}

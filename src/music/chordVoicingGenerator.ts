@@ -1,6 +1,8 @@
 import { ChordDefinition, getRequiredPitchClasses, getNoteName, PitchClass } from "./chordTheory";
 import { STANDARD_TUNING, getStringPitchClass, getMidiNote } from "./fretboard";
 
+export type PlayabilityMode = "standard" | "easy" | "fingerstyle" | "barre" | "high";
+
 export interface GeneratedVoicing {
   frets: (number | "x")[]; // 6 strings
   fingers: (number | 0)[];
@@ -11,11 +13,14 @@ export interface GeneratedVoicing {
   cagedShape?: "C" | "A" | "G" | "E" | "D";
   type: "exact" | "simplified" | "none";
   score: number;
+  description?: string;
 }
 
 export interface VoicingConstraints {
   maxFretSpan?: number;
   maxFret?: number;
+  playabilityMode?: PlayabilityMode;
+  capo?: number;
 }
 
 // Canonical shape templates for common guitar chords (fret string representations)
@@ -159,7 +164,7 @@ export function generateVoicings(chord: ChordDefinition, constraints: VoicingCon
         if (seenFrets.has(key)) continue;
         seenFrets.add(key);
         
-        const voicing = evaluateCombination(frets, chord, requiredPcs, allowedPcs);
+        const voicing = evaluateCombination(frets, chord, requiredPcs, allowedPcs, constraints);
         if (voicing) {
           results.push(voicing);
         }
@@ -174,8 +179,10 @@ function evaluateCombination(
   frets: (number | "x")[], 
   chord: ChordDefinition, 
   requiredPcs: Set<PitchClass>,
-  allowedPcs: Set<PitchClass>
+  allowedPcs: Set<PitchClass>,
+  constraints: VoicingConstraints = {}
 ): GeneratedVoicing | null {
+  const mode = constraints.playabilityMode || "standard";
   
   const presentPcs = new Set<PitchClass>();
   const notes: string[] = [];
@@ -230,7 +237,7 @@ function evaluateCombination(
 
   const cagedShape = inferCagedShape(frets, chord.root, minFret);
 
-  // Score computation (lower is better)
+  // Score computation (lower score = higher priority / better rank)
   let score = 0;
   if (type === "simplified") score += 1000;
   
@@ -279,9 +286,57 @@ function evaluateCombination(
 
   // Generic CAGED Barre Bonus
   if (barre && playedStrings >= 5) {
-    score -= 1000; // Strongly favor clean 5-string and 6-string barre shapes
+    score -= 1000; // Favor clean 5-string and 6-string barre shapes
   } else if (openStrings > 0 && playedStrings >= 4 && minFret === 0) {
-    score -= 800; // Strongly favor clean open position chords
+    score -= 800; // Favor clean open position chords
+  }
+
+  // --- Playability Mode Adjustments ---
+  switch (mode) {
+    case "easy": // Easy / Open: heavily penalize barres and high frets, reward open strings and low finger count
+      if (barre) score += 3000;
+      if (minFret > 2 || baseFret > 3) score += 3000;
+      score -= openStrings * 250;
+      score -= (4 - fingerCount) * 150;
+      break;
+
+    case "fingerstyle": // Fingerstyle: prefer open strings, full harmonic coverage, bass on string 0/1, treble active
+      score -= openStrings * 120;
+      if (firstPlayed <= 1) score -= 300; // strong bass foundation
+      if (frets[3] !== "x" && frets[4] !== "x" && frets[5] !== "x") score -= 250; // clear treble triad
+      if (foundMutedInside) score += 400;
+      score -= (4 - fingerCount) * 80;
+      break;
+
+    case "barre": // Barre: strongly favor true barre shapes and full span
+      if (barre) score -= 3500;
+      else score += 2000;
+      if (playedStrings >= 5) score -= 800;
+      break;
+
+    case "high": // High Position: prefer 5th-12th fret voicings
+      if (baseFret >= 5 && baseFret <= 12) score -= 4000;
+      else if (baseFret < 5) score += 4000;
+      break;
+
+    case "standard":
+    default:
+      // Standard CAGED balance
+      break;
+  }
+
+  // Build clean human description
+  let description = "";
+  if (openStrings > 0 && minFret <= 2 && !barre) {
+    description = cagedShape ? `Open ${cagedShape}-Shape` : "Open Position";
+  } else if (barre) {
+    description = cagedShape 
+      ? `${cagedShape}-Shape Barre (${baseFret > 1 ? `${baseFret}fr` : "1st fret"})` 
+      : `Barre Chord (${baseFret}fr)`;
+  } else if (baseFret >= 5) {
+    description = cagedShape ? `${cagedShape}-Shape (${baseFret}fr)` : `High Position (${baseFret}fr)`;
+  } else {
+    description = cagedShape ? `${cagedShape}-Shape` : `Position ${baseFret}fr`;
   }
 
   return {
@@ -293,7 +348,8 @@ function evaluateCombination(
     intervals,
     type,
     score,
-    cagedShape
+    cagedShape,
+    description
   };
 }
 
@@ -395,26 +451,31 @@ function inferCagedShape(frets: (number | "x")[], root: PitchClass, minFret: num
 
   const lowestRoot = roots[0];
 
-  if (lowestRoot.string === 0) { // 6th string root
-    if (frets[1] !== "x" && (frets[1] as number) > lowestRoot.fret) {
-      return "E";
+  // 6th string root (String 0)
+  if (lowestRoot.string === 0) {
+    if (typeof frets[1] === "number") {
+      if (frets[1] < lowestRoot.fret) return "G"; // e.g. [3, 2, 0, 0, 0, 3]
+      if (frets[1] > lowestRoot.fret) return "E"; // e.g. [0, 2, 2, 1, 0, 0] or [1, 3, 3, 2, 1, 1]
     }
-    if (lowestRoot.fret === minFret || lowestRoot.fret === minFret + 1) return "E";
-    return "G";
+    return "E";
   }
 
-  if (lowestRoot.string === 1) { // 5th string root
-    if (lowestRoot.fret === minFret || lowestRoot.fret <= minFret + 1) {
-      return "A";
+  // 5th string root (String 1)
+  if (lowestRoot.string === 1) {
+    if (typeof frets[2] === "number") {
+      if (frets[2] < lowestRoot.fret) return "C"; // e.g. [x, 3, 2, 0, 1, 0]
+      if (frets[2] > lowestRoot.fret) return "A"; // e.g. [x, 0, 2, 2, 2, 0] or [x, 1, 3, 3, 3, 1]
     }
-    return "C";
+    return "A";
   }
 
-  if (lowestRoot.string === 2) { // 4th string root
-    return "D";
+  // 4th string root (String 2)
+  if (lowestRoot.string === 2) {
+    return "D"; // e.g. [x, x, 0, 2, 3, 2]
   }
 
-  if (lowestRoot.string === 3) { // 3rd string root
+  // 3rd string root (String 3)
+  if (lowestRoot.string === 3) {
     return "C";
   }
 
