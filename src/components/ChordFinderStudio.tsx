@@ -17,7 +17,6 @@ import {
   Repeat,
   GripVertical,
   Clock,
-  Bug,
 } from "lucide-react";
 import { findChordByName } from "../data/chordDatabase";
 import { resolveGuitarChord, GuitarVoicingResult } from "../audio/guitarChordResolver";
@@ -29,7 +28,6 @@ import { SongAnalysis, SavedSong } from "../types";
 import { resolveChordFinderState, transposeChordSymbol } from "../music/chordTransposer";
 import { PlayabilityMode } from "../music/chordVoicingGenerator";
 import { arrangeChordProgression, ProgressionArrangementResult } from "../music/fingerstyleArranger";
-import { getChordDiagnosticInfo } from "../music/chordDiagnostic";
 import { ChordDiagram } from "./ChordDiagram";
 import { CustomConfirmDialog } from "./ui/CustomConfirmDialog";
 import {
@@ -101,13 +99,10 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
   const [currentTime, setCurrentTime] = useState(0);
   const [transpose, setTranspose] = useState(0);
   const [capo, setCapo] = useState(0);
-  const [simplifyChords, setSimplifyChords] = useState(false);
   const [loopSection, setLoopSection] = useState(true);
   const [slowDown, setSlowDown] = useState(false);
   const [voicingIndex, setVoicingIndex] = useState(1);
   const [playabilityMode, setPlayabilityMode] = useState<PlayabilityMode>("standard");
-  const [isArrangerActive, setIsArrangerActive] = useState(false);
-  const [showDevDiagnostic, setShowDevDiagnostic] = useState(false);
   const [isRepeating, setIsRepeating] = useState(false);
   const [dialog, setDialog] = useState<{
     isOpen: boolean;
@@ -561,7 +556,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
     });
   }, [activeSong, segments, capo, transpose, playabilityMode]);
 
-  const activeArrangedStep = isArrangerActive && arrangedProgression && arrangedProgression.steps[activeIdx]
+  const activeArrangedStep = playabilityMode === "fingerstyle" && arrangedProgression && arrangedProgression.steps[activeIdx]
     ? arrangedProgression.steps[activeIdx]
     : null;
 
@@ -575,7 +570,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
         detectionConfidence: activeChord.confidence,
         voicingIndex: effectiveVoicingIndex,
         playabilityMode,
-        simplifyIfUnavailable: simplifyChords,
+        simplifyIfUnavailable: playabilityMode === "easy",
         capo,
         detectedChord: activeChord.detectedChord,
       })
@@ -593,17 +588,6 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
         playabilityMode: "standard",
         capo: 0,
       };
-
-  const diagnosticInfo = React.useMemo(() => {
-    if (!activeChord.isValid || !activeVoicingResult.voicing) return null;
-    return getChordDiagnosticInfo(
-      activeChord.detectedChord,
-      activeChord.transposedChord,
-      capo,
-      activeChord.shapeChord,
-      activeVoicingResult.voicing.frets
-    );
-  }, [activeChord, activeVoicingResult, capo]);
 
   const lastPlayedId = getLastPlayedSongId();
 
@@ -777,7 +761,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
       {/* Main Center Area: Side-by-Side Workspace Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
         {/* Chord Progression Canvas (Left/Center Column - 8 cols) */}
-        <div className="lg:col-span-8 frosted-card rounded-3xl p-6 flex flex-col justify-between space-y-6">
+        <div className="lg:col-span-8 frosted-card rounded-3xl p-4 sm:p-6 flex flex-col justify-between space-y-4 sm:space-y-5">
           {activeSong ? (
             <>
               {/* Header row */}
@@ -786,34 +770,34 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                   CURRENT PROGRESSION
                 </span>
                 <div className="flex items-center gap-2">
-                  <span className="px-3 py-1 bg-white/5 border border-white/5 rounded-full text-xs font-mono text-zinc-300">
+                  <span className="px-2.5 py-0.5 sm:px-3 sm:py-1 bg-white/5 border border-white/5 rounded-full text-xs font-mono text-zinc-300">
                     {activeSong.tuning || "E Standard"}
                   </span>
-                  <span className="px-3 py-1 bg-white/5 border border-white/5 rounded-full text-xs font-mono text-zinc-300">
+                  <span className="px-2.5 py-0.5 sm:px-3 sm:py-1 bg-white/5 border border-white/5 rounded-full text-xs font-mono text-zinc-300">
                     Key: {activeSong.key || "C Maj"}
                   </span>
                 </div>
               </div>
 
-              {/* Large Chord Triad Display & Diagram */}
-              <div className="flex flex-col items-center justify-center py-4 border-y border-white/5 space-y-6">
+              {/* Large Chord Triad Display */}
+              <div className="flex flex-col items-center justify-center py-2 sm:py-3 border-y border-white/5">
                 <div className="flex items-center justify-around w-full">
                   {/* Previous Chord */}
                   <div className="text-center opacity-40">
-                    <div className="text-2xl sm:text-3xl font-bold font-mono text-zinc-300">
+                    <div className="text-xl sm:text-3xl font-bold font-mono text-zinc-300">
                       {prevChord.transposedChord}
                     </div>
-                    <span className="text-[10px] font-mono text-zinc-500">{prevChord.timeLabel}</span>
+                    <span className="text-[9px] sm:text-[10px] font-mono text-zinc-500">{prevChord.timeLabel}</span>
                   </div>
 
                   {/* Active Main Chord */}
-                  <div className="text-center transform scale-110 sm:scale-125">
-                    <div className="text-4xl sm:text-5xl font-black font-mono text-[#a3ff12] drop-shadow-[0_0_20px_rgba(163,255,18,0.4)]">
+                  <div className="text-center transform scale-105 sm:scale-120">
+                    <div className="text-3xl sm:text-5xl font-black font-mono text-[#a3ff12] drop-shadow-[0_0_20px_rgba(163,255,18,0.4)]">
                       {activeChord.transposedChord}
                     </div>
                     {capo > 0 && activeChord.isValid && (
-                      <div className="mt-1 flex items-center justify-center gap-1.5">
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-sky-500/20 text-sky-400 border border-sky-500/30">
+                      <div className="mt-0.5 flex items-center justify-center gap-1.5">
+                        <span className="px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-mono font-bold bg-sky-500/20 text-sky-400 border border-sky-500/30">
                           Capo {capo} • Play {activeChord.shapeChord} shape
                         </span>
                       </div>
@@ -823,24 +807,26 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                         Sounding (Original: {activeChord.detectedChord})
                       </div>
                     )}
-                    <span className="text-[11px] font-mono font-bold text-zinc-300 mt-1 block">
+                    <span className="text-[10px] sm:text-[11px] font-mono font-bold text-zinc-300 mt-0.5 block">
                       {activeChord.timeLabel}
                     </span>
                   </div>
 
                   {/* Next Chord */}
                   <div className="text-center opacity-40">
-                    <div className="text-2xl sm:text-3xl font-bold font-mono text-zinc-300">
+                    <div className="text-xl sm:text-3xl font-bold font-mono text-zinc-300">
                       {nextChord.transposedChord}
                     </div>
-                    <span className="text-[10px] font-mono text-zinc-500">{nextChord.timeLabel}</span>
+                    <span className="text-[9px] sm:text-[10px] font-mono text-zinc-500">{nextChord.timeLabel}</span>
                   </div>
                 </div>
+              </div>
 
-                {/* Guitar Chord Fretboard Diagram */}
+              {/* Guitar Chord Fretboard Diagram */}
+              <div className="flex flex-col items-center justify-center pt-1">
                 {activeVoicingResult.voicing ? (
-                  <div className="flex flex-col items-center">
-                    <div className="bg-[#13161a] rounded-2xl p-4 border border-white/10 shadow-2xl relative w-full max-w-[280px]">
+                  <div className="flex flex-col items-center w-full">
+                    <div className="bg-[#13161a] rounded-2xl p-3 sm:p-4 border border-white/10 shadow-2xl relative w-full max-w-[260px] sm:max-w-[280px]">
                       {/* Simple compact header */}
                       <div className="flex items-center justify-between gap-2 mb-2 pb-2 border-b border-white/10 text-xs font-mono">
                         <div className="flex items-center gap-1.5 truncate">
@@ -848,8 +834,8 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                             {capo > 0 ? `${activeChord.shapeChord} shape` : activeChord.transposedChord}
                           </span>
                           {capo > 0 && (
-                            <span className="text-[10px] text-sky-400 font-semibold px-1.5 py-0.5 rounded bg-sky-400/10 border border-sky-400/20">
-                              Capo {capo} ({activeChord.transposedChord})
+                            <span className="text-[9px] sm:text-[10px] text-sky-400 font-semibold px-1.5 py-0.5 rounded bg-sky-400/10 border border-sky-400/20">
+                              Capo {capo}
                             </span>
                           )}
                           {activeVoicingResult.voicing?.cagedShape && !capo && (
@@ -897,119 +883,34 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                     </div>
 
                     {activeVoicingResult.simplificationReason && (
-                      <span className="text-[10px] font-mono text-zinc-400 mt-2 text-center max-w-[240px]">
+                      <span className="text-[10px] font-mono text-zinc-400 mt-1.5 text-center max-w-[240px]">
                         {activeVoicingResult.simplificationReason}
                       </span>
                     )}
+
+                    {/* Fingerstyle Progression arrangement flow feedback */}
+                    {playabilityMode === "fingerstyle" && activeArrangedStep?.voiceLeadingDescription && (
+                      <div className="mt-2 px-3 py-1 rounded-lg bg-sky-500/10 border border-sky-500/20 text-[10px] font-mono text-sky-300 flex items-center gap-2">
+                        <span className="font-bold">Step {activeIdx + 1}/{segments.length}:</span>
+                        <span>{activeArrangedStep.voiceLeadingDescription}</span>
+                      </div>
+                    )}
                   </div>
                 ) : (
-                  <div className="bg-[#13161a] rounded-2xl p-6 border border-white/10 shadow-xl flex flex-col items-center justify-center h-48 w-72 text-center space-y-2">
+                  <div className="bg-[#13161a] rounded-2xl p-4 border border-white/10 shadow-xl flex flex-col items-center justify-center h-40 w-64 text-center space-y-2">
                     <span className="text-xs font-mono font-bold text-zinc-300">
                       No guitar voicing available
                     </span>
-                    <span className="text-[11px] font-mono text-zinc-500 max-w-[220px]">
+                    <span className="text-[11px] font-mono text-zinc-500 max-w-[200px]">
                       {activeVoicingResult.simplificationReason || `No safe diagram for ${activeChord.shapeChord}`}
                     </span>
                   </div>
                 )}
-
-                {/* Confidence Telemetry */}
-                <div className="flex items-center gap-4 text-[11px] font-mono pt-1">
-                  <div className="flex items-center gap-1.5 bg-white/5 px-3 py-1.5 rounded-xl border border-white/5">
-                    <span className="text-zinc-400">Detection Confidence:</span>
-                    <span className="text-[#a3ff12] font-bold">{activeVoicingResult.detectionConfidence}%</span>
-                  </div>
-                  <div className="flex items-center gap-1.5 bg-white/5 px-3 py-1.5 rounded-xl border border-white/5">
-                    <span className="text-zinc-400">Voicing Confidence:</span>
-                    <span className="text-white font-bold">{activeVoicingResult.voicingConfidence}%</span>
-                  </div>
-                </div>
-
-                {/* Developer Diagnostic Toggle & Panel */}
-                {diagnosticInfo && (
-                  <div className="w-full max-w-[360px] mt-2">
-                    <button
-                      onClick={() => setShowDevDiagnostic(!showDevDiagnostic)}
-                      className="w-full flex items-center justify-between px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/15 border border-amber-500/20 text-amber-400 text-xs font-mono font-bold transition-colors"
-                    >
-                      <span className="flex items-center gap-1.5">
-                        <Bug className="w-3.5 h-3.5" />
-                        <span>Developer Diagnostic</span>
-                      </span>
-                      <span className={`px-1.5 py-0.5 rounded text-[9px] font-black ${diagnosticInfo.soundingMatch ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30" : "bg-red-500/20 text-red-400 border border-red-500/30"}`}>
-                        {diagnosticInfo.finalValidationResult}
-                      </span>
-                    </button>
-
-                    {showDevDiagnostic && (
-                      <div className="mt-2 p-3 bg-black/80 rounded-xl border border-amber-500/20 font-mono text-[10px] space-y-1.5 text-zinc-300">
-                        <div className="flex justify-between border-b border-white/10 pb-1">
-                          <span className="text-zinc-500">detectedChord:</span>
-                          <span className="text-white font-bold">{diagnosticInfo.detectedChord}</span>
-                        </div>
-                        <div className="flex justify-between border-b border-white/10 pb-1">
-                          <span className="text-zinc-500">targetSoundingChord:</span>
-                          <span className="text-[#a3ff12] font-bold">{diagnosticInfo.targetSoundingChord}</span>
-                        </div>
-                        <div className="flex justify-between border-b border-white/10 pb-1">
-                          <span className="text-zinc-500">capo:</span>
-                          <span className="text-sky-400 font-bold">{diagnosticInfo.capo}</span>
-                        </div>
-                        <div className="flex justify-between border-b border-white/10 pb-1">
-                          <span className="text-zinc-500">selectedPhysicalShape:</span>
-                          <span className="text-amber-300 font-bold">{diagnosticInfo.selectedPhysicalShape}</span>
-                        </div>
-                        <div className="flex justify-between border-b border-white/10 pb-1">
-                          <span className="text-zinc-500">fingeredPitchClasses:</span>
-                          <span className="text-zinc-200">{diagnosticInfo.fingeredPitchClasses.join(", ") || "None"}</span>
-                        </div>
-                        <div className="flex justify-between border-b border-white/10 pb-1">
-                          <span className="text-zinc-500">capoAdjustedPitchClasses:</span>
-                          <span className="text-sky-300 font-bold">{diagnosticInfo.capoAdjustedPitchClasses.join(", ") || "None"}</span>
-                        </div>
-                        <div className="flex justify-between border-b border-white/10 pb-1">
-                          <span className="text-zinc-500">requiredPitchClasses:</span>
-                          <span className="text-emerald-300">{diagnosticInfo.requiredPitchClasses.join(", ") || "None"}</span>
-                        </div>
-                        <div className="flex justify-between border-b border-white/10 pb-1">
-                          <span className="text-zinc-500">missingChordTones:</span>
-                          <span className={diagnosticInfo.missingChordTones.length > 0 ? "text-red-400 font-bold" : "text-zinc-400"}>
-                            {diagnosticInfo.missingChordTones.length > 0 ? diagnosticInfo.missingChordTones.join(", ") : "None"}
-                          </span>
-                        </div>
-                        <div className="flex justify-between border-b border-white/10 pb-1">
-                          <span className="text-zinc-500">foreignChordTones:</span>
-                          <span className={diagnosticInfo.foreignChordTones.length > 0 ? "text-red-400 font-bold" : "text-zinc-400"}>
-                            {diagnosticInfo.foreignChordTones.length > 0 ? diagnosticInfo.foreignChordTones.join(", ") : "None"}
-                          </span>
-                        </div>
-                        <div className="flex justify-between border-b border-white/10 pb-1">
-                          <span className="text-zinc-500">bassValidation:</span>
-                          <span className={diagnosticInfo.bassValidation.isValid ? "text-emerald-400 font-semibold" : "text-red-400 font-bold"}>
-                            {diagnosticInfo.bassValidation.message}
-                          </span>
-                        </div>
-                        <div className="flex justify-between border-b border-white/10 pb-1">
-                          <span className="text-zinc-500">soundingMatch:</span>
-                          <span className={diagnosticInfo.soundingMatch ? "text-emerald-400 font-bold" : "text-red-400 font-bold"}>
-                            {diagnosticInfo.soundingMatch ? "TRUE (Match)" : "FALSE (Mismatch)"}
-                          </span>
-                        </div>
-                        <div className="flex justify-between pt-0.5">
-                          <span className="text-zinc-500">final validation result:</span>
-                          <span className={diagnosticInfo.finalValidationResult === "VALID" ? "text-emerald-400 font-black" : "text-red-400 font-black"}>
-                            {diagnosticInfo.finalValidationResult}
-                          </span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
               </div>
 
-              {/* Draggable Audio Waveform Timeline Scrubber */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between text-[11px] font-mono text-zinc-400">
+              {/* Draggable Audio Waveform Timeline Scrubber & Transport Controls (Placed below chord diagram, above confidence) */}
+              <div className="space-y-2.5 bg-black/20 p-3 sm:p-4 rounded-2xl border border-white/5">
+                <div className="flex items-center justify-between text-[10px] sm:text-[11px] font-mono text-zinc-400">
                   <span className="flex items-center gap-1.5 text-zinc-300">
                     <GripVertical className="w-3.5 h-3.5 text-[#a3ff12]" />
                     <span>TIMELINE (CLICK OR DRAG TO SCRUB)</span>
@@ -1026,7 +927,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                   onPointerMove={handleTimelinePointerMove}
                   onPointerUp={handleTimelinePointerUp}
                   onPointerLeave={handleTimelinePointerLeave}
-                  className={`h-16 bg-white/5 hover:bg-white/[0.08] rounded-2xl p-2 relative flex items-center justify-between border border-white/10 select-none overflow-hidden group cursor-ew-resize transition-all ${
+                  className={`h-12 sm:h-14 bg-white/5 hover:bg-white/[0.08] rounded-xl p-1.5 relative flex items-center justify-between border border-white/10 select-none overflow-hidden group cursor-ew-resize transition-all ${
                     isDraggingTimeline ? "ring-2 ring-[#a3ff12]/50 bg-white/[0.09]" : ""
                   }`}
                   title="Click or drag to scrub to specific timestamp"
@@ -1064,7 +965,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                       return (
                         <div
                           key={seg.id || idx}
-                          className={`absolute h-full border-l flex flex-col justify-end pb-1 pl-1 text-[10px] font-mono transition-colors ${
+                          className={`absolute h-full border-l flex flex-col justify-end pb-0.5 pl-1 text-[9px] font-mono transition-colors ${
                             isCurrentSeg
                               ? "border-[#a3ff12]/60 text-[#a3ff12] font-bold"
                               : "border-white/10 text-zinc-400"
@@ -1104,8 +1005,8 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                       <div className="w-[2px] h-full bg-[#a3ff12] -translate-x-1/2 shadow-[0_0_10px_#a3ff12]" />
 
                       {/* Scrubber Thumb Grip Handle */}
-                      <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-4 h-7 bg-[#a3ff12] rounded-md border-2 border-black flex flex-col items-center justify-center shadow-[0_0_12px_rgba(163,255,18,0.9)] cursor-grab active:cursor-grabbing pointer-events-auto">
-                        <div className="w-0.5 h-3 bg-black/70 rounded-full" />
+                      <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3.5 h-6 bg-[#a3ff12] rounded-md border-2 border-black flex flex-col items-center justify-center shadow-[0_0_12px_rgba(163,255,18,0.9)] cursor-grab active:cursor-grabbing pointer-events-auto">
+                        <div className="w-0.5 h-2.5 bg-black/70 rounded-full" />
                       </div>
 
                       {/* Floating Active Drag Tooltip */}
@@ -1118,45 +1019,45 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                   )}
                 </div>
 
-                {/* Transport controls: |<<, ▶, >>| */}
-                <div className="flex items-center justify-center gap-6 pt-1">
-                  <span className="text-xs font-mono text-zinc-400 w-12 text-right">
+                {/* Transport controls: Repeat, |<<, ▶, >>| */}
+                <div className="flex items-center justify-between sm:justify-center sm:gap-6 pt-0.5">
+                  <span className="text-xs font-mono text-zinc-400 w-12 text-left sm:text-right">
                     {formatTime(currentTime)}
                   </span>
 
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2 sm:gap-3">
                     {/* Repeat Button */}
                     <button
                       onClick={() => setIsRepeating(!isRepeating)}
-                      className={`w-10 h-10 rounded-xl border flex items-center justify-center transition-all cursor-pointer ${
+                      className={`w-9 h-9 sm:w-10 sm:h-10 rounded-xl border flex items-center justify-center transition-all cursor-pointer ${
                         isRepeating
                           ? "bg-[#a3ff12]/20 border-[#a3ff12] text-[#a3ff12] shadow-[0_0_12px_rgba(163,255,18,0.2)]"
                           : "bg-white/5 border-white/5 text-zinc-400 hover:text-white hover:bg-white/10"
                       }`}
                       title="Repeat Song"
                     >
-                      <Repeat className="w-4 h-4" />
+                      <Repeat className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                     </button>
 
                     <button
                       onClick={() => {
                         seekToTime(currentTime - barSeconds);
                       }}
-                      className="w-10 h-10 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 flex items-center justify-center text-zinc-300 hover:text-white transition-colors cursor-pointer"
+                      className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 flex items-center justify-center text-zinc-300 hover:text-white transition-colors cursor-pointer"
                       title="Rewind 1 Bar"
                     >
-                      <SkipBack className="w-4 h-4" />
+                      <SkipBack className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                     </button>
 
                     <button
                       onClick={() => setIsPlaying(!isPlaying)}
-                      className="w-12 h-12 rounded-xl bg-[#a3ff12] hover:bg-[#92eb10] text-black flex items-center justify-center shadow-[0_0_20px_rgba(163,255,18,0.4)] transition-all cursor-pointer"
+                      className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-[#a3ff12] hover:bg-[#92eb10] text-black flex items-center justify-center shadow-[0_0_20px_rgba(163,255,18,0.4)] transition-all cursor-pointer"
                       title={isPlaying ? "Pause" : "Play"}
                     >
                       {isPlaying ? (
-                        <Pause className="w-5 h-5 fill-black" />
+                        <Pause className="w-4 h-4 sm:w-5 sm:h-5 fill-black" />
                       ) : (
-                        <Play className="w-5 h-5 fill-black ml-0.5" />
+                        <Play className="w-4 h-4 sm:w-5 sm:h-5 fill-black ml-0.5" />
                       )}
                     </button>
 
@@ -1164,16 +1065,28 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                       onClick={() => {
                         seekToTime(currentTime + barSeconds);
                       }}
-                      className="w-10 h-10 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 flex items-center justify-center text-zinc-300 hover:text-white transition-colors cursor-pointer"
+                      className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 flex items-center justify-center text-zinc-300 hover:text-white transition-colors cursor-pointer"
                       title="Forward 1 Bar"
                     >
-                      <SkipForward className="w-4 h-4" />
+                      <SkipForward className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                     </button>
                   </div>
 
-                  <span className="text-xs font-mono text-zinc-400 w-12">
+                  <span className="text-xs font-mono text-zinc-400 w-12 text-right sm:text-left">
                     {formatTime(duration)}
                   </span>
+                </div>
+              </div>
+
+              {/* Detection & Voicing Confidence Badges */}
+              <div className="flex items-center justify-center gap-3 text-[10px] sm:text-[11px] font-mono pt-1">
+                <div className="flex items-center gap-1.5 bg-white/5 px-2.5 py-1 rounded-xl border border-white/5">
+                  <span className="text-zinc-400">Detection Confidence:</span>
+                  <span className="text-[#a3ff12] font-bold">{activeVoicingResult.detectionConfidence}%</span>
+                </div>
+                <div className="flex items-center gap-1.5 bg-white/5 px-2.5 py-1 rounded-xl border border-white/5">
+                  <span className="text-zinc-400">Voicing Confidence:</span>
+                  <span className="text-white font-bold">{activeVoicingResult.voicingConfidence}%</span>
                 </div>
               </div>
             </>
@@ -1203,17 +1116,17 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
         {/* Right Controls & Previous Played Songs Column (4 cols) */}
         <div className="lg:col-span-4 flex flex-col space-y-4 h-full lg:max-h-[750px]">
           {/* Controls Panel */}
-          <div className="frosted-card rounded-3xl p-5 space-y-4 shrink-0">
+          <div className="frosted-card rounded-3xl p-4 sm:p-5 space-y-3.5 shrink-0">
             {/* Transpose & Capo */}
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-2.5">
               {/* Transpose */}
-              <div className="bg-white/5 p-3 rounded-xl space-y-1.5 border border-white/5">
+              <div className="bg-white/5 p-2.5 sm:p-3 rounded-xl space-y-1.5 border border-white/5">
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] font-mono text-zinc-400 uppercase font-bold">Transpose</span>
                   {transpose !== 0 && (
                     <button
                       onClick={() => setTranspose(0)}
-                      className="text-[9px] font-mono text-zinc-400 hover:text-white transition-colors underline"
+                      className="text-[9px] font-mono text-zinc-400 hover:text-white transition-colors underline cursor-pointer"
                       title="Reset Transpose to 0"
                     >
                       Reset
@@ -1223,7 +1136,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                 <div className="flex items-center justify-between">
                   <button
                     onClick={() => setTranspose((t) => Math.max(-12, t - 1))}
-                    className="w-6 h-6 rounded bg-white/10 text-zinc-300 hover:text-white flex items-center justify-center text-xs font-bold"
+                    className="w-6 h-6 rounded bg-white/10 text-zinc-300 hover:text-white flex items-center justify-center text-xs font-bold cursor-pointer"
                   >
                     -
                   </button>
@@ -1232,7 +1145,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                   </span>
                   <button
                     onClick={() => setTranspose((t) => Math.min(12, t + 1))}
-                    className="w-6 h-6 rounded bg-white/10 text-zinc-300 hover:text-white flex items-center justify-center text-xs font-bold"
+                    className="w-6 h-6 rounded bg-white/10 text-zinc-300 hover:text-white flex items-center justify-center text-xs font-bold cursor-pointer"
                   >
                     +
                   </button>
@@ -1240,13 +1153,13 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
               </div>
 
               {/* Capo */}
-              <div className="bg-white/5 p-3 rounded-xl space-y-1.5 border border-white/5">
+              <div className="bg-white/5 p-2.5 sm:p-3 rounded-xl space-y-1.5 border border-white/5">
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] font-mono text-zinc-400 uppercase font-bold">Capo</span>
                   {capo !== 0 && (
                     <button
                       onClick={() => setCapo(0)}
-                      className="text-[9px] font-mono text-sky-400 hover:text-white transition-colors underline"
+                      className="text-[9px] font-mono text-sky-400 hover:text-white transition-colors underline cursor-pointer"
                       title="Remove Capo"
                     >
                       Clear
@@ -1256,7 +1169,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                 <div className="flex items-center justify-between">
                   <button
                     onClick={() => setCapo((c) => Math.max(0, c - 1))}
-                    className="w-6 h-6 rounded bg-white/10 text-zinc-300 hover:text-white flex items-center justify-center text-xs font-bold"
+                    className="w-6 h-6 rounded bg-white/10 text-zinc-300 hover:text-white flex items-center justify-center text-xs font-bold cursor-pointer"
                   >
                     -
                   </button>
@@ -1265,7 +1178,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                   </span>
                   <button
                     onClick={() => setCapo((c) => Math.min(12, c + 1))}
-                    className="w-6 h-6 rounded bg-white/10 text-zinc-300 hover:text-white flex items-center justify-center text-xs font-bold"
+                    className="w-6 h-6 rounded bg-white/10 text-zinc-300 hover:text-white flex items-center justify-center text-xs font-bold cursor-pointer"
                   >
                     +
                   </button>
@@ -1273,68 +1186,8 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
               </div>
             </div>
 
-            {/* Toggles: Arranger, Simplify, Loop, Slow Down */}
-            <div className="space-y-2 pt-1 text-xs font-mono">
-              <label className="flex items-center justify-between p-2.5 bg-gradient-to-r from-sky-500/10 to-indigo-500/10 hover:from-sky-500/15 hover:to-indigo-500/15 rounded-xl border border-sky-500/20 cursor-pointer transition-colors">
-                <div>
-                  <div className="text-sky-300 font-bold flex items-center gap-1.5">
-                    <span>Fingerstyle Arranger</span>
-                    <span className="text-[8px] uppercase px-1 py-0.2 bg-sky-400/20 text-sky-300 rounded font-black">AI Flow</span>
-                  </div>
-                  <span className="text-[10px] text-zinc-400 block font-normal">
-                    {isArrangerActive && arrangedProgression
-                      ? `${arrangedProgression.smoothnessScore}% smooth • ${arrangedProgression.averageFretDistance}fr avg shift`
-                      : "Smooth voice-leading across song"}
-                  </span>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={isArrangerActive}
-                  onChange={(e) => setIsArrangerActive(e.target.checked)}
-                  className="w-4 h-4 rounded accent-sky-400"
-                />
-              </label>
-
-              {isArrangerActive && activeArrangedStep?.voiceLeadingDescription && (
-                <div className="px-2.5 py-1.5 rounded-lg bg-sky-500/5 border border-sky-500/15 text-[10px] font-mono text-sky-300 flex items-center justify-between">
-                  <span>Step {activeIdx + 1}/{segments.length}:</span>
-                  <span className="font-semibold">{activeArrangedStep.voiceLeadingDescription}</span>
-                </div>
-              )}
-
-              <label className="flex items-center justify-between p-2.5 bg-white/5 rounded-xl border border-white/5 cursor-pointer">
-                <span className="text-zinc-300">Simplify Chords</span>
-                <input
-                  type="checkbox"
-                  checked={simplifyChords}
-                  onChange={(e) => setSimplifyChords(e.target.checked)}
-                  className="w-4 h-4 rounded accent-[#a3ff12]"
-                />
-              </label>
-
-              <label className="flex items-center justify-between p-2.5 bg-[#a3ff12]/5 hover:bg-[#a3ff12]/10 rounded-xl border border-[#a3ff12]/20 cursor-pointer transition-colors">
-                <span className="text-white font-bold">Loop Section</span>
-                <input
-                  type="checkbox"
-                  checked={loopSection}
-                  onChange={(e) => setLoopSection(e.target.checked)}
-                  className="w-4 h-4 rounded accent-[#a3ff12]"
-                />
-              </label>
-
-              <label className="flex items-center justify-between p-2.5 bg-white/5 rounded-xl border border-white/5 cursor-pointer">
-                <span className="text-zinc-300">Slow Down (0.75x)</span>
-                <input
-                  type="checkbox"
-                  checked={slowDown}
-                  onChange={(e) => setSlowDown(e.target.checked)}
-                  className="w-4 h-4 rounded accent-[#a3ff12]"
-                />
-              </label>
-            </div>
-
             {/* Playability Mode Selector */}
-            <div className="space-y-1.5 pt-1">
+            <div className="space-y-1.5">
               <div className="flex justify-between text-[11px] font-mono text-zinc-400">
                 <span>PLAYABILITY MODE</span>
                 <span className="text-white font-bold uppercase text-[10px] bg-white/5 px-1.5 py-0.5 rounded border border-white/10">
@@ -1367,14 +1220,14 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
               </div>
             </div>
 
-            {/* Voicing Buttons */}
-            <div className="space-y-1.5 pt-1">
+            {/* Voicing Selector */}
+            <div className="space-y-1.5">
               <div className="flex justify-between text-[11px] font-mono text-zinc-400">
-                <span>VOICING</span>
+                <span>VOICING VARIATION</span>
                 <span className="text-[#a3ff12] font-bold">
                   {activeVoicingResult.voicing?.cagedShape
                     ? `${activeVoicingResult.voicing.cagedShape}-Shape (${voicingIndex}/${Math.max(1, activeVoicingResult.availableVoicingsCount || 1)})`
-                    : `Voicing ${voicingIndex} of ${Math.max(1, activeVoicingResult.availableVoicingsCount || 1)}`}
+                    : `Shape ${voicingIndex}/${Math.max(1, activeVoicingResult.availableVoicingsCount || 1)}`}
                 </span>
               </div>
               <div className="grid grid-cols-3 gap-2">
@@ -1398,6 +1251,29 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                   );
                 })}
               </div>
+            </div>
+
+            {/* Playback Toggles: Loop Section & Slow Down */}
+            <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+              <label className="flex items-center justify-between p-2 bg-[#a3ff12]/5 hover:bg-[#a3ff12]/10 rounded-xl border border-[#a3ff12]/20 cursor-pointer transition-colors">
+                <span className="text-white font-bold text-[11px]">Loop Section</span>
+                <input
+                  type="checkbox"
+                  checked={loopSection}
+                  onChange={(e) => setLoopSection(e.target.checked)}
+                  className="w-3.5 h-3.5 rounded accent-[#a3ff12]"
+                />
+              </label>
+
+              <label className="flex items-center justify-between p-2 bg-white/5 hover:bg-white/10 rounded-xl border border-white/5 cursor-pointer transition-colors">
+                <span className="text-zinc-300 text-[11px]">0.75x Speed</span>
+                <input
+                  type="checkbox"
+                  checked={slowDown}
+                  onChange={(e) => setSlowDown(e.target.checked)}
+                  className="w-3.5 h-3.5 rounded accent-[#a3ff12]"
+                />
+              </label>
             </div>
           </div>
 
