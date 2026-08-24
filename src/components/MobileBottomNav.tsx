@@ -1,21 +1,12 @@
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
-  Home,
-  Music,
-  LayoutGrid,
-  SlidersHorizontal,
-  BookOpen,
-  Grid,
-  Sliders,
-  Target,
-  Mic,
-  Layers,
   MoreHorizontal,
   X,
   Download,
 } from "lucide-react";
 import { WorkstationMode } from "../types";
+import { SIDEBAR_ITEMS } from "./SidebarNav";
 
 interface MobileBottomNavProps {
   activeMode: WorkstationMode;
@@ -24,24 +15,7 @@ interface MobileBottomNavProps {
   isInstalled?: boolean;
 }
 
-interface NavItem {
-  id: WorkstationMode;
-  label: string;
-  icon: React.ElementType;
-}
-
-export const ALL_NAV_ITEMS: NavItem[] = [
-  { id: "home", label: "Home", icon: Home },
-  { id: "tuner", label: "Tuner", icon: SlidersHorizontal },
-  { id: "chords-ai", label: "Chords", icon: LayoutGrid },
-  { id: "studio", label: "Studio", icon: Mic },
-  { id: "tone-studio", label: "Tone", icon: Sliders },
-  { id: "songs", label: "Joel's Songs", icon: Music },
-  { id: "chord-dictionary", label: "Chord Library", icon: BookOpen },
-  { id: "fretboard", label: "Scales", icon: Grid },
-  { id: "practice", label: "Practice", icon: Target },
-  { id: "presets", label: "Presets", icon: Layers },
-];
+export const ALL_NAV_ITEMS = SIDEBAR_ITEMS;
 
 export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
   activeMode,
