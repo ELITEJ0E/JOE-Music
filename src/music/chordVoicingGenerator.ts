@@ -1,4 +1,5 @@
 import { ChordDefinition, getRequiredPitchClasses, getNoteName, PitchClass } from "./chordTheory";
+export { getRequiredPitchClasses };
 import { STANDARD_TUNING, getStringPitchClass, getMidiNote } from "./fretboard";
 
 export type PlayabilityMode = "standard" | "easy" | "fingerstyle" | "barre" | "high";
@@ -87,7 +88,7 @@ const CANONICAL_SHAPES: Record<string, { key: string; bonus: number }[]> = {
   ],
 };
 
-function getAllowedPitchClasses(chord: ChordDefinition): Set<PitchClass> {
+export function getAllowedPitchClasses(chord: ChordDefinition): Set<PitchClass> {
   const pcs = new Set<PitchClass>();
   pcs.add(chord.root);
   for (const iv of chord.intervals) {
@@ -97,6 +98,63 @@ function getAllowedPitchClasses(chord: ChordDefinition): Set<PitchClass> {
     pcs.add(chord.bass % 12);
   }
   return pcs;
+}
+
+/**
+ * Mathematical verification that a candidate physical fingering + capo semitone offset
+ * accurately produces the target sounding chord.
+ * Rejects any candidate with foreign notes, missing essential tones, or incorrect slash bass.
+ */
+export function validateVoicingSounding(
+  frets: (number | "x")[],
+  capo: number,
+  soundingChord: ChordDefinition
+): { isValid: boolean; soundingPcs: PitchClass[]; lowestBassPc: PitchClass | null; error?: string } {
+  const allowedPcs = getAllowedPitchClasses(soundingChord);
+  const requiredPcs = getRequiredPitchClasses(soundingChord);
+  const soundingPcsSet = new Set<PitchClass>();
+  const soundingPcsList: PitchClass[] = [];
+  let lowestBassPc: PitchClass | null = null;
+  let playedCount = 0;
+
+  for (let s = 0; s < 6; s++) {
+    const f = frets[s];
+    if (f !== "x") {
+      playedCount++;
+      const midi = STANDARD_TUNING[s] + capo + f;
+      const pc = ((midi % 12) + 12) % 12;
+      soundingPcsSet.add(pc);
+      soundingPcsList.push(pc);
+      if (lowestBassPc === null) {
+        lowestBassPc = pc;
+      }
+    }
+  }
+
+  if (playedCount < 3) {
+    return { isValid: false, soundingPcs: soundingPcsList, lowestBassPc, error: "Too few notes" };
+  }
+
+  // Reject foreign pitch classes
+  for (const pc of soundingPcsSet) {
+    if (!allowedPcs.has(pc)) {
+      return { isValid: false, soundingPcs: soundingPcsList, lowestBassPc, error: `Foreign pitch class ${pc}` };
+    }
+  }
+
+  // Verify slash bass if explicit bass requested
+  if (soundingChord.bass !== undefined && lowestBassPc !== soundingChord.bass) {
+    return { isValid: false, soundingPcs: soundingPcsList, lowestBassPc, error: `Bass mismatch: expected ${soundingChord.bass}, got ${lowestBassPc}` };
+  }
+
+  // Check required chord tones
+  for (const req of requiredPcs) {
+    if (!soundingPcsSet.has(req)) {
+      return { isValid: false, soundingPcs: soundingPcsList, lowestBassPc, error: `Missing required pitch class ${req}` };
+    }
+  }
+
+  return { isValid: true, soundingPcs: soundingPcsList, lowestBassPc };
 }
 
 export function generateVoicings(chord: ChordDefinition, constraints: VoicingConstraints = {}): GeneratedVoicing[] {

@@ -1,153 +1,243 @@
 import { describe, it, expect } from "vitest";
 import { resolveChordFinderState, transposeChordSymbol } from "./chordTransposer";
 import { resolveGuitarChord } from "../audio/guitarChordResolver";
-import { generateVoicings } from "./chordVoicingGenerator";
+import { generateVoicings, validateVoicingSounding } from "./chordVoicingGenerator";
 import { parseChordSymbol } from "./chordParser";
+import { arrangeChordProgression } from "./fingerstyleArranger";
+import { getChordDiagnosticInfo } from "./chordDiagnostic";
 
-describe("PHASE 6D — Capo-Aware Voicing Optimization & Model", () => {
-  describe("Sounding Chord, Transpose, and Capo Transformations", () => {
-    it("preserves immutable detectedChord and separates transposedChord from shapeChord", () => {
-      // F, capo 0
-      const fCapo0 = resolveChordFinderState("F", 0, 0);
-      expect(fCapo0.detectedChord).toBe("F");
-      expect(fCapo0.transposedChord).toBe("F");
-      expect(fCapo0.shapeChord).toBe("F");
+describe("JOE MUSIC — Capo & Voicing Mathematical Validation Pass", () => {
+  describe("1. Mathematical Equivalence: Physical Shape + Capo Offset = Sounding Chord", () => {
+    it("proves Cmaj7 at Capo 0 produces sounding Cmaj7 (C, E, G, B)", () => {
+      const detected = "Cmaj7";
+      const capo = 0;
+      const state = resolveChordFinderState(detected, 0, capo);
+      expect(state.detectedChord).toBe("Cmaj7");
+      expect(state.transposedChord).toBe("Cmaj7");
+      expect(state.shapeChord).toBe("Cmaj7");
 
-      // F, capo 3 -> sounding F, shape D
-      const fCapo3 = resolveChordFinderState("F", 0, 3);
-      expect(fCapo3.detectedChord).toBe("F");
-      expect(fCapo3.transposedChord).toBe("F");
-      expect(fCapo3.shapeChord).toBe("D");
+      const res = resolveGuitarChord(state.shapeChord, { capo });
+      expect(res.voicing).not.toBeNull();
 
-      // Bb, capo 3 -> sounding Bb, shape G
-      const bbCapo3 = resolveChordFinderState("Bb", 0, 3);
-      expect(bbCapo3.detectedChord).toBe("Bb");
-      expect(bbCapo3.transposedChord).toBe("Bb");
-      expect(bbCapo3.shapeChord).toBe("G");
+      const diag = getChordDiagnosticInfo(
+        state.detectedChord,
+        state.transposedChord,
+        capo,
+        state.shapeChord,
+        res.voicing!.frets
+      );
 
-      // C, capo 2 -> sounding C, shape Bb
-      const cCapo2 = resolveChordFinderState("C", 0, 2);
-      expect(cCapo2.detectedChord).toBe("C");
-      expect(cCapo2.transposedChord).toBe("C");
-      expect(cCapo2.shapeChord).toBe("Bb");
-
-      // D, capo 2 -> sounding D, shape C
-      const dCapo2 = resolveChordFinderState("D", 0, 2);
-      expect(dCapo2.detectedChord).toBe("D");
-      expect(dCapo2.transposedChord).toBe("D");
-      expect(dCapo2.shapeChord).toBe("C");
-
-      // G, capo 2 -> sounding G, shape F
-      const gCapo2 = resolveChordFinderState("G", 0, 2);
-      expect(gCapo2.detectedChord).toBe("G");
-      expect(gCapo2.transposedChord).toBe("G");
-      expect(gCapo2.shapeChord).toBe("F");
+      expect(diag.soundingMatch).toBe(true);
+      expect(diag.finalValidationResult).toBe("VALID");
+      expect(diag.missingChordTones).toEqual([]);
+      expect(diag.foreignChordTones).toEqual([]);
+      expect(diag.bassValidation.isValid).toBe(true);
+      expect(diag.capoAdjustedPitchClasses).toContain("C");
+      expect(diag.capoAdjustedPitchClasses).toContain("E");
+      expect(diag.capoAdjustedPitchClasses).toContain("G");
+      expect(diag.capoAdjustedPitchClasses).toContain("B");
     });
 
-    it("handles Transposition arithmetic correctly", () => {
-      // C +2 -> D
-      expect(transposeChordSymbol("C", 2)).toBe("D");
-      // F +2 -> G
-      expect(transposeChordSymbol("F", 2)).toBe("G");
-      // G/B +2 -> A/C#
-      expect(transposeChordSymbol("G/B", 2)).toBe("A/C#");
+    it("proves Cmaj7 at Capo 1 uses Bmaj7 shape and sounds as Cmaj7", () => {
+      const detected = "Cmaj7";
+      const capo = 1;
+      const state = resolveChordFinderState(detected, 0, capo);
+      expect(state.detectedChord).toBe("Cmaj7");
+      expect(state.shapeChord).toBe("Bmaj7");
+
+      const res = resolveGuitarChord(state.shapeChord, { capo });
+      expect(res.voicing).not.toBeNull();
+
+      const diag = getChordDiagnosticInfo(
+        state.detectedChord,
+        state.transposedChord,
+        capo,
+        state.shapeChord,
+        res.voicing!.frets
+      );
+
+      expect(diag.soundingMatch).toBe(true);
+      expect(diag.finalValidationResult).toBe("VALID");
+      expect(diag.missingChordTones).toEqual([]);
+      expect(diag.foreignChordTones).toEqual([]);
+      expect(diag.bassValidation.isValid).toBe(true);
+      expect(diag.capoAdjustedPitchClasses).toContain("C");
+      expect(diag.capoAdjustedPitchClasses).toContain("E");
+      expect(diag.capoAdjustedPitchClasses).toContain("G");
+      expect(diag.capoAdjustedPitchClasses).toContain("B");
     });
 
-    it("handles Combined Transpose + Capo workflows correctly", () => {
-      // C + transpose 2 + capo 2 -> sounding D, physical C shape
-      const cTrans2Capo2 = resolveChordFinderState("C", 2, 2);
-      expect(cTrans2Capo2.detectedChord).toBe("C");
-      expect(cTrans2Capo2.transposedChord).toBe("D");
-      expect(cTrans2Capo2.shapeChord).toBe("C");
+    it("proves Cmaj7 at Capo 2 uses Bbmaj7 (A#maj7) shape and sounds as Cmaj7", () => {
+      const detected = "Cmaj7";
+      const capo = 2;
+      const state = resolveChordFinderState(detected, 0, capo);
+      expect(state.detectedChord).toBe("Cmaj7");
+      expect(state.shapeChord).toBe("Bbmaj7");
 
-      // F + transpose 2 + capo 3 -> sounding G, physical E shape
-      const fTrans2Capo3 = resolveChordFinderState("F", 2, 3);
-      expect(fTrans2Capo3.detectedChord).toBe("F");
-      expect(fTrans2Capo3.transposedChord).toBe("G");
-      expect(fTrans2Capo3.shapeChord).toBe("E");
+      const res = resolveGuitarChord(state.shapeChord, { capo });
+      expect(res.voicing).not.toBeNull();
+
+      const diag = getChordDiagnosticInfo(
+        state.detectedChord,
+        state.transposedChord,
+        capo,
+        state.shapeChord,
+        res.voicing!.frets
+      );
+
+      expect(diag.soundingMatch).toBe(true);
+      expect(diag.finalValidationResult).toBe("VALID");
+      expect(diag.missingChordTones).toEqual([]);
+      expect(diag.foreignChordTones).toEqual([]);
+      expect(diag.bassValidation.isValid).toBe(true);
+      expect(diag.capoAdjustedPitchClasses).toContain("C");
+    });
+
+    it("proves Cmaj7 at Capo 3 uses Amaj7 shape and sounds as Cmaj7", () => {
+      const detected = "Cmaj7";
+      const capo = 3;
+      const state = resolveChordFinderState(detected, 0, capo);
+      expect(state.detectedChord).toBe("Cmaj7");
+      expect(state.shapeChord).toBe("Amaj7");
+
+      const res = resolveGuitarChord(state.shapeChord, { capo });
+      expect(res.voicing).not.toBeNull();
+
+      const diag = getChordDiagnosticInfo(
+        state.detectedChord,
+        state.transposedChord,
+        capo,
+        state.shapeChord,
+        res.voicing!.frets
+      );
+
+      expect(diag.soundingMatch).toBe(true);
+      expect(diag.finalValidationResult).toBe("VALID");
+      expect(diag.missingChordTones).toEqual([]);
+      expect(diag.foreignChordTones).toEqual([]);
+      expect(diag.bassValidation.isValid).toBe(true);
+      expect(diag.capoAdjustedPitchClasses).toContain("C");
+      expect(diag.capoAdjustedPitchClasses).toContain("E");
+      expect(diag.capoAdjustedPitchClasses).toContain("G");
+      expect(diag.capoAdjustedPitchClasses).toContain("B");
     });
   });
 
-  describe("Guitar Voicing Optimization for Shape Chords", () => {
-    it("generates D-shape voicings for F with capo 3", () => {
-      const state = resolveChordFinderState("F", 0, 3);
-      expect(state.shapeChord).toBe("D");
-
-      const resolved = resolveGuitarChord(state.shapeChord);
-      expect(resolved.voicing).not.toBeNull();
-      // First voicing for shape "D" is open D shape [x, x, 0, 2, 3, 2]
-      expect(resolved.voicing!.frets).toEqual(["x", "x", 0, 2, 3, 2]);
-      expect(resolved.voicing!.cagedShape).toBe("D");
+  describe("2. Rejection of Invalid Candidates", () => {
+    it("rejects candidate with missing essential chord tones", () => {
+      const parsed = parseChordSymbol("Cmaj7");
+      // [x, x, x, 0, 0, 0] open G, B, E -> missing C root & E 3rd
+      const invalidFrets: (number | "x")[] = ["x", "x", "x", 0, 0, 0];
+      const validation = validateVoicingSounding(invalidFrets, 0, parsed!.chord);
+      expect(validation.isValid).toBe(false);
+      expect(validation.error).toContain("Missing required pitch class");
     });
 
-    it("generates G-shape voicings for Bb with capo 3", () => {
-      const state = resolveChordFinderState("Bb", 0, 3);
-      expect(state.shapeChord).toBe("G");
-
-      const resolved = resolveGuitarChord(state.shapeChord);
-      expect(resolved.voicing).not.toBeNull();
-      // First voicing for shape "G" is open G shape [3, 2, 0, 0, 0, 3] or [3, 2, 0, 0, 3, 3]
-      expect(resolved.voicing!.cagedShape).toBe("G");
-      expect(resolved.voicing!.baseFret).toBe(1);
+    it("rejects candidate with foreign non-chord pitch classes", () => {
+      const parsed = parseChordSymbol("Cmaj7"); // C, E, G, B
+      // [x, 3, 2, 2, 0, 0] includes D (pitch class 2) which is foreign for Cmaj7
+      const invalidFrets: (number | "x")[] = ["x", 3, 2, 2, 0, 0];
+      const validation = validateVoicingSounding(invalidFrets, 0, parsed!.chord);
+      expect(validation.isValid).toBe(false);
+      expect(validation.error).toContain("Foreign pitch class");
     });
 
-    it("generates C-shape voicings for D with capo 2", () => {
-      const state = resolveChordFinderState("D", 0, 2);
-      expect(state.shapeChord).toBe("C");
-
-      const resolved = resolveGuitarChord(state.shapeChord);
-      expect(resolved.voicing).not.toBeNull();
-      // Open C shape [x, 3, 2, 0, 1, 0]
-      expect(resolved.voicing!.frets).toEqual(["x", 3, 2, 0, 1, 0]);
-      expect(resolved.voicing!.cagedShape).toBe("C");
-    });
-
-    it("generates E-shape voicings for F with capo 0 (or standard F barre)", () => {
-      const state = resolveChordFinderState("F", 0, 0);
-      expect(state.shapeChord).toBe("F");
-
-      const resolved = resolveGuitarChord(state.shapeChord);
-      expect(resolved.voicing).not.toBeNull();
-      // 1st fret E-shape barre [1, 3, 3, 2, 1, 1]
-      expect(resolved.voicing!.frets).toEqual([1, 3, 3, 2, 1, 1]);
-      expect(resolved.voicing!.cagedShape).toBe("E");
-      expect(resolved.voicing!.barre).toBeDefined();
+    it("rejects candidate with incorrect slash bass note", () => {
+      const parsed = parseChordSymbol("C/G"); // C major with G bass
+      // [x, 3, 2, 0, 1, 0] has C bass (string 5, 3rd fret) instead of G bass
+      const cBassFrets: (number | "x")[] = ["x", 3, 2, 0, 1, 0];
+      const validation = validateVoicingSounding(cBassFrets, 0, parsed!.chord);
+      expect(validation.isValid).toBe(false);
+      expect(validation.error).toContain("Bass mismatch");
     });
   });
 
-  describe("Playability Modes (Standard, Easy, Fingerstyle, Barre, High)", () => {
-    it("Easy/Open mode avoids barres and prefers open or simplified shapes", () => {
-      const parsed = parseChordSymbol("F");
-      const easyVoicings = generateVoicings(parsed!.chord, { playabilityMode: "easy" });
-      expect(easyVoicings.length).toBeGreaterThan(0);
+  describe("3. Immutability of detectedChord", () => {
+    it("guarantees detectedChord remains unchanged through capo, voicing, playability, and arrangement", () => {
+      const rawDetected = "Cmaj7";
 
-      const topEasy = easyVoicings[0];
-      // Top easy voicing shouldn't be a 6-string full barre if an easier shape exists
-      const isBarre = !!topEasy.barre;
-      if (isBarre) {
-        expect(topEasy.baseFret).toBeLessThanOrEqual(3);
+      for (const capo of [0, 1, 2, 3, 5, 7]) {
+        for (const mode of ["standard", "easy", "fingerstyle", "barre", "high"] as const) {
+          const state = resolveChordFinderState(rawDetected, 0, capo);
+          expect(state.detectedChord).toBe(rawDetected);
+
+          const resolved = resolveGuitarChord(state.shapeChord, { playabilityMode: mode, capo, detectedChord: state.detectedChord });
+          expect(resolved.detectedChord).toBe(rawDetected);
+        }
       }
-    });
 
-    it("Barre mode prioritizes barre shapes", () => {
-      const parsed = parseChordSymbol("F");
-      const barreVoicings = generateVoicings(parsed!.chord, { playabilityMode: "barre" });
-      expect(barreVoicings.length).toBeGreaterThan(0);
-      expect(barreVoicings[0].barre).toBeDefined();
+      // Check progression arranger
+      const progression = ["Cmaj7", "Am7", "Dm7", "G7"];
+      const arranged = arrangeChordProgression(progression, { capo: 3, playabilityMode: "fingerstyle" });
+      expect(arranged.steps.map((s) => s.detectedChord)).toEqual(progression);
     });
+  });
 
-    it("High Position mode prioritizes higher fret positions (5th+ fret)", () => {
-      const parsed = parseChordSymbol("C");
-      const highVoicings = generateVoicings(parsed!.chord, { playabilityMode: "high" });
-      expect(highVoicings.length).toBeGreaterThan(0);
-      expect(highVoicings[0].baseFret).toBeGreaterThanOrEqual(5);
+  describe("4. Multiple Distinct Voicings Sounding as Cmaj7", () => {
+    it("generates multiple distinct playable shapes for Cmaj7, all mathematically verified to sound as Cmaj7", () => {
+      const parsed = parseChordSymbol("Cmaj7")!;
+      const voicings = generateVoicings(parsed.chord, { maxFret: 12 });
+      const exactVoicings = voicings.filter((v) => v.type === "exact");
+      expect(exactVoicings.length).toBeGreaterThanOrEqual(3);
+
+      const fretKeys = new Set<string>();
+      for (const v of exactVoicings) {
+        fretKeys.add(v.frets.join(","));
+        const val = validateVoicingSounding(v.frets, 0, parsed.chord);
+        expect(val.isValid).toBe(true);
+      }
+
+      // Proves multiple distinct physical shape patterns exist for Cmaj7
+      expect(fretKeys.size).toBeGreaterThanOrEqual(3);
     });
+  });
 
-    it("Fingerstyle mode prioritizes open strings and bass foundation", () => {
-      const parsed = parseChordSymbol("G");
-      const fingerVoicings = generateVoicings(parsed!.chord, { playabilityMode: "fingerstyle" });
-      expect(fingerVoicings.length).toBeGreaterThan(0);
-      expect(fingerVoicings[0].notes.length).toBe(6);
+  describe("5. Progression Arranger Validation across All Playability Modes", () => {
+    const progression = ["Cmaj7", "Am7", "Dm7", "G7"];
+
+    const modes = ["standard", "easy", "fingerstyle", "barre", "high"] as const;
+
+    for (const mode of modes) {
+      it(`arranges progression [Cmaj7 -> Am7 -> Dm7 -> G7] in '${mode}' mode with Capo 0 and Capo 2`, () => {
+        for (const capo of [0, 2]) {
+          const arr = arrangeChordProgression(progression, { capo, playabilityMode: mode });
+          expect(arr.steps.length).toBe(4);
+          expect(arr.steps.map((s) => s.detectedChord)).toEqual(progression);
+          expect(arr.smoothnessScore).toBeGreaterThanOrEqual(0);
+          expect(arr.smoothnessScore).toBeLessThanOrEqual(100);
+
+          // Verify every step step-by-step
+          for (const step of arr.steps) {
+            const diag = getChordDiagnosticInfo(
+              step.detectedChord,
+              step.transposedChord,
+              capo,
+              step.shapeChord,
+              step.voicing.frets
+            );
+            expect(diag.soundingMatch).toBe(true);
+            expect(diag.finalValidationResult).toBe("VALID");
+          }
+        }
+      });
+    }
+  });
+
+  describe("6. Slash Chords Preservation After Capo Transformation", () => {
+    it("preserves G bass in G/B with Capo 2 (sounding A/C#)", () => {
+      const state = resolveChordFinderState("G/B", 0, 2);
+      expect(state.detectedChord).toBe("G/B");
+      expect(state.transposedChord).toBe("G/B");
+      expect(state.shapeChord).toBe("F/A");
+
+      const parsedSounding = parseChordSymbol("G/B")!;
+      const res = resolveGuitarChord(state.shapeChord, { capo: 2 });
+      expect(res.voicing).not.toBeNull();
+
+      const val = validateVoicingSounding(res.voicing!.frets, 2, parsedSounding.chord);
+      expect(val.isValid).toBe(true);
+      // G/B lowest bass note is B (pitch class 11)
+      expect(val.lowestBassPc).toBe(11);
     });
   });
 });

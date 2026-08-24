@@ -22,6 +22,7 @@ export interface GuitarVoicingResult {
   selectedVoicingIndex?: number;
   playabilityMode?: PlayabilityMode;
   voicingDescription?: string;
+  capo?: number;
 }
 
 export interface ResolveOptions {
@@ -30,6 +31,8 @@ export interface ResolveOptions {
   simplifyIfUnavailable?: boolean;
   voicingIndex?: number; // 1-indexed voicing selector
   playabilityMode?: PlayabilityMode;
+  capo?: number;
+  detectedChord?: string;
 }
 
 export function resolveGuitarChord(
@@ -49,10 +52,13 @@ export function resolveGuitarChord(
     norm = normalizeChord(input as RawChordHypothesis, keyCtx);
   }
 
+  // Authoritative raw detected chord label (never overridden by shapeChord)
+  const authoritativeDetectedChord = options.detectedChord || norm.canonicalLabel;
+
   // 1. Invalid chord safety
   if (!norm.isValid || !norm.root) {
     return {
-      detectedChord: "Unknown chord",
+      detectedChord: authoritativeDetectedChord || "Unknown chord",
       displayChord: "Unknown chord",
       voicing: null,
       voicingType: "none",
@@ -73,8 +79,8 @@ export function resolveGuitarChord(
   
   if (!parsed.isValid || !parsed.chord) {
     return {
-      detectedChord: detectedLabel,
-      displayChord: detectedLabel,
+      detectedChord: authoritativeDetectedChord,
+      displayChord: authoritativeDetectedChord,
       voicing: null,
       voicingType: "none",
       detectionConfidence: detectConf,
@@ -92,8 +98,8 @@ export function resolveGuitarChord(
       const pVoicing = resolvePowerChord(parsed.chord.rootName, parsed.chord.bassName);
       if (pVoicing) {
          return {
-           detectedChord: detectedLabel,
-           displayChord: detectedLabel,
+           detectedChord: authoritativeDetectedChord,
+           displayChord: authoritativeDetectedChord,
            voicing: pVoicing,
            voicingType: "generated",
            detectionConfidence: detectConf,
@@ -112,12 +118,13 @@ export function resolveGuitarChord(
     maxFretSpan: 4,
     maxFret: 15,
     playabilityMode: options.playabilityMode,
+    capo: options.capo,
   });
   
   if (generated.length > 0) {
     const allVoicings: ChordVoicing[] = generated.map((g, idx) => ({
       id: `procedural-${detectedLabel}-${idx + 1}`,
-      name: detectedLabel,
+      name: authoritativeDetectedChord,
       root: parsed.chord.rootName,
       quality: parsed.chord.quality,
       frets: g.frets,
@@ -136,8 +143,8 @@ export function resolveGuitarChord(
     const selectedGen = generated[clampedIdx - 1];
     
     return {
-      detectedChord: detectedLabel,
-      displayChord: selectedGen.type === "simplified" ? `${parsed.chord.rootName}${parsed.chord.quality}` : detectedLabel,
+      detectedChord: authoritativeDetectedChord,
+      displayChord: selectedGen.type === "simplified" ? `${parsed.chord.rootName}${parsed.chord.quality}` : authoritativeDetectedChord,
       voicing: selectedVoicing,
       voicingType: selectedGen.type,
       detectionConfidence: detectConf,
@@ -149,13 +156,14 @@ export function resolveGuitarChord(
       allVoicings,
       selectedVoicingIndex: clampedIdx,
       playabilityMode: options.playabilityMode || "standard",
-      voicingDescription: selectedGen.description
+      voicingDescription: selectedGen.description,
+      capo: options.capo
     };
   }
   
   return {
-    detectedChord: detectedLabel,
-    displayChord: detectedLabel,
+    detectedChord: authoritativeDetectedChord,
+    displayChord: authoritativeDetectedChord,
     voicing: null,
     voicingType: "none",
     detectionConfidence: detectConf,

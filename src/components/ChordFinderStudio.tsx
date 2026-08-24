@@ -17,6 +17,7 @@ import {
   Repeat,
   GripVertical,
   Clock,
+  Bug,
 } from "lucide-react";
 import { findChordByName } from "../data/chordDatabase";
 import { resolveGuitarChord, GuitarVoicingResult } from "../audio/guitarChordResolver";
@@ -27,6 +28,8 @@ import { audioEngine } from "../audio/audioContext";
 import { SongAnalysis, SavedSong } from "../types";
 import { resolveChordFinderState, transposeChordSymbol } from "../music/chordTransposer";
 import { PlayabilityMode } from "../music/chordVoicingGenerator";
+import { arrangeChordProgression, ProgressionArrangementResult } from "../music/fingerstyleArranger";
+import { getChordDiagnosticInfo } from "../music/chordDiagnostic";
 import { ChordDiagram } from "./ChordDiagram";
 import { CustomConfirmDialog } from "./ui/CustomConfirmDialog";
 import {
@@ -103,6 +106,8 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
   const [slowDown, setSlowDown] = useState(false);
   const [voicingIndex, setVoicingIndex] = useState(1);
   const [playabilityMode, setPlayabilityMode] = useState<PlayabilityMode>("standard");
+  const [isArrangerActive, setIsArrangerActive] = useState(false);
+  const [showDevDiagnostic, setShowDevDiagnostic] = useState(false);
   const [isRepeating, setIsRepeating] = useState(false);
   const [dialog, setDialog] = useState<{
     isOpen: boolean;
@@ -544,15 +549,35 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
     setIsPlaying(false);
   };
 
-  // Resolve active guitar voicing based strictly on shapeChord
+  // Progression Arranger: optimize fingerstyle voicings across entire progression
+  const arrangedProgression: ProgressionArrangementResult | null = React.useMemo(() => {
+    if (!activeSong || segments.length === 0) return null;
+    const progressionChords = segments.map((s) => s.chord);
+    return arrangeChordProgression(progressionChords, {
+      capo,
+      transpose,
+      playabilityMode,
+      keyContext: activeSong.key,
+    });
+  }, [activeSong, segments, capo, transpose, playabilityMode]);
+
+  const activeArrangedStep = isArrangerActive && arrangedProgression && arrangedProgression.steps[activeIdx]
+    ? arrangedProgression.steps[activeIdx]
+    : null;
+
+  const effectiveVoicingIndex = activeArrangedStep ? activeArrangedStep.voicingIndex : voicingIndex;
+
+  // Resolve active guitar voicing based strictly on shapeChord and verified capo sounding
   const activeSegment = segments[activeIdx];
   const activeVoicingResult: GuitarVoicingResult = activeSong && activeChord.isValid
     ? resolveGuitarChord(activeChord.shapeChord, {
         keyContext: activeSong.key,
         detectionConfidence: activeChord.confidence,
-        voicingIndex,
+        voicingIndex: effectiveVoicingIndex,
         playabilityMode,
         simplifyIfUnavailable: simplifyChords,
+        capo,
+        detectedChord: activeChord.detectedChord,
       })
     : {
         detectedChord: "-",
@@ -566,7 +591,19 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
         allVoicings: [],
         selectedVoicingIndex: 1,
         playabilityMode: "standard",
+        capo: 0,
       };
+
+  const diagnosticInfo = React.useMemo(() => {
+    if (!activeChord.isValid || !activeVoicingResult.voicing) return null;
+    return getChordDiagnosticInfo(
+      activeChord.detectedChord,
+      activeChord.transposedChord,
+      capo,
+      activeChord.shapeChord,
+      activeVoicingResult.voicing.frets
+    );
+  }, [activeChord, activeVoicingResult, capo]);
 
   const lastPlayedId = getLastPlayedSongId();
 
@@ -887,6 +924,87 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                     <span className="text-white font-bold">{activeVoicingResult.voicingConfidence}%</span>
                   </div>
                 </div>
+
+                {/* Developer Diagnostic Toggle & Panel */}
+                {diagnosticInfo && (
+                  <div className="w-full max-w-[360px] mt-2">
+                    <button
+                      onClick={() => setShowDevDiagnostic(!showDevDiagnostic)}
+                      className="w-full flex items-center justify-between px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/15 border border-amber-500/20 text-amber-400 text-xs font-mono font-bold transition-colors"
+                    >
+                      <span className="flex items-center gap-1.5">
+                        <Bug className="w-3.5 h-3.5" />
+                        <span>Developer Diagnostic</span>
+                      </span>
+                      <span className={`px-1.5 py-0.5 rounded text-[9px] font-black ${diagnosticInfo.soundingMatch ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30" : "bg-red-500/20 text-red-400 border border-red-500/30"}`}>
+                        {diagnosticInfo.finalValidationResult}
+                      </span>
+                    </button>
+
+                    {showDevDiagnostic && (
+                      <div className="mt-2 p-3 bg-black/80 rounded-xl border border-amber-500/20 font-mono text-[10px] space-y-1.5 text-zinc-300">
+                        <div className="flex justify-between border-b border-white/10 pb-1">
+                          <span className="text-zinc-500">detectedChord:</span>
+                          <span className="text-white font-bold">{diagnosticInfo.detectedChord}</span>
+                        </div>
+                        <div className="flex justify-between border-b border-white/10 pb-1">
+                          <span className="text-zinc-500">targetSoundingChord:</span>
+                          <span className="text-[#a3ff12] font-bold">{diagnosticInfo.targetSoundingChord}</span>
+                        </div>
+                        <div className="flex justify-between border-b border-white/10 pb-1">
+                          <span className="text-zinc-500">capo:</span>
+                          <span className="text-sky-400 font-bold">{diagnosticInfo.capo}</span>
+                        </div>
+                        <div className="flex justify-between border-b border-white/10 pb-1">
+                          <span className="text-zinc-500">selectedPhysicalShape:</span>
+                          <span className="text-amber-300 font-bold">{diagnosticInfo.selectedPhysicalShape}</span>
+                        </div>
+                        <div className="flex justify-between border-b border-white/10 pb-1">
+                          <span className="text-zinc-500">fingeredPitchClasses:</span>
+                          <span className="text-zinc-200">{diagnosticInfo.fingeredPitchClasses.join(", ") || "None"}</span>
+                        </div>
+                        <div className="flex justify-between border-b border-white/10 pb-1">
+                          <span className="text-zinc-500">capoAdjustedPitchClasses:</span>
+                          <span className="text-sky-300 font-bold">{diagnosticInfo.capoAdjustedPitchClasses.join(", ") || "None"}</span>
+                        </div>
+                        <div className="flex justify-between border-b border-white/10 pb-1">
+                          <span className="text-zinc-500">requiredPitchClasses:</span>
+                          <span className="text-emerald-300">{diagnosticInfo.requiredPitchClasses.join(", ") || "None"}</span>
+                        </div>
+                        <div className="flex justify-between border-b border-white/10 pb-1">
+                          <span className="text-zinc-500">missingChordTones:</span>
+                          <span className={diagnosticInfo.missingChordTones.length > 0 ? "text-red-400 font-bold" : "text-zinc-400"}>
+                            {diagnosticInfo.missingChordTones.length > 0 ? diagnosticInfo.missingChordTones.join(", ") : "None"}
+                          </span>
+                        </div>
+                        <div className="flex justify-between border-b border-white/10 pb-1">
+                          <span className="text-zinc-500">foreignChordTones:</span>
+                          <span className={diagnosticInfo.foreignChordTones.length > 0 ? "text-red-400 font-bold" : "text-zinc-400"}>
+                            {diagnosticInfo.foreignChordTones.length > 0 ? diagnosticInfo.foreignChordTones.join(", ") : "None"}
+                          </span>
+                        </div>
+                        <div className="flex justify-between border-b border-white/10 pb-1">
+                          <span className="text-zinc-500">bassValidation:</span>
+                          <span className={diagnosticInfo.bassValidation.isValid ? "text-emerald-400 font-semibold" : "text-red-400 font-bold"}>
+                            {diagnosticInfo.bassValidation.message}
+                          </span>
+                        </div>
+                        <div className="flex justify-between border-b border-white/10 pb-1">
+                          <span className="text-zinc-500">soundingMatch:</span>
+                          <span className={diagnosticInfo.soundingMatch ? "text-emerald-400 font-bold" : "text-red-400 font-bold"}>
+                            {diagnosticInfo.soundingMatch ? "TRUE (Match)" : "FALSE (Mismatch)"}
+                          </span>
+                        </div>
+                        <div className="flex justify-between pt-0.5">
+                          <span className="text-zinc-500">final validation result:</span>
+                          <span className={diagnosticInfo.finalValidationResult === "VALID" ? "text-emerald-400 font-black" : "text-red-400 font-black"}>
+                            {diagnosticInfo.finalValidationResult}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Draggable Audio Waveform Timeline Scrubber */}
@@ -1155,8 +1273,35 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
               </div>
             </div>
 
-            {/* Toggles: Simplify, Loop, Slow Down */}
+            {/* Toggles: Arranger, Simplify, Loop, Slow Down */}
             <div className="space-y-2 pt-1 text-xs font-mono">
+              <label className="flex items-center justify-between p-2.5 bg-gradient-to-r from-sky-500/10 to-indigo-500/10 hover:from-sky-500/15 hover:to-indigo-500/15 rounded-xl border border-sky-500/20 cursor-pointer transition-colors">
+                <div>
+                  <div className="text-sky-300 font-bold flex items-center gap-1.5">
+                    <span>Fingerstyle Arranger</span>
+                    <span className="text-[8px] uppercase px-1 py-0.2 bg-sky-400/20 text-sky-300 rounded font-black">AI Flow</span>
+                  </div>
+                  <span className="text-[10px] text-zinc-400 block font-normal">
+                    {isArrangerActive && arrangedProgression
+                      ? `${arrangedProgression.smoothnessScore}% smooth • ${arrangedProgression.averageFretDistance}fr avg shift`
+                      : "Smooth voice-leading across song"}
+                  </span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={isArrangerActive}
+                  onChange={(e) => setIsArrangerActive(e.target.checked)}
+                  className="w-4 h-4 rounded accent-sky-400"
+                />
+              </label>
+
+              {isArrangerActive && activeArrangedStep?.voiceLeadingDescription && (
+                <div className="px-2.5 py-1.5 rounded-lg bg-sky-500/5 border border-sky-500/15 text-[10px] font-mono text-sky-300 flex items-center justify-between">
+                  <span>Step {activeIdx + 1}/{segments.length}:</span>
+                  <span className="font-semibold">{activeArrangedStep.voiceLeadingDescription}</span>
+                </div>
+              )}
+
               <label className="flex items-center justify-between p-2.5 bg-white/5 rounded-xl border border-white/5 cursor-pointer">
                 <span className="text-zinc-300">Simplify Chords</span>
                 <input

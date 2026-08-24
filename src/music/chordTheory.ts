@@ -126,11 +126,23 @@ export function buildChord(rootName: string, qualityAlias: string, bassName?: st
 
 export function getRequiredPitchClasses(def: ChordDefinition): Set<PitchClass> {
   const pcs = new Set<PitchClass>();
+  
+  // For 7th and extended chords without altered 5ths, perfect 5th (7 semitones) is optional on guitar
+  const isExtendedOrSeventh = def.intervals.some((iv) => iv === 10 || iv === 11 || iv === 9);
+  const hasPerfectFifth = def.intervals.includes(7);
+  const hasAlteredFifth = def.intervals.includes(6) || def.intervals.includes(8);
+
   for (const iv of def.intervals) {
+    if (isExtendedOrSeventh && hasPerfectFifth && !hasAlteredFifth && iv === 7) {
+      // Perfect 5th in 7th/extended chord is optional on guitar
+      continue;
+    }
     pcs.add((def.root + iv) % 12);
   }
+
   if (def.bass !== undefined) {
     pcs.add(def.bass % 12);
   }
+
   return pcs;
 }
