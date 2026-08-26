@@ -31,6 +31,7 @@ import { PlayabilityMode } from "../music/chordVoicingGenerator";
 import { arrangeChordProgression, ProgressionArrangementResult } from "../music/fingerstyleArranger";
 import { ChordDiagram } from "./ChordDiagram";
 import { CustomConfirmDialog } from "./ui/CustomConfirmDialog";
+import { TimelineScrubber } from "./ui/TimelineScrubber";
 import {
   saveSongToDB,
   loadSongsFromDB,
@@ -313,7 +314,9 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
     }
   };
 
-  // Draggable timeline interaction handlers with rAF throttling for 60fps performance
+  // Draggable timeline interaction handlers with zero-latency 60/120fps tracking and mobile touch-drag
+  const audioSeekThrottleRef = useRef<number>(0);
+
   const handleTimelinePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!activeSong || duration <= 0) return;
     setIsDraggingTimeline(true);
@@ -321,38 +324,47 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
       e.currentTarget.setPointerCapture(e.pointerId);
     } catch (_) {}
 
-    const rect = e.currentTarget.getBoundingClientRect();
+    const rect = timelineRef.current?.getBoundingClientRect() || e.currentTarget.getBoundingClientRect();
     const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
     const targetTime = (x / rect.width) * duration;
     dragTargetTimeRef.current = targetTime;
-    seekToTime(targetTime);
+    setCurrentTime(targetTime);
+    if (audioRef.current && audioRef.current.src && !isNaN(audioRef.current.duration)) {
+      audioRef.current.currentTime = targetTime;
+    }
   };
 
   const handleTimelinePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!activeSong || duration <= 0) return;
-    const rect = e.currentTarget.getBoundingClientRect();
+    const rect = timelineRef.current?.getBoundingClientRect() || e.currentTarget.getBoundingClientRect();
     const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
     const targetTime = (x / rect.width) * duration;
-    setHoverTimelineTime(targetTime);
 
     if (isDraggingTimeline) {
       dragTargetTimeRef.current = targetTime;
-      if (rafIdRef.current === null) {
-        rafIdRef.current = requestAnimationFrame(() => {
-          seekToTime(dragTargetTimeRef.current);
-          rafIdRef.current = null;
-        });
+      // Instant direct visual update for zero-lag mobile finger drag
+      setCurrentTime(targetTime);
+
+      // Throttle audio element seek to avoid audio decoding stall
+      const now = performance.now();
+      if (now - audioSeekThrottleRef.current > 50) {
+        audioSeekThrottleRef.current = now;
+        if (audioRef.current && audioRef.current.src && !isNaN(audioRef.current.duration)) {
+          audioRef.current.currentTime = targetTime;
+        }
       }
+    } else {
+      setHoverTimelineTime(targetTime);
     }
   };
 
   const handleTimelinePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
     if (isDraggingTimeline) {
-      if (rafIdRef.current !== null) {
-        cancelAnimationFrame(rafIdRef.current);
-        rafIdRef.current = null;
-      }
-      seekToTime(dragTargetTimeRef.current);
+      const rect = timelineRef.current?.getBoundingClientRect() || e.currentTarget.getBoundingClientRect();
+      const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+      const targetTime = (x / rect.width) * duration;
+      dragTargetTimeRef.current = targetTime;
+      seekToTime(targetTime);
       setIsDraggingTimeline(false);
       try {
         e.currentTarget.releasePointerCapture(e.pointerId);
@@ -550,15 +562,9 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
     });
   };
 
-  const loadSavedSong = async (song: SavedSong) => {
-    const updatedSong: SavedSong = {
-      ...song,
-      lastPlayedAt: Date.now(),
-    };
-    await saveSongToDB(updatedSong);
+  const loadSavedSong = (song: SavedSong) => {
     saveLastPlayedSongId(song.id);
-    setActiveSong(updatedSong);
-    loadSongsFromDB().then(setSavedSongs);
+    setActiveSong(song);
     setCurrentTime(0);
     setIsPlaying(false);
   };
@@ -969,48 +975,45 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                 <div className="flex items-center justify-between text-[10px] sm:text-[11px] font-mono text-zinc-400">
                   <span className="flex items-center gap-1.5 text-zinc-300">
                     <GripVertical className="w-3.5 h-3.5 text-[#a3ff12]" />
-                    <span>TIMELINE (CLICK OR DRAG TO SCRUB)</span>
+                    <span>TIMELINE</span>
                   </span>
                   <span className="text-[#a3ff12] font-bold">
                     {formatTime(currentTime)} / {formatTime(duration)}
                   </span>
                 </div>
 
-                {/* Interactive Waveform Track Container */}
-                <div
-                  ref={timelineRef}
-                  onPointerDown={handleTimelinePointerDown}
-                  onPointerMove={handleTimelinePointerMove}
-                  onPointerUp={handleTimelinePointerUp}
-                  onPointerLeave={handleTimelinePointerLeave}
-                  className={`h-12 sm:h-14 bg-white/5 hover:bg-white/[0.08] rounded-xl p-1.5 relative flex items-center justify-between border border-white/10 select-none overflow-hidden group cursor-ew-resize transition-all ${
-                    isDraggingTimeline ? "ring-2 ring-[#a3ff12]/50 bg-white/[0.09]" : ""
-                  }`}
-                  title="Click or drag to scrub to specific timestamp"
+                {/* High-Performance Ultra-Smooth Timeline Scrubber */}
+                <TimelineScrubber
+                  currentTime={currentTime}
+                  duration={duration}
+                  step={0.01}
+                  formatTime={formatTime}
+                  onChange={(val) => {
+                    setCurrentTime(val);
+                    if (audioRef.current && audioRef.current.src && !isNaN(audioRef.current.duration)) {
+                      audioRef.current.currentTime = val;
+                    }
+                  }}
+                  onScrubEnd={(val) => seekToTime(val)}
+                  className="h-12 sm:h-14"
                 >
-                  {/* Elapsed Gradient Fill */}
-                  <div
-                    className="absolute inset-y-0 left-0 bg-gradient-to-r from-[#a3ff12]/15 to-[#a3ff12]/25 pointer-events-none transition-all"
-                    style={{
-                      width: `${duration > 0 ? (currentTime / duration) * 100 : 0}%`,
-                    }}
-                  />
-
                   {/* Waveform vertical bars */}
-                  {Array.from({ length: 48 }).map((_, wIdx) => {
-                    const progress = duration > 0 ? currentTime / duration : 0;
-                    const isPassed = wIdx / 48 <= progress;
-                    const h = 25 + ((wIdx * 23) % 65);
-                    return (
-                      <div
-                        key={wIdx}
-                        className={`w-1 rounded-full transition-colors pointer-events-none z-0 ${
-                          isPassed ? "bg-[#a3ff12]" : "bg-zinc-700/80"
-                        }`}
-                        style={{ height: `${h}%` }}
-                      />
-                    );
-                  })}
+                  <div className="absolute inset-0 px-2 flex items-center justify-between pointer-events-none z-0">
+                    {Array.from({ length: 48 }).map((_, wIdx) => {
+                      const progress = duration > 0 ? currentTime / duration : 0;
+                      const isPassed = wIdx / 48 <= progress;
+                      const h = 25 + ((wIdx * 23) % 65);
+                      return (
+                        <div
+                          key={wIdx}
+                          className={`w-1 rounded-full transition-colors pointer-events-none ${
+                            isPassed ? "bg-[#a3ff12]" : "bg-zinc-700/80"
+                          }`}
+                          style={{ height: `${h}%` }}
+                        />
+                      );
+                    })}
+                  </div>
 
                   {/* Chord split markers and labels */}
                   <div className="absolute inset-0 flex pointer-events-none z-10">
@@ -1040,45 +1043,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                       );
                     })}
                   </div>
-
-                  {/* Hover indicator line & tooltip */}
-                  {hoverTimelineTime !== null && !isDraggingTimeline && duration > 0 && (
-                    <div
-                      className="absolute top-0 bottom-0 pointer-events-none z-20"
-                      style={{ left: `${(hoverTimelineTime / duration) * 100}%` }}
-                    >
-                      <div className="w-px h-full bg-white/50 border-l border-dashed border-white/70 -translate-x-1/2" />
-                      <div className="absolute -top-7 -translate-x-1/2 bg-zinc-900/95 border border-white/20 px-2 py-0.5 rounded text-[10px] font-mono text-zinc-100 shadow-lg whitespace-nowrap">
-                        {formatTime(hoverTimelineTime)}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Draggable Playhead Scrubber Laser & Handle */}
-                  {duration > 0 && (
-                    <div
-                      className="absolute top-0 bottom-0 pointer-events-none z-30"
-                      style={{
-                        left: `${Math.min(100, Math.max(0, (currentTime / duration) * 100))}%`,
-                      }}
-                    >
-                      {/* Vertical Playhead Needle */}
-                      <div className="w-[2px] h-full bg-[#a3ff12] -translate-x-1/2 shadow-[0_0_10px_#a3ff12]" />
-
-                      {/* Scrubber Thumb Grip Handle */}
-                      <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3.5 h-6 bg-[#a3ff12] rounded-md border-2 border-black flex flex-col items-center justify-center shadow-[0_0_12px_rgba(163,255,18,0.9)] cursor-grab active:cursor-grabbing pointer-events-auto">
-                        <div className="w-0.5 h-2.5 bg-black/70 rounded-full" />
-                      </div>
-
-                      {/* Floating Active Drag Tooltip */}
-                      {isDraggingTimeline && (
-                        <div className="absolute -top-8 -translate-x-1/2 bg-black/95 border border-[#a3ff12] px-2.5 py-1 rounded-lg text-[10px] font-mono text-[#a3ff12] font-extrabold shadow-2xl whitespace-nowrap">
-                          {formatTime(currentTime)} {activeChord.transposedChord !== "-" ? `• ${capo > 0 ? activeChord.shapeChord : activeChord.transposedChord}` : ""}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
+                </TimelineScrubber>
 
                 {/* Transport controls: Repeat, |<<, ▶, >>| */}
                 <div className="flex items-center justify-between sm:justify-center sm:gap-6 pt-0.5">

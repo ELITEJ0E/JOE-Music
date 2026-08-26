@@ -241,7 +241,7 @@ export async function loadSongsFromDB(): Promise<SavedSong[]> {
   try {
     const db = await openDB();
     if (!db) {
-      return [...memorySongs].sort((a, b) => (b.lastPlayedAt || b.savedAt || 0) - (a.lastPlayedAt || a.savedAt || 0));
+      return [...memorySongs].sort((a, b) => (b.savedAt || b.lastPlayedAt || 0) - (a.savedAt || a.lastPlayedAt || 0));
     }
     const tx = db.transaction(STORE_SONGS, "readonly");
     const store = tx.objectStore(STORE_SONGS);
@@ -249,7 +249,8 @@ export async function loadSongsFromDB(): Promise<SavedSong[]> {
       const req = store.getAll();
       req.onsuccess = () => {
         const list = (req.result as SavedSong[]) || [];
-        list.sort((a, b) => (b.lastPlayedAt || b.savedAt || 0) - (a.lastPlayedAt || a.savedAt || 0));
+        // Sort strictly by uploaded/saved timestamp: newest uploaded first to oldest
+        list.sort((a, b) => (b.savedAt || b.lastPlayedAt || 0) - (a.savedAt || a.lastPlayedAt || 0));
         resolve(list);
       };
       req.onerror = () => resolve(memorySongs);

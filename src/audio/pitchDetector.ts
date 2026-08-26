@@ -33,6 +33,19 @@ export function frequencyToNoteInfo(
   return { note, octave, cents, targetFreq };
 }
 
+// Static reusable buffers to eliminate GC allocations during real-time 60fps pitch tracking
+let cachedBufferCapacity = 0;
+let cachedD: Float32Array = new Float32Array(0);
+let cachedCmndf: Float32Array = new Float32Array(0);
+
+function ensureBuffers(capacity: number) {
+  if (capacity > cachedBufferCapacity) {
+    cachedBufferCapacity = Math.max(capacity, 4096);
+    cachedD = new Float32Array(cachedBufferCapacity);
+    cachedCmndf = new Float32Array(cachedBufferCapacity);
+  }
+}
+
 /**
  * True YIN (CMNDF) pitch detector with parabolic peak interpolation
  */
@@ -70,7 +83,10 @@ export function detectPitch(
     return null;
   }
 
-  const d = new Float32Array(maxPeriod + 1);
+  ensureBuffers(maxPeriod + 1);
+  const d = cachedD;
+  const cmndf = cachedCmndf;
+
   for (let tau = 1; tau <= maxPeriod; tau++) {
     let sum = 0;
     for (let i = 0; i < windowSize; i++) {
@@ -82,7 +98,6 @@ export function detectPitch(
 
   // 3. Compute Cumulative Mean Normalized Difference Function (CMNDF):
   // cmndf(0) = 1; cmndf(tau) = d(tau) / ((1/tau) * sum(d(1..tau)))
-  const cmndf = new Float32Array(maxPeriod + 1);
   cmndf[0] = 1;
   let runningSum = 0;
   for (let tau = 1; tau <= maxPeriod; tau++) {

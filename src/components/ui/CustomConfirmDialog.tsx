@@ -33,18 +33,26 @@ export const CustomConfirmDialog: React.FC<CustomConfirmDialogProps> = ({
 }) => {
   const [inputValue, setInputValue] = useState(inputDefaultValue);
 
-  // Synchronize state when open
+  // Synchronize state when open and listen for ESC key globally
   useEffect(() => {
     if (isOpen) {
       setInputValue(inputDefaultValue);
       document.body.style.overflow = "hidden";
+
+      const handleGlobalKeyDown = (e: KeyboardEvent) => {
+        if (e.key === "Escape") {
+          onCancel();
+        }
+      };
+      window.addEventListener("keydown", handleGlobalKeyDown);
+      return () => {
+        document.body.style.overflow = "unset";
+        window.removeEventListener("keydown", handleGlobalKeyDown);
+      };
     } else {
       document.body.style.overflow = "unset";
     }
-    return () => {
-      document.body.style.overflow = "unset";
-    };
-  }, [isOpen, inputDefaultValue]);
+  }, [isOpen, inputDefaultValue, onCancel]);
 
   const getIcon = () => {
     switch (type) {

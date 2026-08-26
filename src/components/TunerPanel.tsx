@@ -81,6 +81,9 @@ export const TunerPanel: React.FC = () => {
   const bufferRef = useRef<Float32Array | null>(null);
   const centsSmoothRef = useRef<number>(0);
   const freqSmoothRef = useRef<number>(0);
+  const currentAngleRef = useRef<number>(0);
+  const needleGroupRef = useRef<SVGGElement>(null);
+  const lastStateUpdateRef = useRef<number>(0);
 
   // Clean unmount release and force monitor gain to 0 immediately on mount
   useEffect(() => {
@@ -125,14 +128,19 @@ export const TunerPanel: React.FC = () => {
     });
   })();
 
-  // Main real-time pitch detection
+  // Main real-time pitch detection with high-performance decoupled needle animation
   useEffect(() => {
     if (!isListening) {
       if (animRef.current) cancelAnimationFrame(animRef.current);
       setTunerData(null);
       centsSmoothRef.current = 0;
+      freqSmoothRef.current = 0;
+      currentAngleRef.current = 0;
       setSmoothedCents(0);
       setSmoothedFreq(0);
+      if (needleGroupRef.current) {
+        needleGroupRef.current.style.transform = "rotate(0deg)";
+      }
       audioEngine.releaseInput("tuner");
       return;
     }
@@ -166,7 +174,8 @@ export const TunerPanel: React.FC = () => {
     const loop = (currentTime: number) => {
       if (!isMounted) return;
 
-      if (currentTime - lastDetectTime >= 30) {
+      // 1. Pitch detection calculation interval (~32ms)
+      if (currentTime - lastDetectTime >= 32) {
         lastDetectTime = currentTime;
 
         if (analyserRef.current && bufferRef.current) {
@@ -197,15 +206,32 @@ export const TunerPanel: React.FC = () => {
               ? result.frequency
               : freqSmoothRef.current * 0.75 + result.frequency * 0.25;
 
-            setSmoothedCents(centsSmoothRef.current);
-            setSmoothedFreq(freqSmoothRef.current);
-            setTunerData(result);
+            // Throttle React state updates to ~60ms to keep 60fps main UI thread free
+            if (currentTime - lastStateUpdateRef.current >= 60) {
+              lastStateUpdateRef.current = currentTime;
+              setSmoothedCents(centsSmoothRef.current);
+              setSmoothedFreq(freqSmoothRef.current);
+              setTunerData(result);
+            }
           } else {
-            // Slowly decay needle towards center when note releases
+            // Decay needle towards center when note releases
             centsSmoothRef.current *= 0.90;
-            setSmoothedCents(centsSmoothRef.current);
+            if (Math.abs(centsSmoothRef.current) < 0.2) centsSmoothRef.current = 0;
+            if (currentTime - lastStateUpdateRef.current >= 120) {
+              lastStateUpdateRef.current = currentTime;
+              setSmoothedCents(centsSmoothRef.current);
+            }
           }
         }
+      }
+
+      // 2. Direct 60fps / 120fps needle physics animation loop (zero React re-render overhead)
+      const targetCents = Math.max(-50, Math.min(50, centsSmoothRef.current));
+      const targetAngle = (targetCents / 50) * 60;
+      currentAngleRef.current += (targetAngle - currentAngleRef.current) * 0.22;
+
+      if (needleGroupRef.current) {
+        needleGroupRef.current.style.transform = `rotate(${currentAngleRef.current.toFixed(2)}deg)`;
       }
 
       animRef.current = requestAnimationFrame(loop);
@@ -360,10 +386,10 @@ export const TunerPanel: React.FC = () => {
 
               {/* Needle Indicator */}
               <g
+                ref={needleGroupRef}
                 style={{
                   transform: `rotate(${needleRotation}deg)`,
                   transformOrigin: "150px 160px",
-                  transition: "transform 0.08s linear",
                 }}
               >
                 <line
