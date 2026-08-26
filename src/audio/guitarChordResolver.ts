@@ -9,12 +9,13 @@ import { generateVoicings, PlayabilityMode } from "../music/chordVoicingGenerato
 
 export interface GuitarVoicingResult {
   detectedChord: string;        // e.g. "Cm7/Bb" or "B5"
-  displayChord: string;         // e.g. "Cm7/Bb" (exact), "B5" (generated), or "Cm7" (simplified)
+  displayChord: string;         // Canonical playable shape chord symbol (e.g. "Bm7")
+  playableShapeChord?: string;  // Canonical playable shape chord (e.g. "Bm7")
   voicing: ChordVoicing | null;  // The guitar voicing object or null if none
   voicingType: "exact" | "simplified" | "generated" | "none";
   detectionConfidence: number;  // Acoustic detection confidence (e.g. 87%)
   voicingConfidence: number;    // Playability confidence (e.g. 98% exact, 90% generated, 80% simplified, 0% none)
-  bassNote?: string;            // e.g. "Bb"
+  bassNote?: string;            // e.g. "Bb" (present ONLY if original chord contains slash bass)
   hasExactSlashVoicing: boolean;
   simplificationReason?: string;
   availableVoicingsCount?: number;
@@ -52,14 +53,18 @@ export function resolveGuitarChord(
     norm = normalizeChord(input as RawChordHypothesis, keyCtx);
   }
 
-  // Authoritative raw detected chord label (never overridden by shapeChord)
-  const authoritativeDetectedChord = options.detectedChord || norm.canonicalLabel;
+  // Canonical Play Shape Chord (the target physical chord symbol to finger on the fretboard)
+  const canonicalPlayShape = norm.canonicalLabel;
+
+  // Authoritative raw detected chord label (sounding chord from MIR, e.g. "C#m7")
+  const authoritativeDetectedChord = options.detectedChord || canonicalPlayShape;
 
   // 1. Invalid chord safety
   if (!norm.isValid || !norm.root) {
     return {
       detectedChord: authoritativeDetectedChord || "Unknown chord",
       displayChord: "Unknown chord",
+      playableShapeChord: "Unknown chord",
       voicing: null,
       voicingType: "none",
       detectionConfidence: 0,
@@ -72,7 +77,7 @@ export function resolveGuitarChord(
     };
   }
 
-  const detectedLabel = norm.canonicalLabel;
+  const detectedLabel = canonicalPlayShape;
   
   // Use procedural parser
   const parsed = parseChordSymbol(detectedLabel);
@@ -80,7 +85,8 @@ export function resolveGuitarChord(
   if (!parsed.isValid || !parsed.chord) {
     return {
       detectedChord: authoritativeDetectedChord,
-      displayChord: authoritativeDetectedChord,
+      displayChord: detectedLabel,
+      playableShapeChord: detectedLabel,
       voicing: null,
       voicingType: "none",
       detectionConfidence: detectConf,
@@ -99,7 +105,8 @@ export function resolveGuitarChord(
       if (pVoicing) {
          return {
            detectedChord: authoritativeDetectedChord,
-           displayChord: authoritativeDetectedChord,
+           displayChord: detectedLabel,
+           playableShapeChord: detectedLabel,
            voicing: pVoicing,
            voicingType: "generated",
            detectionConfidence: detectConf,
@@ -113,7 +120,7 @@ export function resolveGuitarChord(
       }
   }
 
-  // Generate procedural voicings
+  // Generate procedural voicings for canonical play shape
   const generated = generateVoicings(parsed.chord, {
     maxFretSpan: 4,
     maxFret: 15,
@@ -124,7 +131,7 @@ export function resolveGuitarChord(
   if (generated.length > 0) {
     const allVoicings: ChordVoicing[] = generated.map((g, idx) => ({
       id: `procedural-${detectedLabel}-${idx + 1}`,
-      name: authoritativeDetectedChord,
+      name: detectedLabel,
       root: parsed.chord.rootName,
       quality: parsed.chord.quality,
       frets: g.frets,
@@ -144,7 +151,8 @@ export function resolveGuitarChord(
     
     return {
       detectedChord: authoritativeDetectedChord,
-      displayChord: selectedGen.type === "simplified" ? `${parsed.chord.rootName}${parsed.chord.quality}` : authoritativeDetectedChord,
+      displayChord: detectedLabel,
+      playableShapeChord: detectedLabel,
       voicing: selectedVoicing,
       voicingType: selectedGen.type,
       detectionConfidence: detectConf,
@@ -163,7 +171,8 @@ export function resolveGuitarChord(
   
   return {
     detectedChord: authoritativeDetectedChord,
-    displayChord: authoritativeDetectedChord,
+    displayChord: detectedLabel,
+    playableShapeChord: detectedLabel,
     voicing: null,
     voicingType: "none",
     detectionConfidence: detectConf,

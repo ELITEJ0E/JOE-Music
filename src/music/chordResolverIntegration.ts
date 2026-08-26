@@ -89,7 +89,8 @@ export function resolveGuitarChordProcedural(
     
     return {
       detectedChord: detectedLabel,
-      displayChord: best.type === "simplified" ? `${parsed.chord.rootName} ${parsed.chord.quality}` : detectedLabel,
+      displayChord: detectedLabel,
+      playableShapeChord: detectedLabel,
       voicing,
       voicingType: best.type,
       detectionConfidence: detectConf,

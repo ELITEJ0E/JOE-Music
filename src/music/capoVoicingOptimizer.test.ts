@@ -521,6 +521,83 @@ describe("JOE MUSIC — Capo & Voicing Mathematical Validation Pass", () => {
       }
     });
 
+    it("regression test: Strict Canonical Play-Shape Mapping (E->D, B->A, C#m7->Bm7, A->G, F#m7->Em7, Bsus4->Asus4 at Capo 2)", () => {
+      const mappings: { sounding: string; expectedPlayShape: string; quality: string }[] = [
+        { sounding: "E", expectedPlayShape: "D", quality: "maj" },
+        { sounding: "B", expectedPlayShape: "A", quality: "maj" },
+        { sounding: "C#m7", expectedPlayShape: "Bm7", quality: "m7" },
+        { sounding: "A", expectedPlayShape: "G", quality: "maj" },
+        { sounding: "F#m7", expectedPlayShape: "Em7", quality: "m7" },
+        { sounding: "Bsus4", expectedPlayShape: "Asus4", quality: "sus4" },
+        { sounding: "Cmaj7", expectedPlayShape: "Bbmaj7", quality: "maj7" },
+      ];
+
+      for (const { sounding, expectedPlayShape } of mappings) {
+        // 1. Resolve Chord Finder State
+        const state = resolveChordFinderState(sounding, 0, 2);
+        expect(state.detectedChord).toBe(sounding);
+        expect(state.transposedChord).toBe(sounding);
+        expect(state.shapeChord).toBe(expectedPlayShape);
+
+        // 2. Resolve Guitar Chord for Play Shape
+        const res = resolveGuitarChord(state.shapeChord, { capo: 2, detectedChord: state.detectedChord });
+        
+        // Canonical shape identity rules:
+        expect(res.detectedChord).toBe(sounding);
+        expect(res.displayChord).toBe(expectedPlayShape);
+        expect(res.playableShapeChord).toBe(expectedPlayShape);
+        expect(res.voicing).not.toBeNull();
+        expect(res.voicing!.name).toBe(expectedPlayShape);
+
+        // Voicings must never mutate to malformed slash chords like D/A, D/B, Gsus2/E, etc.
+        expect(res.displayChord).not.toContain("/");
+        expect(res.voicing!.name).not.toContain("/");
+        expect(res.hasExactSlashVoicing).toBe(false);
+
+        // Fretboard diagram verification
+        const diag = getChordDiagnosticInfo(
+          state.detectedChord,
+          state.transposedChord,
+          2,
+          state.shapeChord,
+          res.voicing!.frets
+        );
+        expect(diag.soundingMatch).toBe(true);
+        expect(diag.finalValidationResult).toBe("VALID");
+      }
+    });
+
+    it("verifies that generated voicings and multiple voicing options cannot mutate the canonical play-shape name", () => {
+      const sounding = "C#m7";
+      const capo = 2;
+      const state = resolveChordFinderState(sounding, 0, capo);
+      expect(state.shapeChord).toBe("Bm7");
+
+      // Test across all available voicing indices (e.g. index 1, 2, 3, etc.)
+      for (let vIdx = 1; vIdx <= 5; vIdx++) {
+        const res = resolveGuitarChord(state.shapeChord, {
+          capo,
+          voicingIndex: vIdx,
+          detectedChord: state.detectedChord,
+        });
+
+        if (res.voicing) {
+          // Play shape name MUST remain canonical Bm7
+          expect(res.displayChord).toBe("Bm7");
+          expect(res.playableShapeChord).toBe("Bm7");
+          expect(res.voicing.name).toBe("Bm7");
+          expect(res.detectedChord).toBe("C#m7");
+
+          // Must not produce fake slash names like D/B, A/C#, etc.
+          expect(res.displayChord).not.toBe("A/C#");
+          expect(res.displayChord).not.toBe("D/B");
+          expect(res.displayChord).not.toBe("D/A");
+          expect(res.voicing.name).not.toBe("A/C#");
+          expect(res.voicing.name).not.toBe("D/B");
+        }
+      }
+    });
+
     it("proves changing voicing modes (Best, Easy, Open, Barre, Finger) preserves sounding chord and detectedChord", () => {
       const sounding = "C#m7";
       const capo = 2; // shape Bm7
