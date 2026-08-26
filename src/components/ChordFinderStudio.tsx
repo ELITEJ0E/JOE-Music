@@ -531,35 +531,21 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
 
   const handleDeleteSong = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    const songToDelete = savedSongs.find((s) => s.id === id);
-    const songTitle = songToDelete ? `"${songToDelete.title}"` : "this song";
+    await deleteSongFromDB(id);
+    const updatedSongs = await loadSongsFromDB();
+    setSavedSongs(updatedSongs);
 
-    setDialog({
-      isOpen: true,
-      title: "Delete Saved Song",
-      message: `Are you sure you want to delete ${songTitle} and its chord sheet from your library?`,
-      confirmText: "Delete",
-      cancelText: "Cancel",
-      type: "confirm",
-      onConfirm: async () => {
-        await deleteSongFromDB(id);
-        const updatedSongs = await loadSongsFromDB();
-        setSavedSongs(updatedSongs);
-
-        if (activeSong?.id === id) {
-          if (updatedSongs.length > 0) {
-            setActiveSong(updatedSongs[0]);
-            saveLastPlayedSongId(updatedSongs[0].id);
-          } else {
-            setActiveSong(null);
-            saveLastPlayedSongId("");
-          }
-          setCurrentTime(0);
-          setIsPlaying(false);
-        }
-        setDialog((prev) => ({ ...prev, isOpen: false }));
-      },
-    });
+    if (activeSong?.id === id) {
+      if (updatedSongs.length > 0) {
+        setActiveSong(updatedSongs[0]);
+        saveLastPlayedSongId(updatedSongs[0].id);
+      } else {
+        setActiveSong(null);
+        saveLastPlayedSongId("");
+      }
+      setCurrentTime(0);
+      setIsPlaying(false);
+    }
   };
 
   const loadSavedSong = (song: SavedSong) => {
@@ -568,6 +554,48 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
     setCurrentTime(0);
     setIsPlaying(false);
   };
+
+  const handleRewindInChordFinder = () => {
+    const rewindAmount = barSeconds > 0 ? barSeconds : 5;
+    seekToTime(Math.max(0, currentTime - rewindAmount));
+  };
+
+  const handleFastForwardInChordFinder = () => {
+    const ffAmount = barSeconds > 0 ? barSeconds : 5;
+    seekToTime(Math.min(duration, currentTime + ffAmount));
+  };
+
+  // Keyboard shortcut listener for Space / F8 (Play/Pause), F7 (Rewind), F9 (Fast-Forward)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+
+      if (e.code === "Space" || e.key === " " || e.key === "F8") {
+        e.preventDefault();
+        setIsPlaying((prev) => !prev);
+      } else if (e.key === "F7") {
+        e.preventDefault();
+        handleRewindInChordFinder();
+      } else if (e.key === "F9") {
+        e.preventDefault();
+        handleFastForwardInChordFinder();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [currentTime, duration, barSeconds]);
 
   // Progression Arranger: optimize fingerstyle voicings across entire progression
   const arrangedProgression: ProgressionArrangementResult | null = React.useMemo(() => {
@@ -1066,11 +1094,9 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                     </button>
 
                     <button
-                      onClick={() => {
-                        seekToTime(currentTime - barSeconds);
-                      }}
+                      onClick={handleRewindInChordFinder}
                       className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 flex items-center justify-center text-zinc-300 hover:text-white transition-colors cursor-pointer"
-                      title="Rewind 1 Bar"
+                      title="Rewind (F7)"
                     >
                       <SkipBack className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                     </button>
@@ -1078,7 +1104,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                     <button
                       onClick={() => setIsPlaying(!isPlaying)}
                       className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-[#a3ff12] hover:bg-[#92eb10] text-black flex items-center justify-center shadow-[0_0_20px_rgba(163,255,18,0.4)] transition-all cursor-pointer"
-                      title={isPlaying ? "Pause" : "Play"}
+                      title={isPlaying ? "Pause (Space / F8)" : "Play (Space / F8)"}
                     >
                       {isPlaying ? (
                         <Pause className="w-4 h-4 sm:w-5 sm:h-5 fill-black" />
@@ -1088,11 +1114,9 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                     </button>
 
                     <button
-                      onClick={() => {
-                        seekToTime(currentTime + barSeconds);
-                      }}
+                      onClick={handleFastForwardInChordFinder}
                       className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 flex items-center justify-center text-zinc-300 hover:text-white transition-colors cursor-pointer"
-                      title="Forward 1 Bar"
+                      title="Fast-Forward (F9)"
                     >
                       <SkipForward className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                     </button>

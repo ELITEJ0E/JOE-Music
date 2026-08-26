@@ -195,6 +195,48 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
     playTrackInQueue(activeQueue[prevIndex], activeQueue);
   };
 
+  // Keyboard shortcut listener for Space / F8 (Play/Pause), F7 (Prev), F9 (Next)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+
+      if (e.code === "Space" || e.key === " " || e.key === "F8") {
+        e.preventDefault();
+        const audio = audioRef.current;
+        if (currentTrack) {
+          if (isPlaying) {
+            audio?.pause();
+            setIsPlaying(false);
+          } else {
+            audio?.play().then(() => setIsPlaying(true)).catch((err) => console.warn(err));
+          }
+        } else if (tracks && tracks.length > 0) {
+          playTrackInQueue(tracks[0]);
+        }
+      } else if (e.key === "F7") {
+        e.preventDefault();
+        handlePrevTrack();
+      } else if (e.key === "F9") {
+        e.preventDefault();
+        handleNextTrack();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [currentTrack, isPlaying, tracks, queue, currentTrackIndex, isShuffling]);
+
   const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newTime = parseFloat(e.target.value);
     if (audioRef.current) {

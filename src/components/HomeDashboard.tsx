@@ -161,6 +161,52 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
     }
   };
 
+  const handleNextSongInHome = () => {
+    if (!recentSongs || recentSongs.length === 0) return;
+    const currIdx = recentSongs.findIndex((s) => s.id === activeSong?.id);
+    const nextIdx = currIdx >= 0 && currIdx < recentSongs.length - 1 ? currIdx + 1 : 0;
+    handleTogglePlay(recentSongs[nextIdx]);
+  };
+
+  const handlePrevSongInHome = () => {
+    if (!recentSongs || recentSongs.length === 0) return;
+    const currIdx = recentSongs.findIndex((s) => s.id === activeSong?.id);
+    const prevIdx = currIdx > 0 ? currIdx - 1 : recentSongs.length - 1;
+    handleTogglePlay(recentSongs[prevIdx]);
+  };
+
+  // Keyboard shortcut listener for Space / F8 (Play/Pause), F7 (Prev), F9 (Next)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+
+      if (e.code === "Space" || e.key === " " || e.key === "F8") {
+        e.preventDefault();
+        handleTogglePlay();
+      } else if (e.key === "F7") {
+        e.preventDefault();
+        handlePrevSongInHome();
+      } else if (e.key === "F9") {
+        e.preventDefault();
+        handleNextSongInHome();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [recentSongs, activeSong, isPlaying]);
+
   const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newTime = parseFloat(e.target.value);
     setCurrentTime(newTime);
