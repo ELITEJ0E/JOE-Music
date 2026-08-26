@@ -2,7 +2,7 @@ import { ChordDefinition, getRequiredPitchClasses, getNoteName, PitchClass } fro
 export { getRequiredPitchClasses };
 import { STANDARD_TUNING, getStringPitchClass, getMidiNote } from "./fretboard";
 
-export type PlayabilityMode = "standard" | "easy" | "fingerstyle" | "barre" | "high";
+export type PlayabilityMode = "standard" | "easy" | "open" | "barre" | "fingerstyle" | "high";
 
 export interface GeneratedVoicing {
   frets: (number | "x")[]; // 6 strings
@@ -351,11 +351,17 @@ function evaluateCombination(
 
   // --- Playability Mode Adjustments ---
   switch (mode) {
-    case "easy": // Easy / Open: heavily penalize barres and high frets, reward open strings and low finger count
+    case "easy": // Easy: heavily penalize barres and high frets, reward low finger count
       if (barre) score += 3000;
       if (minFret > 2 || baseFret > 3) score += 3000;
-      score -= openStrings * 250;
-      score -= (4 - fingerCount) * 150;
+      score -= openStrings * 200;
+      score -= (4 - fingerCount) * 200;
+      break;
+
+    case "open": // Open: strongly prioritize ringing open strings and nut position
+      score -= openStrings * 450;
+      if (openStrings === 0) score += 2500;
+      if (minFret > 1 || baseFret > 3) score += 2000;
       break;
 
     case "fingerstyle": // Fingerstyle: prefer open strings, full harmonic coverage, bass on string 0/1, treble active

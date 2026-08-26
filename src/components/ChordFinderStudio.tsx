@@ -1186,21 +1186,21 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
               </div>
             </div>
 
-            {/* Playability Mode Selector */}
+            {/* Consolidated Voicing Selector */}
             <div className="space-y-1.5">
               <div className="flex justify-between text-[11px] font-mono text-zinc-400">
-                <span>PLAYABILITY MODE</span>
-                <span className="text-white font-bold uppercase text-[10px] bg-white/5 px-1.5 py-0.5 rounded border border-white/10">
+                <span>VOICING TYPE</span>
+                <span className="text-[#a3ff12] font-bold uppercase text-[10px] bg-[#a3ff12]/10 px-2 py-0.5 rounded border border-[#a3ff12]/20">
                   {playabilityMode}
                 </span>
               </div>
-              <div className="grid grid-cols-2 gap-1.5 text-[10px] font-mono font-bold">
+              <div className="grid grid-cols-5 gap-1 text-[10px] font-mono font-bold">
                 {[
-                  { id: "standard", label: "Standard" },
-                  { id: "easy", label: "Easy / Open" },
-                  { id: "fingerstyle", label: "Fingerstyle" },
+                  { id: "standard", label: "Best" },
+                  { id: "easy", label: "Easy" },
+                  { id: "open", label: "Open" },
                   { id: "barre", label: "Barre" },
-                  { id: "high", label: "High Pos" },
+                  { id: "fingerstyle", label: "Finger" },
                 ].map((m) => (
                   <button
                     key={m.id}
@@ -1208,9 +1208,9 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                       setPlayabilityMode(m.id as PlayabilityMode);
                       setVoicingIndex(1);
                     }}
-                    className={`py-1.5 px-2 rounded-lg transition-all cursor-pointer truncate text-left ${
+                    className={`py-1.5 rounded-lg transition-all cursor-pointer text-center font-mono ${
                       playabilityMode === m.id
-                        ? "bg-[#a3ff12] text-black shadow-md"
+                        ? "bg-[#a3ff12] text-black shadow-md font-extrabold"
                         : "bg-white/5 text-zinc-400 hover:text-white hover:bg-white/10 border border-white/5"
                     }`}
                   >
@@ -1220,14 +1220,14 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
               </div>
             </div>
 
-            {/* Voicing Selector */}
+            {/* Voicings Selector */}
             <div className="space-y-1.5">
               <div className="flex justify-between text-[11px] font-mono text-zinc-400">
-                <span>VOICING VARIATION</span>
+                <span>VOICINGS</span>
                 <span className="text-[#a3ff12] font-bold">
                   {activeVoicingResult.voicing?.cagedShape
                     ? `${activeVoicingResult.voicing.cagedShape}-Shape (${voicingIndex}/${Math.max(1, activeVoicingResult.availableVoicingsCount || 1)})`
-                    : `Shape ${voicingIndex}/${Math.max(1, activeVoicingResult.availableVoicingsCount || 1)}`}
+                    : `${voicingIndex}/${Math.max(1, activeVoicingResult.availableVoicingsCount || 1)}`}
                 </span>
               </div>
               <div className="grid grid-cols-3 gap-2">
@@ -1242,8 +1242,8 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                         voicingIndex === v
                           ? "bg-[#a3ff12] text-black shadow-md"
                           : isAvailable
-                          ? "bg-white/5 text-zinc-400 hover:text-white hover:bg-white/10"
-                          : "bg-white/[0.02] text-zinc-600 cursor-not-allowed opacity-40"
+                          ? "bg-white/5 text-zinc-400 hover:text-white hover:bg-white/10 border border-white/5"
+                          : "bg-white/[0.02] text-zinc-600 cursor-not-allowed opacity-30 border border-transparent"
                       }`}
                     >
                       {v}
@@ -1359,205 +1359,6 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
           </div>
         </div>
       </div>
-
-      {/* Analysis Diagnostics Developer Panel */}
-      {activeSong?.diagnostics && (
-        <div id="diagnostics-panel" className="frosted-card rounded-3xl p-6 border border-white/10 space-y-4">
-          <div className="flex items-center justify-between border-b border-white/5 pb-3">
-            <div className="flex items-center space-x-2">
-              <Sparkles className="w-5 h-5 text-[#a3ff12]" />
-              <h3 className="text-sm font-extrabold font-mono text-white uppercase tracking-wider">
-                Analysis Diagnostics
-              </h3>
-            </div>
-            <span className="px-2 py-0.5 bg-[#a3ff12]/10 border border-[#a3ff12]/20 text-[#a3ff12] rounded-md text-[10px] font-mono font-bold">
-              PIPELINE SUCCESSFUL
-            </span>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-xs font-mono">
-            <div className="bg-white/5 p-3 rounded-xl border border-white/5 space-y-1">
-              <span className="text-zinc-400 block text-[10px] uppercase font-bold">File Information</span>
-              <div className="text-white flex justify-between">
-                <span>Size:</span>{" "}
-                <span>{(activeSong.diagnostics.fileSize / 1024 / 1024).toFixed(2)} MB</span>
-              </div>
-              <div className="text-white flex justify-between">
-                <span>Type:</span>{" "}
-                <span className="truncate max-w-[120px]">{activeSong.diagnostics.mimeType}</span>
-              </div>
-            </div>
-
-            <div className="bg-white/5 p-3 rounded-xl border border-white/5 space-y-1">
-              <span className="text-zinc-400 block text-[10px] uppercase font-bold">Decoded Audio</span>
-              <div className="text-white flex justify-between">
-                <span>Duration:</span>{" "}
-                <span>{activeSong.diagnostics.decodedDuration.toFixed(2)}s</span>
-              </div>
-              <div className="text-white flex justify-between">
-                <span>Sample Rate:</span>{" "}
-                <span>{activeSong.diagnostics.sampleRate} Hz</span>
-              </div>
-              <div className="text-white flex justify-between">
-                <span>Channels:</span> <span>{activeSong.diagnostics.numChannels}</span>
-              </div>
-              <div className="text-white flex justify-between">
-                <span>Samples:</span> <span>{activeSong.diagnostics.numSamples}</span>
-              </div>
-            </div>
-
-            <div className="bg-white/5 p-3 rounded-xl border border-white/5 space-y-1">
-              <span className="text-zinc-400 block text-[10px] uppercase font-bold">Worker Pipeline</span>
-              <div className="text-white flex justify-between">
-                <span>Started:</span> <span className="text-green-400 font-bold">Yes</span>
-              </div>
-              <div className="text-white flex justify-between">
-                <span>Rx Samples:</span> <span className="text-green-400 font-bold">Yes</span>
-              </div>
-              <div className="text-white flex justify-between">
-                <span>Rx Samples Count:</span>{" "}
-                <span>{activeSong.diagnostics.workerSampleCount}</span>
-              </div>
-              <div className="text-white flex justify-between">
-                <span>Features:</span>{" "}
-                <span>{activeSong.diagnostics.featureFrameCount} frames</span>
-              </div>
-            </div>
-
-            <div className="bg-white/5 p-3 rounded-xl border border-white/5 space-y-1">
-              <span className="text-zinc-400 block text-[10px] uppercase font-bold">MIR Engine Results</span>
-              <div className="text-white flex justify-between">
-                <span>Chroma / Bass:</span>{" "}
-                <span>
-                  {activeSong.diagnostics.chromaFrameCount} / {activeSong.diagnostics.bassFrameCount}
-                </span>
-              </div>
-              <div className="text-white flex justify-between">
-                <span>Key Result:</span>{" "}
-                <span className="text-[#a3ff12] font-bold">{activeSong.diagnostics.keyResult}</span>
-              </div>
-              <div className="text-white flex justify-between">
-                <span>NaN/Inf Exists:</span>{" "}
-                <span
-                  className={
-                    activeSong.diagnostics.hasNaNOrInf
-                      ? "text-red-400 font-bold"
-                      : "text-green-400 font-bold"
-                  }
-                >
-                  {activeSong.diagnostics.hasNaNOrInf ? "Yes" : "No"}
-                </span>
-              </div>
-              <div className="text-white flex justify-between">
-                <span>Chord States:</span> <span>{activeSong.diagnostics.numChordStates}</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs font-mono pt-2">
-            <div className="bg-white/5 p-4 rounded-xl border border-white/5 space-y-2">
-              <span className="text-zinc-400 block text-[10px] uppercase font-bold">
-                Viterbi & Beat Alignment
-              </span>
-              <div className="space-y-1 text-[11px]">
-                <div className="flex justify-between">
-                  <span>Frame Hop:</span> <span className="text-white font-bold">2048 (~21.5 fps)</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Obs Dims:</span>{" "}
-                  <span className="text-white">{activeSong.diagnostics.observationMatrixDims}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Raw Segments:</span>{" "}
-                  <span className="text-white">{activeSong.diagnostics.rawChordSegmentCount}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Transitions Near Beats:</span>{" "}
-                  <span className="text-[#a3ff12] font-bold">
-                    {activeSong.diagnostics.transitionsNearBeats ?? 0}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Transitions Off Beat:</span>{" "}
-                  <span className="text-zinc-400">
-                    {activeSong.diagnostics.transitionsAwayFromBeats ?? 0}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white/5 p-4 rounded-xl border border-white/5 space-y-2">
-              <span className="text-zinc-400 block text-[10px] uppercase font-bold">
-                Segment Durations & Pace
-              </span>
-              <div className="space-y-1 text-[11px]">
-                <div className="flex justify-between">
-                  <span>Avg Duration:</span>{" "}
-                  <span className="text-white font-bold">
-                    {activeSong.diagnostics.avgSegmentDuration ?? 0}s
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Median Duration:</span>{" "}
-                  <span className="text-white font-bold">
-                    {activeSong.diagnostics.medianSegmentDuration ?? 0}s
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Min / Max Dur:</span>{" "}
-                  <span className="text-white">
-                    {activeSong.diagnostics.minSegmentDuration ?? 0}s /{" "}
-                    {activeSong.diagnostics.maxSegmentDuration ?? 0}s
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Chord Changes:</span>{" "}
-                  <span className="text-[#a3ff12] font-bold">
-                    {activeSong.diagnostics.numChordChanges ?? 0}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Changes / Min:</span>{" "}
-                  <span className="text-[#a3ff12] font-bold">
-                    {activeSong.diagnostics.changesPerMinute ?? 0}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white/5 p-4 rounded-xl border border-white/5 flex flex-col justify-between">
-              <div>
-                <span className="text-zinc-400 block text-[10px] uppercase font-bold">
-                  Timeline & Confidence
-                </span>
-                <div className="space-y-1 text-[11px] mt-2">
-                  <div className="flex justify-between">
-                    <span>Final Segments:</span>
-                    <span className="text-white font-bold text-[#a3ff12]">
-                      {activeSong.diagnostics.finalChordSegmentCount}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Avg Chord Confidence:</span>
-                    <span className="text-white font-bold">
-                      {activeSong.diagnostics.averageChordConfidence ?? 0}%
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Transition Stability:</span>
-                    <span className="text-white font-bold">
-                      {activeSong.diagnostics.averageTransitionConfidence ?? 0}%
-                    </span>
-                  </div>
-                </div>
-              </div>
-              <p className="text-[10px] text-zinc-500 mt-2">
-                Guitariz Engine: Beat-Aware Adaptive HMM active. High-resolution temporal tracking online.
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
 
       <CustomConfirmDialog
         isOpen={dialog.isOpen}

@@ -18,6 +18,7 @@ import {
   Sliders,
   HelpCircle,
   Activity,
+  Speaker,
 } from "lucide-react";
 import { pedalboardDsp } from "../audio/pedalboardDsp";
 import { audioEngine } from "../audio/audioContext";
@@ -455,16 +456,60 @@ export const ToneStudio: React.FC = () => {
 
       {/* Reorderable Signal Chain Rack */}
       <div className="space-y-3">
-        <div className="flex items-center justify-between text-xs font-mono text-zinc-400 px-1">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between text-xs font-mono text-zinc-400 px-1 gap-2">
           <div className="flex items-center space-x-2">
-            <span className="w-2 h-2 rounded-full bg-[#a3ff12]" />
-            <span className="text-white font-bold">SIGNAL CHAIN</span>
-            <span className="text-zinc-500">• Reorderable serial processing rack</span>
+            <span className="w-2 h-2 rounded-full bg-[#a3ff12] animate-pulse" />
+            <span className="text-white font-bold tracking-wider">DSP SIGNAL FLOW</span>
+            <span className="text-zinc-500 hidden sm:inline">• 64-bit serial audio graph</span>
           </div>
           <div className="flex items-center space-x-2 text-[11px] text-zinc-500">
-            <span>IN: High-Z / Mic</span>
-            <ArrowRight className="w-3.5 h-3.5 text-zinc-600" />
-            <span>OUT: 24-bit Stereo Master</span>
+            <span className="text-[#a3ff12] font-semibold">GUITAR IN</span>
+            <ArrowRight className="w-3.5 h-3.5 text-[#a3ff12]" />
+            <span>EFFECTS CHAIN</span>
+            <ArrowRight className="w-3.5 h-3.5 text-[#a3ff12]" />
+            <span className="text-[#a3ff12] font-semibold">MASTER OUT</span>
+          </div>
+        </div>
+
+        {/* Interactive Signal Flow Route Breadcrumb */}
+        <div className="frosted-card rounded-2xl p-2.5 overflow-x-auto no-scrollbar flex items-center gap-2 text-[11px] font-mono border border-white/10 bg-black/40">
+          <div className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white/5 border border-white/10 text-zinc-300 font-bold shrink-0">
+            <Radio className="w-3 h-3 text-[#a3ff12]" />
+            <span>IN</span>
+          </div>
+
+          <ArrowRight className="w-3 h-3 text-zinc-600 shrink-0" />
+
+          {pedals.map((p, pIdx) => {
+            const isSelected = activePedalId === p.id;
+            return (
+              <React.Fragment key={`breadcrumb-${p.id}`}>
+                <button
+                  onClick={() => setActivePedalId(p.id)}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer shrink-0 border ${
+                    isSelected
+                      ? "bg-[#a3ff12] text-black border-[#a3ff12] shadow-[0_0_10px_rgba(163,255,18,0.4)]"
+                      : p.enabled
+                      ? "bg-white/5 hover:bg-white/10 text-zinc-200 border-white/10"
+                      : "bg-white/[0.02] text-zinc-600 border-transparent"
+                  }`}
+                  title={`${p.name} (${p.enabled ? "Active" : "Bypassed"})`}
+                >
+                  <span className={`w-1.5 h-1.5 rounded-full ${isSelected ? "bg-black" : p.enabled ? "bg-[#a3ff12]" : "bg-zinc-700"}`} />
+                  <span>{p.name}</span>
+                </button>
+                {pIdx < pedals.length - 1 && (
+                  <ArrowRight className="w-3 h-3 text-zinc-700 shrink-0" />
+                )}
+              </React.Fragment>
+            );
+          })}
+
+          <ArrowRight className="w-3 h-3 text-zinc-600 shrink-0" />
+
+          <div className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#a3ff12]/10 border border-[#a3ff12]/20 text-[#a3ff12] font-bold shrink-0">
+            <Speaker className="w-3 h-3" />
+            <span>OUT</span>
           </div>
         </div>
 

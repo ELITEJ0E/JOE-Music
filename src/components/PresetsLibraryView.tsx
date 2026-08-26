@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Search,
   Plus,
@@ -13,6 +13,7 @@ import {
 import { TonePreset } from "../types";
 import { DEFAULT_TONE_PRESETS } from "../data/presetsDatabase";
 import { pedalboardDsp } from "../audio/pedalboardDsp";
+import { loadPresetsFromDB } from "../utils/storage";
 import {
   Select,
   SelectContent,
@@ -35,75 +36,39 @@ export const PresetsLibraryView: React.FC<PresetsLibraryViewProps> = ({
   const [selectedGenre, setSelectedGenre] = useState<string>("All Genres");
   const [loadedPresetId, setLoadedPresetId] = useState<string>("ethereal-echoes");
   const [favorites, setFavorites] = useState<string[]>(["ethereal-echoes", "texas-crunch"]);
+  const [allPresets, setAllPresets] = useState<TonePreset[]>(DEFAULT_TONE_PRESETS);
 
-  const presetList = [
-    {
-      id: "ethereal-echoes",
-      name: "Ethereal Echoes",
-      genre: "AMBIENT",
-      description: "Deep space reverb with subtle chorus.",
-      toneName: "Shimmer Verb",
-      toneActive: true,
-      looperStatus: "2 Tracks Ready",
-      trackStatus: null,
-      presetData: DEFAULT_TONE_PRESETS.find((p) => p.category === "Ambient Dream") || DEFAULT_TONE_PRESETS[0],
-    },
-    {
-      id: "djent-core",
-      name: "Djent Core",
-      genre: "METAL",
-      description: "Ultra-tight gate, scooped mids, heavy drive.",
-      toneName: "High Gain Modern",
-      toneActive: true,
-      looperStatus: null,
-      trackStatus: "160BPM Click",
-      presetData: DEFAULT_TONE_PRESETS.find((p) => p.category === "High Gain Metal") || DEFAULT_TONE_PRESETS[1],
-    },
-    {
-      id: "texas-crunch",
-      name: "Texas Crunch",
-      genre: "BLUES",
-      description: "Warm tube break-up with spring reverb.",
-      toneName: "Tube Screamer + Fender",
-      toneActive: true,
-      looperStatus: "Off",
-      trackStatus: null,
-      presetData: DEFAULT_TONE_PRESETS.find((p) => p.category === "Blues Crunch") || DEFAULT_TONE_PRESETS[2],
-    },
-    {
-      id: "crystal-clean",
-      name: "Crystal Clean Glass",
-      genre: "CLEAN",
-      description: "Studio compressor into boutique sparkling clean preamp.",
-      toneName: "Studio Clean & Mod Chorus",
-      toneActive: true,
-      looperStatus: "1 Track Ready",
-      trackStatus: null,
-      presetData: DEFAULT_TONE_PRESETS.find((p) => p.category === "Clean") || DEFAULT_TONE_PRESETS[0],
-    },
-    {
-      id: "vintage-lead",
-      name: "Vintage Lead 70s",
-      genre: "ROCK",
-      description: "Creamy overdrive with analog tape slapback delay.",
-      toneName: "Vintage Fuzz & Tube Head",
-      toneActive: true,
-      looperStatus: null,
-      trackStatus: "120BPM Groove",
-      presetData: DEFAULT_TONE_PRESETS.find((p) => p.category === "Classic Rock") || DEFAULT_TONE_PRESETS[3],
-    },
-    {
-      id: "funk-envelope",
-      name: "Funk Groove Envelope",
-      genre: "FUNK",
-      description: "Tight optical compression with crisp transient attack.",
-      toneName: "Optical Comp & Stereo Reverb",
-      toneActive: true,
-      looperStatus: "Off",
-      trackStatus: null,
-      presetData: DEFAULT_TONE_PRESETS.find((p) => p.category === "Funk Rhythm") || DEFAULT_TONE_PRESETS[4],
-    },
-  ];
+  useEffect(() => {
+    loadPresetsFromDB().then((presets) => {
+      if (presets && presets.length > 0) {
+        setAllPresets(presets);
+      }
+    });
+  }, []);
+
+  const presetList = React.useMemo(() => {
+    return allPresets.map((p) => {
+      let genre = "ROCK";
+      const cat = (p.category || "").toLowerCase();
+      if (cat.includes("ambient")) genre = "AMBIENT";
+      else if (cat.includes("metal") || cat.includes("high gain")) genre = "METAL";
+      else if (cat.includes("blues") || cat.includes("crunch")) genre = "BLUES";
+      else if (cat.includes("clean") || cat.includes("glass")) genre = "CLEAN";
+      else if (cat.includes("funk")) genre = "FUNK";
+
+      return {
+        id: p.id,
+        name: p.name,
+        genre,
+        description: p.description || `${p.name} signal chain with active DSP effects.`,
+        toneName: p.name,
+        toneActive: true,
+        looperStatus: (p as any).looperPreset ? "1 Track Ready" : null,
+        trackStatus: null,
+        presetData: p,
+      };
+    });
+  }, [allPresets]);
 
   const handleLoadRig = (presetItem: (typeof presetList)[0]) => {
     setLoadedPresetId(presetItem.id);

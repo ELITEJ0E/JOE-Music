@@ -27,12 +27,48 @@ async function startServer() {
     res.json({ status: "ok", timestamp: Date.now() });
   });
 
-  // AI Chord Lookup & Song Progression Analyzer
+  // AI Chord Lookup & Song Progression Analyzer (with YouTube oEmbed metadata resolver)
   app.post("/api/analyze-song", async (req, res) => {
-    const { songQuery, artist, genre, capoPreference } = req.body;
+    let { songQuery, artist, genre, capoPreference } = req.body;
 
     if (!songQuery) {
-      return res.status(400).json({ error: "Song title or artist is required." });
+      return res.status(400).json({ error: "Song title, artist, or YouTube URL is required." });
+    }
+
+    // Resolve YouTube URLs to genuine track title & artist via official YouTube oEmbed API
+    let resolvedYoutubeTitle = "";
+    let resolvedYoutubeAuthor = "";
+    const isYoutubeUrl = typeof songQuery === "string" && (
+      songQuery.includes("youtube.com") || 
+      songQuery.includes("youtu.be")
+    );
+
+    if (isYoutubeUrl) {
+      try {
+        const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(songQuery.trim())}&format=json`;
+        const oembedRes = await fetch(oembedUrl);
+        if (oembedRes.ok) {
+          const oembedData = await oembedRes.json();
+          if (oembedData && oembedData.title) {
+            resolvedYoutubeTitle = oembedData.title;
+            resolvedYoutubeAuthor = oembedData.author_name || "";
+            // Clean title if contains standard video suffixes
+            songQuery = resolvedYoutubeTitle
+              .replace(/\(Official (Music )?Video\)/gi, "")
+              .replace(/\[Official (Music )?Video\]/gi, "")
+              .replace(/\(Audio\)/gi, "")
+              .replace(/\[Audio\]/gi, "")
+              .replace(/\(Lyric Video\)/gi, "")
+              .replace(/\[Lyric Video\]/gi, "")
+              .trim();
+            if (resolvedYoutubeAuthor && !artist) {
+              artist = resolvedYoutubeAuthor.replace(/ - Topic$/i, "").replace(/VEVO$/i, "").trim();
+            }
+          }
+        }
+      } catch (err: any) {
+        console.warn("YouTube oEmbed metadata extraction error:", err?.message);
+      }
     }
 
     try {
@@ -598,7 +634,9 @@ Provide a concise, practical, high-value guitar instruction response. Mention sp
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Guitar Studio Server running on http://0.0.0.0:${PORT}`);
+    console.log(`🎸 Guitar Studio Server ready!`);
+    console.log(`   ➜ Local:   http://localhost:${PORT}/`);
+    console.log(`   ➜ Network: http://127.0.0.1:${PORT}/`);
   });
 }
 

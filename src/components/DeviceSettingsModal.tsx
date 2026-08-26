@@ -129,16 +129,12 @@ export const DeviceSettingsModal: React.FC<DeviceSettingsModalProps> = ({
       setLatencyMs(Number(((baseLat + outLat) * 1000 + 1.2).toFixed(1)));
       setMidiDevices(midiManager.getDevices());
       setIsMonitoring(audioEngine.getIsMonitoring());
-      
-      const checkInputActive = () => {
-        setIsInputActive(audioEngine.getInputLevel().db > -90);
-      };
-      checkInputActive();
+      setIsInputActive(audioEngine.getIsMicActive());
 
       const pollMeter = () => {
         const lvl = audioEngine.getInputLevel();
         setInputDb(lvl.db);
-        setIsInputActive(lvl.db > -90 || audioEngine.getIsMonitoring()); // Basic check
+        setIsInputActive(audioEngine.getIsMicActive());
         meterAnimRef.current = requestAnimationFrame(pollMeter);
       };
       meterAnimRef.current = requestAnimationFrame(pollMeter);
@@ -183,27 +179,62 @@ export const DeviceSettingsModal: React.FC<DeviceSettingsModalProps> = ({
     setIsMonitoring(nextState);
   };
 
-  const handleTestInput = async () => {
-     if (selectedInputId !== "default" && selectedInputId !== "") {
-       await audioEngine.setInputDevice(selectedInputId);
-     } else if (audioInputDevices.length > 0) {
-       await audioEngine.setInputDevice(audioInputDevices[0].deviceId);
-       setSelectedInputId(audioInputDevices[0].deviceId);
-     }
+  const handleToggleLiveInput = async () => {
+    if (audioEngine.getIsMicActive()) {
+      audioEngine.releaseInput("device-modal");
+      setIsInputActive(false);
+    } else {
+      try {
+        await audioEngine.acquireInput("device-modal");
+        setIsInputActive(true);
+      } catch (err) {
+        console.warn("Input acquire failed:", err);
+      }
+    }
   };
 
   if (!isOpen) return null;
 
   const currentInputDev = audioInputDevices.find(d => d.deviceId === selectedInputId);
-  const isLavaDetected = currentInputDev?.label.toLowerCase().includes("lava") || false;
-  
-  // Real hardware state model
-  let hardwareState = "DISCONNECTED";
-  if (audioInputDevices.length > 0) {
-    hardwareState = "AUDIO_DEVICE_AVAILABLE";
-    if (selectedInputId && selectedInputId !== "default") hardwareState = "INPUT_READY";
-    if (isInputActive) hardwareState = "MONITORING";
+  const isLavaDetected = currentInputDev?.label.toLowerCase().includes("lava") || 
+    audioInputDevices.some(d => d.label.toLowerCase().includes("lava"));
+
+  // 5 Connection Statuses: Disconnected, Device detected, Audio input available, Receiving guitar signal, Unsupported
+  const isBrowserSupported = typeof navigator !== "undefined" && !!navigator.mediaDevices && !!navigator.mediaDevices.getUserMedia;
+  const isSignalReceived = isInputActive && inputDb > -52;
+
+  let connectionStatus: "UNSUPPORTED" | "DISCONNECTED" | "DEVICE_DETECTED" | "AUDIO_INPUT_AVAILABLE" | "RECEIVING_GUITAR_SIGNAL";
+  let statusBadgeColor = "bg-red-500";
+  let statusLabel = "Disconnected";
+
+  if (!isBrowserSupported) {
+    connectionStatus = "UNSUPPORTED";
+    statusBadgeColor = "bg-zinc-600";
+    statusLabel = "Unsupported";
+  } else if (audioInputDevices.length === 0) {
+    connectionStatus = "DISCONNECTED";
+    statusBadgeColor = "bg-red-500";
+    statusLabel = "Disconnected";
+  } else if (isSignalReceived) {
+    connectionStatus = "RECEIVING_GUITAR_SIGNAL";
+    statusBadgeColor = "bg-[#a3ff12] animate-pulse";
+    statusLabel = isLavaDetected ? "LAVA ME PLAY • Receiving Signal" : "Audio Input • Receiving Signal";
+  } else if (isInputActive) {
+    connectionStatus = "AUDIO_INPUT_AVAILABLE";
+    statusBadgeColor = "bg-sky-400";
+    statusLabel = isLavaDetected ? "LAVA ME PLAY • Input Active" : "Audio Input Active";
+  } else {
+    connectionStatus = "DEVICE_DETECTED";
+    statusBadgeColor = isLavaDetected ? "bg-amber-400" : "bg-zinc-400";
+    statusLabel = isLavaDetected ? "LAVA ME PLAY Detected (Standby)" : "Device Detected (Standby)";
   }
+
+  const meterPercent = isInputActive ? Math.max(0, Math.min(100, ((inputDb + 65) / 65) * 100)) : 0;
+  const activeDeviceTitle = isLavaDetected
+    ? "LAVA ME PLAY (USB Audio)"
+    : currentInputDev
+    ? (currentInputDev.label || "USB Audio Input")
+    : "No Audio Input Connected";
 
   return (
     <div
@@ -318,47 +349,86 @@ export const DeviceSettingsModal: React.FC<DeviceSettingsModalProps> = ({
                 <div className="flex-1 space-y-4 w-full">
                   <div className="border-b border-white/5 pb-3">
                     <h4 className="text-sm font-mono font-bold text-white mb-1">
-                      LAVA ME PLAY (USB Audio)
+                      {activeDeviceTitle}
                     </h4>
                     <div className="flex items-center gap-2">
-                      <span className={`w-2 h-2 rounded-full ${isLavaDetected ? "bg-[#a3ff12] animate-pulse" : "bg-red-500"}`} />
-                      <span className="text-[11px] font-mono text-zinc-400 uppercase">
-                        {isLavaDetected ? hardwareState : "DISCONNECTED"}
+                      <span className={`w-2.5 h-2.5 rounded-full ${statusBadgeColor}`} />
+                      <span className="text-xs font-mono font-bold uppercase tracking-wider text-white">
+                        {statusLabel}
                       </span>
+                    </div>
+                  </div>
+
+                  {/* Live Input Signal Meter */}
+                  <div className="bg-black/40 border border-white/10 rounded-2xl p-3.5 space-y-2">
+                    <div className="flex items-center justify-between text-xs font-mono">
+                      <span className="text-zinc-400 font-bold flex items-center gap-1.5">
+                        <Activity className="w-3.5 h-3.5 text-[#a3ff12]" />
+                        LIVE GUITAR INPUT METER
+                      </span>
+                      <span className="font-bold text-white">
+                        {isInputActive ? `${inputDb.toFixed(1)} dBFS` : "OFFLINE"}
+                      </span>
+                    </div>
+
+                    {/* Meter bar */}
+                    <div className="w-full h-3 bg-zinc-900 rounded-full overflow-hidden p-0.5 border border-white/10 flex">
+                      <div
+                        className={`h-full rounded-full transition-all duration-75 ${
+                          inputDb > -6
+                            ? "bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.8)]"
+                            : inputDb > -18
+                            ? "bg-amber-400 shadow-[0_0_10px_rgba(251,191,36,0.6)]"
+                            : "bg-gradient-to-r from-green-600 to-[#a3ff12] shadow-[0_0_10px_rgba(163,255,18,0.6)]"
+                        }`}
+                        style={{ width: `${meterPercent}%` }}
+                      />
+                    </div>
+
+                    <div className="flex justify-between text-[9px] font-mono text-zinc-500 px-0.5">
+                      <span>-60 dB</span>
+                      <span>-36 dB</span>
+                      <span>-18 dB</span>
+                      <span>-6 dB</span>
+                      <span className="text-red-400 font-bold">0 dB</span>
                     </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-2 text-xs font-mono">
                     <div className="bg-white/5 p-3 rounded-xl border border-white/5">
                       <div className="text-[9px] text-zinc-400 uppercase mb-1">INPUT STATUS</div>
-                      <div className={`font-bold ${isLavaDetected ? "text-white" : "text-zinc-600"}`}>
-                        {isLavaDetected ? "AVAILABLE" : "UNAVAILABLE"}
+                      <div className={`font-bold ${isInputActive ? "text-[#a3ff12]" : "text-zinc-500"}`}>
+                        {isInputActive ? (isSignalReceived ? "RECEIVING SIGNAL" : "INPUT READY") : "STANDBY"}
                       </div>
                     </div>
                     <div className="bg-white/5 p-3 rounded-xl border border-white/5">
                       <div className="text-[9px] text-zinc-400 uppercase mb-1">PROPRIETARY CONTROLS</div>
                       <div className="font-bold text-zinc-500 flex items-center">
-                        <AlertTriangle className="w-3 h-3 mr-1" />
+                        <AlertTriangle className="w-3 h-3 mr-1 text-amber-500/80" />
                         UNSUPPORTED
                       </div>
                     </div>
                   </div>
 
                   {/* Browser limitations warning */}
-                  <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 flex gap-3 text-amber-500/80">
+                  <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 flex gap-3 text-amber-500/90">
                     <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
                     <p className="text-[10px] font-mono leading-relaxed">
                       Web Audio API cannot control proprietary HILAVA FreeBoost™ DSP parameters directly. Audio is received post-DSP via standard USB Class Compliant drivers. Ensure your guitar is connected via USB-C and set to USB Audio output mode.
                     </p>
                   </div>
 
-                  {/* Test action */}
+                  {/* Live input test toggle */}
                   <button
-                    onClick={handleTestInput}
-                    className="w-full py-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white font-mono text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer"
+                    onClick={handleToggleLiveInput}
+                    className={`w-full py-3 rounded-xl border font-mono text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                      isInputActive
+                        ? "bg-[#a3ff12]/20 text-[#a3ff12] border-[#a3ff12] shadow-[0_0_15px_rgba(163,255,18,0.3)]"
+                        : "bg-white/5 hover:bg-white/10 text-white border-white/10"
+                    }`}
                   >
-                    <RefreshCw className="w-4 h-4 text-zinc-400" />
-                    TEST AUDIO INPUT DEVICE
+                    <RefreshCw className={`w-4 h-4 ${isInputActive ? "animate-spin text-[#a3ff12]" : "text-zinc-400"}`} />
+                    {isInputActive ? "DISCONNECT LIVE INPUT STREAM" : "ACTIVATE LIVE GUITAR INPUT STREAM"}
                   </button>
                 </div>
               </div>
