@@ -1,9 +1,9 @@
 // Post-MIR Harmonic Stabilization & Musical Segmentation Layer for JOE-Music
-// Filters transient string/bass fluctuations, removes acoustic over-segmentation,
-// and enforces musical chord continuity over beat-aware windows.
+// Features: Temporal Chord Hysteresis, Beat-Aware Chord Decision Windows,
+// Transient/Passing-Note Filtering, and Musical Boundary Alignment.
 
-import { parseChordLabel, pitchClassOfNote, CanonicalQuality } from "./chordNormalizer";
-import { buildChord, getPitchClass, CHORD_QUALITIES } from "../music/chordTheory";
+import { parseChordLabel, CanonicalQuality } from "./chordNormalizer";
+import { CHORD_QUALITIES, getPitchClass } from "../music/chordTheory";
 import { ChordSegment } from "../types";
 
 export interface StabilizationDiagnostics {
@@ -25,8 +25,10 @@ export interface StabilizationOptions {
   keyContext?: string;
   duration?: number;
   minSlashDuration?: number;       // Minimum seconds for a genuine slash chord (default: 0.75s)
-  minGlitchDuration?: number;      // Maximum seconds for transient sandwich glitches (default: 0.45s)
-  beatSnapTolerance?: number;      // Seconds within beat to snap boundary (default: 0.18s)
+  minGlitchDuration?: number;      // Maximum seconds for transient glitches (default: 0.45s)
+  beatSnapTolerance?: number;      // Seconds within beat to snap boundary (default: 0.20s)
+  changeMargin?: number;           // Hysteresis score margin required to switch chords (default: 0.08)
+  minChordDurationBeats?: number;  // Minimum beats for new chord persistence (default: 1.0)
 }
 
 /**
@@ -53,7 +55,7 @@ function isChordTone(chordRoot: string, chordQuality: string, note: string): boo
  * Evaluates whether a detected slash chord is a genuine intentional chord inversion
  * or a transient pick/acoustic resonance artifact.
  */
-function evaluateSlashChordStability(
+export function evaluateSlashChordStability(
   seg: ChordSegment,
   options: { minSlashDuration: number; beatIntervalSec: number; keyContext?: string }
 ): { isGenuine: boolean; baseChord: string } {
@@ -75,12 +77,10 @@ function evaluateSlashChordStability(
 
   // 2. Chord tone check (e.g. 5th or 3rd in bass):
   // When guitarists strum open E (0-2-2-1-0-0), low string 5 (B) or string 6 (E) fluctuates.
-  // Unless explicitly sustained with strong bass evidence, 5th in bass is standard guitar open resonance.
   const isBassChordTone = isChordTone(parsed.root, parsed.quality, parsed.bass);
   
-  const diag = (seg as any).diagnostics;
+  const diag = seg.diagnostics;
   if (diag) {
-    // If we have detailed MIR diagnostic metrics:
     const slashBassRatio = diag.slashBassRatio ?? 1.0;
     const slashBassEvidence = diag.slashBassEvidence ?? 0.0;
 
@@ -89,15 +89,28 @@ function evaluateSlashChordStability(
       return { isGenuine: false, baseChord };
     }
   } else if (isBassChordTone && duration < 1.25) {
-    // Without high-confidence diagnostics, require at least 1.25s duration for chord-tone inversions
     return { isGenuine: false, baseChord };
   }
 
   return { isGenuine: true, baseChord };
 }
 
+interface BeatWindowCandidate {
+  chord: string;
+  root: string;
+  bass: string;
+  quality: string;
+  extensions: string[];
+  rawChord: string;
+  weight: number;
+  confidence: number;
+  supportFrames: number;
+  isSlash: boolean;
+  hasGenuineSlash: boolean;
+}
+
 /**
- * Post-MIR Harmonic Stabilization Layer.
+ * Post-MIR Harmonic Stabilization & Musical Segmentation Layer.
  * Transforms raw, over-segmented MIR timeline into clean, musically continuous chord progression.
  */
 export function stabilizeChordSegments(
@@ -121,26 +134,27 @@ export function stabilizeChordSegments(
   const beatIntervalSec = 60 / tempo;
   const minSlashDuration = options.minSlashDuration ?? Math.max(0.65, beatIntervalSec * 0.9);
   const minGlitchDuration = options.minGlitchDuration ?? Math.max(0.35, beatIntervalSec * 0.5);
-  const beatSnapTolerance = options.beatSnapTolerance ?? 0.18;
-  const beats = options.beats || [];
+  const beatSnapTolerance = options.beatSnapTolerance ?? 0.20;
+  const changeMargin = options.changeMargin ?? 0.08;
   const totalDuration = options.duration || (rawSegments[rawSegments.length - 1].endTime ?? 0);
 
   let mergedSegmentsCount = 0;
   let rejectedTransientSlashCount = 0;
 
-  // Clone raw segments deeply so we never mutate inputs
-  let current: ChordSegment[] = rawSegments.map((s, idx) => ({
+  // Clone raw segments deeply
+  let initialSegments: ChordSegment[] = rawSegments.map((s, idx) => ({
     ...s,
-    id: s.id || `seg-${idx}`,
+    id: s.id || `raw-${idx}`,
+    rawChord: s.rawChord || s.chord,
     startTime: Number(s.startTime.toFixed(3)),
     endTime: Number(s.endTime.toFixed(3))
   }));
 
   // =========================================================================
-  // PASS 1: Transient / Spurious Slash Chord Rejection & Base Chord Normalization
+  // STEP 1: Transient / Spurious Slash Chord Rejection & Base Chord Normalization
   // =========================================================================
-  for (let i = 0; i < current.length; i++) {
-    const seg = current[i];
+  for (let i = 0; i < initialSegments.length; i++) {
+    const seg = initialSegments[i];
     if (seg.chord.includes("/")) {
       const { isGenuine, baseChord } = evaluateSlashChordStability(seg, {
         minSlashDuration,
@@ -157,47 +171,246 @@ export function stabilizeChordSegments(
   }
 
   // =========================================================================
-  // PASS 2: Multi-Pass Harmonic Windowing, Sandwich Filtering, and Adjacent Merge
+  // STEP 2 & 3: Construct Beat Grid & Beat-Aware Chord Decision Windows with Hysteresis
   // =========================================================================
+  let beats = options.beats && options.beats.length > 0 ? [...options.beats].sort((a, b) => a - b) : [];
+  if (beats.length === 0) {
+    for (let t = 0; t <= totalDuration + beatIntervalSec; t += beatIntervalSec) {
+      beats.push(Number(t.toFixed(3)));
+    }
+  }
+
+  // Build beat intervals: [b_0, b_1], [b_1, b_2], ...
+  interface BeatDecision {
+    beatIndex: number;
+    startTime: number;
+    endTime: number;
+    winningChord: string;
+    rawChord: string;
+    root: string;
+    bass: string;
+    quality: string;
+    extensions: string[];
+    confidence: number;
+    supportFrames: number;
+    score: number;
+  }
+
+  const beatDecisions: BeatDecision[] = [];
+
+  for (let bIdx = 0; bIdx < beats.length; bIdx++) {
+    const bStart = beats[bIdx];
+    const bEnd = bIdx + 1 < beats.length ? beats[bIdx + 1] : bStart + beatIntervalSec;
+    if (bStart >= totalDuration && bIdx > 0) break;
+
+    // Collect overlapping raw segments in this beat
+    const candidatesMap = new Map<string, BeatWindowCandidate>();
+    let totalOverlap = 0;
+
+    for (const seg of initialSegments) {
+      const overlapStart = Math.max(bStart, seg.startTime);
+      const overlapEnd = Math.min(bEnd, seg.endTime);
+      const overlapDur = Math.max(0, overlapEnd - overlapStart);
+
+      if (overlapDur > 0.005) {
+        const chordKey = seg.chord;
+        const existing = candidatesMap.get(chordKey);
+        const weight = overlapDur * (seg.confidence / 100);
+        totalOverlap += overlapDur;
+
+        if (existing) {
+          existing.weight += weight;
+          existing.confidence = Math.max(existing.confidence, seg.confidence);
+          existing.supportFrames += Math.round(overlapDur * 100);
+        } else {
+          candidatesMap.set(chordKey, {
+            chord: seg.chord,
+            rawChord: seg.rawChord || seg.chord,
+            root: seg.root,
+            bass: seg.bass,
+            quality: seg.quality,
+            extensions: seg.extensions || [],
+            weight,
+            confidence: seg.confidence,
+            supportFrames: Math.round(overlapDur * 100),
+            isSlash: seg.chord.includes("/"),
+            hasGenuineSlash: seg.chord.includes("/") && ((seg.endTime - seg.startTime) >= minSlashDuration)
+          });
+        }
+      }
+    }
+
+    if (candidatesMap.size === 0) {
+      // Find closest segment before or after
+      const closest = initialSegments.find(s => s.startTime <= bStart && s.endTime >= bStart) || initialSegments[0];
+      if (closest) {
+        beatDecisions.push({
+          beatIndex: bIdx,
+          startTime: bStart,
+          endTime: bEnd,
+          winningChord: closest.chord,
+          rawChord: closest.rawChord || closest.chord,
+          root: closest.root,
+          bass: closest.bass,
+          quality: closest.quality,
+          extensions: closest.extensions || [],
+          confidence: closest.confidence,
+          supportFrames: 10,
+          score: closest.confidence / 100
+        });
+      }
+      continue;
+    }
+
+    // Rank candidates for this beat window
+    const rankedCandidates = Array.from(candidatesMap.values()).sort((a, b) => b.weight - a.weight);
+    const top = rankedCandidates[0];
+
+    beatDecisions.push({
+      beatIndex: bIdx,
+      startTime: bStart,
+      endTime: bEnd,
+      winningChord: top.chord,
+      rawChord: top.rawChord,
+      root: top.root,
+      bass: top.bass,
+      quality: top.quality,
+      extensions: top.extensions,
+      confidence: top.confidence,
+      supportFrames: top.supportFrames,
+      score: top.weight / (totalOverlap || 1)
+    });
+  }
+
+  // =========================================================================
+  // STEP 4: Temporal Chord Hysteresis Across Beat Windows
+  // =========================================================================
+  // Apply hysteresis: a new chord must demonstrate sustained harmonic superiority.
+  // Single-beat / momentary fluctuations between identical or related harmonies are absorbed.
+  if (beatDecisions.length > 0) {
+    let currentActiveChord = beatDecisions[0].winningChord;
+    let currentScore = beatDecisions[0].score;
+
+    for (let i = 1; i < beatDecisions.length; i++) {
+      const beat = beatDecisions[i];
+      const candChord = beat.winningChord;
+
+      if (candChord === currentActiveChord) {
+        currentScore = Math.max(currentScore, beat.score);
+        continue;
+      }
+
+      // Check if this is a fleeting 1-beat deviation surrounded by currentActiveChord
+      const nextBeat = i + 1 < beatDecisions.length ? beatDecisions[i + 1] : null;
+      const isFleeting = nextBeat && nextBeat.winningChord === currentActiveChord;
+
+      if (isFleeting) {
+        // Evaluate candidate strength vs active chord
+        const candScore = beat.score;
+        const parsedActive = parseChordLabel(currentActiveChord, options.keyContext);
+        const parsedCand = parseChordLabel(candChord, options.keyContext);
+        const sameRoot = parsedActive.root === parsedCand.root;
+
+        // If candidate does NOT exceed currentScore by changeMargin or shares same root, absorb it!
+        if (candScore <= currentScore + changeMargin || sameRoot || candChord.includes("/")) {
+          beat.winningChord = currentActiveChord;
+          beat.rawChord = candChord;
+          beat.root = parsedActive.root;
+          beat.quality = parsedActive.qualitySymbol;
+          beat.bass = parsedActive.bass || parsedActive.root;
+          continue;
+        }
+      }
+
+      // Candidate wins: switch active chord
+      currentActiveChord = candChord;
+      currentScore = beat.score;
+    }
+  }
+
+  // =========================================================================
+  // STEP 5: Merge Consecutive Identical Beat Decisions into Contiguous Segments
+  // =========================================================================
+  let assembledSegments: ChordSegment[] = [];
+
+  for (let i = 0; i < beatDecisions.length; i++) {
+    const bd = beatDecisions[i];
+    if (assembledSegments.length === 0) {
+      assembledSegments.push({
+        id: `seg-0`,
+        chord: bd.winningChord,
+        rawChord: bd.rawChord,
+        stabilizedChord: bd.winningChord,
+        root: bd.root,
+        bass: bd.bass,
+        quality: bd.quality,
+        extensions: bd.extensions,
+        startTime: bd.startTime,
+        endTime: bd.endTime,
+        confidence: bd.confidence,
+        stability: 90,
+        durationBeats: 1,
+        candidateSupportFrames: bd.supportFrames,
+        changeMargin,
+        snappedBoundary: true,
+        beatIndex: bd.beatIndex,
+        diagnostics: {
+          beatStart: bd.beatIndex,
+          beatEnd: bd.beatIndex + 1,
+          avgScore: bd.score
+        }
+      });
+      continue;
+    }
+
+    const prev = assembledSegments[assembledSegments.length - 1];
+    if (prev.chord === bd.winningChord) {
+      // Extend previous segment
+      prev.endTime = bd.endTime;
+      prev.durationBeats = (prev.durationBeats || 1) + 1;
+      prev.confidence = Math.round((prev.confidence + bd.confidence) / 2);
+      prev.candidateSupportFrames = (prev.candidateSupportFrames || 0) + bd.supportFrames;
+      mergedSegmentsCount++;
+    } else {
+      assembledSegments.push({
+        id: `seg-${assembledSegments.length}`,
+        chord: bd.winningChord,
+        rawChord: bd.rawChord,
+        stabilizedChord: bd.winningChord,
+        root: bd.root,
+        bass: bd.bass,
+        quality: bd.quality,
+        extensions: bd.extensions,
+        startTime: bd.startTime,
+        endTime: bd.endTime,
+        confidence: bd.confidence,
+        stability: 90,
+        durationBeats: 1,
+        candidateSupportFrames: bd.supportFrames,
+        changeMargin,
+        snappedBoundary: true,
+        beatIndex: bd.beatIndex,
+        diagnostics: {
+          beatStart: bd.beatIndex,
+          beatEnd: bd.beatIndex + 1,
+          avgScore: bd.score
+        }
+      });
+    }
+  }
+
+  // =========================================================================
+  // STEP 6: Multi-Pass Sandwich & Musical Glitch Filtering
+  // =========================================================================
+  let current = assembledSegments;
   let hasChanged = true;
   let passCount = 0;
-  const MAX_PASSES = 6;
+  const MAX_PASSES = 4;
 
   while (hasChanged && passCount < MAX_PASSES) {
     hasChanged = false;
     passCount++;
 
-    // Subpass A: Merge adjacent identical chords
-    const mergedAdjacent: ChordSegment[] = [];
-    for (let i = 0; i < current.length; i++) {
-      const seg = current[i];
-      if (mergedAdjacent.length === 0) {
-        mergedAdjacent.push({ ...seg });
-        continue;
-      }
-
-      const prev = mergedAdjacent[mergedAdjacent.length - 1];
-      if (prev.chord === seg.chord) {
-        // Merge into prev
-        const prevDur = prev.endTime - prev.startTime;
-        const segDur = seg.endTime - seg.startTime;
-        const totalDur = prevDur + segDur;
-
-        // Weighted confidence
-        prev.confidence = totalDur > 0
-          ? Math.round((prev.confidence * prevDur + seg.confidence * segDur) / totalDur)
-          : prev.confidence;
-        prev.stability = Math.max(prev.stability || 0, seg.stability || 0);
-        prev.endTime = seg.endTime;
-        mergedSegmentsCount++;
-        hasChanged = true;
-      } else {
-        mergedAdjacent.push({ ...seg });
-      }
-    }
-    current = mergedAdjacent;
-
-    // Subpass B: Transient Sandwich & Glitch Absorption
     if (current.length >= 3) {
       const filtered: ChordSegment[] = [];
       let skipNext = false;
@@ -211,42 +424,25 @@ export function stabilizeChordSegments(
         const seg = current[i];
         const dur = seg.endTime - seg.startTime;
 
-        // Check if sandwiched between identical chords
         if (i > 0 && i < current.length - 1) {
           const prev = filtered[filtered.length - 1];
           const next = current[i + 1];
 
           if (prev && next && prev.chord === next.chord) {
-            // If the middle chord is short (< minGlitchDuration) OR shares base root
             const prevParsed = parseChordLabel(prev.chord, options.keyContext);
             const segParsed = parseChordLabel(seg.chord, options.keyContext);
             const sameBase = prevParsed.root === segParsed.root;
 
+            // If middle chord is short (< minGlitchDuration) OR shares base root
             if (dur <= minGlitchDuration || (sameBase && dur <= minSlashDuration * 1.5)) {
-              // Absorb middle segment into prev, and next segment into prev
               prev.endTime = next.endTime;
-              const prevDur = prev.endTime - prev.startTime;
+              prev.durationBeats = (prev.durationBeats || 1) + (seg.durationBeats || 1) + (next.durationBeats || 1);
               prev.confidence = Math.round((prev.confidence + next.confidence) / 2);
               mergedSegmentsCount += 2;
               skipNext = true;
               hasChanged = true;
               continue;
             }
-          }
-        }
-
-        // Check if short transient with very low confidence (< 50%) between two stronger chords
-        if (i > 0 && i < current.length - 1 && dur <= minGlitchDuration && (seg.confidence || 0) < 50) {
-          const prev = filtered[filtered.length - 1];
-          const next = current[i + 1];
-          if (prev && next) {
-            // Merge half into prev and half into next, or snap to nearest beat
-            const mid = (seg.startTime + seg.endTime) / 2;
-            prev.endTime = mid;
-            next.startTime = mid;
-            mergedSegmentsCount++;
-            hasChanged = true;
-            continue;
           }
         }
 
@@ -257,38 +453,8 @@ export function stabilizeChordSegments(
   }
 
   // =========================================================================
-  // PASS 3: Beat-Grid Boundary Alignment & Continuity Enforcement
+  // STEP 7: Boundary Placement & Continuous Timeline Check
   // =========================================================================
-  if (beats.length > 0 && current.length > 1) {
-    for (let i = 0; i < current.length - 1; i++) {
-      const seg = current[i];
-      const next = current[i + 1];
-      const boundaryTime = seg.endTime;
-
-      // Find closest beat to boundary
-      let nearestBeat = boundaryTime;
-      let minDiff = Infinity;
-      for (const b of beats) {
-        const diff = Math.abs(b - boundaryTime);
-        if (diff < minDiff) {
-          minDiff = diff;
-          nearestBeat = b;
-        } else if (diff > minDiff) {
-          break; // beats are sorted
-        }
-      }
-
-      if (minDiff <= beatSnapTolerance) {
-        // Ensure not creating zero duration segment
-        if (nearestBeat > seg.startTime + 0.15 && nearestBeat < next.endTime - 0.15) {
-          seg.endTime = Number(nearestBeat.toFixed(3));
-          next.startTime = Number(nearestBeat.toFixed(3));
-        }
-      }
-    }
-  }
-
-  // Ensure first starts at 0 and last ends at totalDuration
   if (current.length > 0) {
     current[0].startTime = 0;
     if (totalDuration > 0) {
@@ -296,17 +462,19 @@ export function stabilizeChordSegments(
     }
   }
 
-  // Final contiguous continuity check
   for (let i = 0; i < current.length - 1; i++) {
     current[i + 1].startTime = current[i].endTime;
   }
 
-  // Re-index segment IDs
+  // Re-index segment IDs and ensure all segment diagnostics are populated
   current = current.map((s, idx) => ({
     ...s,
     id: `seg-${idx}`,
+    rawChord: s.rawChord || s.chord,
+    stabilizedChord: s.chord,
     startTime: Number(s.startTime.toFixed(3)),
-    endTime: Number(s.endTime.toFixed(3))
+    endTime: Number(s.endTime.toFixed(3)),
+    durationBeats: Number(((s.endTime - s.startTime) / beatIntervalSec).toFixed(1))
   }));
 
   const finalProgression = current.map((s) => s.chord);

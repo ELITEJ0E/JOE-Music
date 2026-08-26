@@ -254,7 +254,7 @@ self.onmessage = function (e) {
     
     // Sort peaks by score descending
     peaks.sort((a, b) => b.score - a.score);
-    const topPeaks = peaks.slice(0, 5);
+    const topPeaks = peaks.slice(0, 8);
 
     let bestLag = minLag;
     let bestScore = -Infinity;
@@ -268,20 +268,19 @@ self.onmessage = function (e) {
        // Check 1/2 tempo (2x lag)
        const doubleLag = lag * 2;
        if (doubleLag <= maxLag) {
-          totalScore += 0.5 * autocor[doubleLag];
+          totalScore += 0.45 * autocor[doubleLag];
        }
        
        // Check 2x tempo (0.5x lag)
        const halfLag = Math.round(lag / 2);
        if (halfLag >= minLag) {
-          totalScore += 0.5 * autocor[halfLag];
+          totalScore += 0.45 * autocor[halfLag];
        }
 
-       // Penalize extreme tempos slightly to prefer "normal" music (100-140 BPM)
+       // Musically preferred tempo window (90-140 BPM center)
        const bpmCand = 60 / ((lag * hopSize) / sampleRate);
-       if (bpmCand < 80 || bpmCand > 160) {
-          totalScore *= 0.9; 
-       }
+       const tempoPrior = Math.exp(-Math.pow(Math.log2(bpmCand / 115) / 0.7, 2));
+       totalScore *= (0.7 + 0.3 * tempoPrior);
        
        if (totalScore > bestScore) {
           bestScore = totalScore;
@@ -297,33 +296,82 @@ self.onmessage = function (e) {
       }
     }
 
-    const beatIntervalSec = Math.max(0.25, Math.min(1.25, (bestLag * hopSize) / sampleRate));
+    // Parabolic interpolation around the best peak to refine sub-frame lag accuracy
+    let refinedLag = bestLag;
+    if (bestLag > minLag && bestLag < maxLag) {
+      const alpha = autocor[bestLag - 1];
+      const beta = autocor[bestLag];
+      const gamma = autocor[bestLag + 1];
+      const denom = alpha - 2 * beta + gamma;
+      if (Math.abs(denom) > 1e-6) {
+        const delta = 0.5 * (alpha - gamma) / denom;
+        if (Math.abs(delta) < 1.0) {
+          refinedLag = bestLag + delta;
+        }
+      }
+    }
+
+    const beatIntervalSec = Math.max(0.25, Math.min(1.25, (refinedLag * hopSize) / sampleRate));
     let estimatedBpm = Math.round(60 / beatIntervalSec);
     if (estimatedBpm < 60) estimatedBpm = 60;
     if (estimatedBpm > 200) estimatedBpm = 200;
     
     // Approximate confidence
-    const bpmConfidence = Math.min(99, Math.max(0, Math.round((autocor[bestLag] / (onsetSum || 1)) * 100)));
+    const bpmConfidence = Math.min(99, Math.max(0, Math.round((autocor[Math.round(bestLag)] / (onsetSum || 1)) * 100)));
 
-    // (b) Phase offset estimation: test ~20 phase offsets within one beat period against real onset energy
-    const numPhaseCandidates = 20;
+    // (b) Phase offset estimation: fine continuous search with windowed onset scoring
+    const numPhaseCandidates = 80;
     let bestPhaseOffset = 0;
     let bestPhaseScore = -Infinity;
+    const windowSigmaFrames = (0.025 * sampleRate) / hopSize; // 25ms Gaussian window
 
     for (let p = 0; p < numPhaseCandidates; p++) {
       const candidateOffset = (p / numPhaseCandidates) * beatIntervalSec;
       let score = 0;
       let beatTime = candidateOffset;
       while (beatTime < duration) {
-        const frameIdx = Math.round((beatTime * sampleRate) / hopSize);
-        if (frameIdx >= 0 && frameIdx < onsetEnvelope.length) {
-          score += onsetEnvelope[frameIdx];
+        const centerFrame = (beatTime * sampleRate) / hopSize;
+        const minF = Math.max(0, Math.floor(centerFrame - 3));
+        const maxF = Math.min(onsetEnvelope.length - 1, Math.ceil(centerFrame + 3));
+        
+        let localEnergy = 0;
+        for (let f = minF; f <= maxF; f++) {
+          const dist = f - centerFrame;
+          const weight = Math.exp(-0.5 * Math.pow(dist / (windowSigmaFrames || 1), 2));
+          localEnergy += onsetEnvelope[f] * weight;
         }
+        score += localEnergy;
         beatTime += beatIntervalSec;
       }
       if (score > bestPhaseScore) {
         bestPhaseScore = score;
         bestPhaseOffset = candidateOffset;
+      }
+    }
+
+    // Local fine-grained phase refinement (+/- 5ms around best coarse offset)
+    const fineStepSec = 0.002;
+    for (let deltaSec = -0.01; deltaSec <= 0.01; deltaSec += fineStepSec) {
+      const candOffset = bestPhaseOffset + deltaSec;
+      if (candOffset < 0 || candOffset >= beatIntervalSec) continue;
+      let score = 0;
+      let beatTime = candOffset;
+      while (beatTime < duration) {
+        const centerFrame = (beatTime * sampleRate) / hopSize;
+        const minF = Math.max(0, Math.floor(centerFrame - 3));
+        const maxF = Math.min(onsetEnvelope.length - 1, Math.ceil(centerFrame + 3));
+        let localEnergy = 0;
+        for (let f = minF; f <= maxF; f++) {
+          const dist = f - centerFrame;
+          const weight = Math.exp(-0.5 * Math.pow(dist / (windowSigmaFrames || 1), 2));
+          localEnergy += onsetEnvelope[f] * weight;
+        }
+        score += localEnergy;
+        beatTime += beatIntervalSec;
+      }
+      if (score > bestPhaseScore) {
+        bestPhaseScore = score;
+        bestPhaseOffset = candOffset;
       }
     }
 

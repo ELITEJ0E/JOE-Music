@@ -72,6 +72,13 @@ export interface ChordSegment {
   detectionConfidence?: number;
   voicingConfidence?: number;
   displayChord?: string;
+  rawChord?: string;
+  stabilizedChord?: string;
+  durationBeats?: number;
+  candidateSupportFrames?: number;
+  changeMargin?: number;
+  snappedBoundary?: boolean;
+  beatIndex?: number;
   voicingType?: "exact" | "simplified" | "generated" | "none";
   simplificationReason?: string;
   voicing?: ChordVoicing | null;
