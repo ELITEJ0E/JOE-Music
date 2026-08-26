@@ -4,6 +4,150 @@ import { parseChordLabel, pitchClassOfNote, normalizeNoteSpelling } from "../aud
 import { findChordByName, CHORD_DATABASE } from "../data/chordDatabase";
 import { resolveGuitarChord } from "../audio/guitarChordResolver";
 import { resolvePowerChord } from "../audio/powerChordResolver";
+import { buildChord, getDefiningPitchClasses, getRequiredPitchClasses, ALL_SUPPORTED_QUALITIES } from "../music/chordTheory";
+import { generateVoicings, validateVoicingSounding, getStringPitchClass } from "../music/chordVoicingGenerator";
+import { getChordsForDictionary } from "../music/chordIntegration";
+
+describe("Chord Library Accuracy & Procedural Engine Pass", () => {
+  it("strictly validates C vs Cm harmonic distinction (never identical shapes)", () => {
+    const cMajorDef = buildChord("C", "maj");
+    const cMinorDef = buildChord("C", "min");
+
+    const cMajorVoicings = generateVoicings(cMajorDef);
+    const cMinorVoicings = generateVoicings(cMinorDef);
+
+    expect(cMajorVoicings.length).toBeGreaterThan(0);
+    expect(cMinorVoicings.length).toBeGreaterThan(0);
+
+    const cMajorFretKeys = new Set(cMajorVoicings.map(v => v.frets.join(",")));
+    const cMinorFretKeys = new Set(cMinorVoicings.map(v => v.frets.join(",")));
+
+    // Ensure no overlapping fretboard shapes between C major and C minor
+    for (const key of cMajorFretKeys) {
+      expect(cMinorFretKeys.has(key)).toBe(false);
+    }
+
+    // Check that C major contains E (pitch class 4) and not Eb (3)
+    const topCMajor = cMajorVoicings[0];
+    const cMajPcs = topCMajor.frets
+      .map((f, s) => f !== "x" ? getStringPitchClass(s, f) : null)
+      .filter((pc): pc is number => pc !== null);
+    expect(cMajPcs).toContain(4); // E
+    expect(cMajPcs).not.toContain(3); // Eb
+
+    // Check that C minor contains Eb (pitch class 3) and not E (4)
+    const topCMinor = cMinorVoicings[0];
+    const cMinPcs = topCMinor.frets
+      .map((f, s) => f !== "x" ? getStringPitchClass(s, f) : null)
+      .filter((pc): pc is number => pc !== null);
+    expect(cMinPcs).toContain(3); // Eb
+    expect(cMinPcs).not.toContain(4); // E
+  });
+
+  it("strictly distinguishes C7, Cm7, and Cmaj7 defining quality tones", () => {
+    const c7Def = buildChord("C", "7");
+    const cm7Def = buildChord("C", "m7");
+    const cmaj7Def = buildChord("C", "maj7");
+
+    const c7Voicings = generateVoicings(c7Def);
+    const cm7Voicings = generateVoicings(cm7Def);
+    const cmaj7Voicings = generateVoicings(cmaj7Def);
+
+    expect(c7Voicings.length).toBeGreaterThan(0);
+    expect(cm7Voicings.length).toBeGreaterThan(0);
+    expect(cmaj7Voicings.length).toBeGreaterThan(0);
+
+    // C7 must contain E (4) and Bb (10)
+    const topC7 = c7Voicings[0];
+    const c7Pcs = topC7.frets.map((f, s) => f !== "x" ? getStringPitchClass(s, f) : null).filter((pc): pc is number => pc !== null);
+    expect(c7Pcs).toContain(0); // C
+    expect(c7Pcs).toContain(4); // E
+    expect(c7Pcs).toContain(10); // Bb
+
+    // Cm7 must contain Eb (3) and Bb (10)
+    const topCm7 = cm7Voicings[0];
+    const cm7Pcs = topCm7.frets.map((f, s) => f !== "x" ? getStringPitchClass(s, f) : null).filter((pc): pc is number => pc !== null);
+    expect(cm7Pcs).toContain(0); // C
+    expect(cm7Pcs).toContain(3); // Eb
+    expect(cm7Pcs).toContain(10); // Bb
+
+    // Cmaj7 must contain E (4) and B (11)
+    const topCmaj7 = cmaj7Voicings[0];
+    const cmaj7Pcs = topCmaj7.frets.map((f, s) => f !== "x" ? getStringPitchClass(s, f) : null).filter((pc): pc is number => pc !== null);
+    expect(cmaj7Pcs).toContain(0); // C
+    expect(cmaj7Pcs).toContain(4); // E
+    expect(cmaj7Pcs).toContain(11); // B
+  });
+
+  it("prioritizes open and canonical CAGED shapes at the top of ranking", () => {
+    // Open C Major: x,3,2,0,1,0
+    const cMaj = generateVoicings(buildChord("C", "maj"));
+    expect(cMaj[0].frets.join(",")).toBe("x,3,2,0,1,0");
+    expect(cMaj[0].type).toBe("exact");
+
+    // Open A Major: x,0,2,2,2,0
+    const aMaj = generateVoicings(buildChord("A", "maj"));
+    expect(aMaj[0].frets.join(",")).toBe("x,0,2,2,2,0");
+    expect(aMaj[0].type).toBe("exact");
+
+    // Open G Major: 3,2,0,0,0,3 or 3,2,0,0,3,3
+    const gMaj = generateVoicings(buildChord("G", "maj"));
+    expect(["3,2,0,0,0,3", "3,2,0,0,3,3"]).toContain(gMaj[0].frets.join(","));
+    expect(gMaj[0].type).toBe("exact");
+
+    // Open E Major: 0,2,2,1,0,0
+    const eMaj = generateVoicings(buildChord("E", "maj"));
+    expect(eMaj[0].frets.join(",")).toBe("0,2,2,1,0,0");
+    expect(eMaj[0].type).toBe("exact");
+
+    // Open D Major: x,x,0,2,3,2
+    const dMaj = generateVoicings(buildChord("D", "maj"));
+    expect(dMaj[0].frets.join(",")).toBe("x,x,0,2,3,2");
+    expect(dMaj[0].type).toBe("exact");
+
+    // F Major barre (1st fret E-shape): 1,3,3,2,1,1
+    const fMaj = generateVoicings(buildChord("F", "maj"));
+    expect(fMaj[0].frets.join(",")).toBe("1,3,3,2,1,1");
+    expect(fMaj[0].type).toBe("exact");
+
+    // B Minor barre (2nd fret A-shape): x,2,4,4,3,2
+    const bMin = generateVoicings(buildChord("B", "min"));
+    expect(bMin[0].frets.join(",")).toBe("x,2,4,4,3,2");
+    expect(bMin[0].type).toBe("exact");
+  });
+
+  it("strictly verifies slash bass note on inverted chords", () => {
+    // C/E must have E (pc 4) as the lowest note
+    const cSlashE = buildChord("C", "maj", "E");
+    const cSlashEVoicings = generateVoicings(cSlashE);
+    expect(cSlashEVoicings.length).toBeGreaterThan(0);
+    const topVoicing = cSlashEVoicings[0];
+    let lowestPc: number | null = null;
+    for (let s = 0; s < 6; s++) {
+      if (topVoicing.frets[s] !== "x") {
+        lowestPc = getStringPitchClass(s, topVoicing.frets[s] as number);
+        break;
+      }
+    }
+    expect(lowestPc).toBe(4); // E
+  });
+
+  it("verifies dictionary generates voicings for all supported qualities", () => {
+    expect(ALL_SUPPORTED_QUALITIES.length).toBeGreaterThanOrEqual(18);
+    const cAllVoicings = getChordsForDictionary("C", "All", "ALL", "");
+    expect(cAllVoicings.length).toBeGreaterThan(30);
+
+    // Verify presence of complex qualities in results
+    const foundQualities = new Set(cAllVoicings.map(v => v.quality));
+    expect(foundQualities.has("7")).toBe(true);
+    expect(foundQualities.has("maj7")).toBe(true);
+    expect(foundQualities.has("m7")).toBe(true);
+    expect(foundQualities.has("dim")).toBe(true);
+    expect(foundQualities.has("aug")).toBe(true);
+    expect(foundQualities.has("sus4")).toBe(true);
+    expect(foundQualities.has("add9")).toBe(true);
+  });
+});
 
 describe("Chord Voicing Semantic Verification", () => {
   it("strictly validates voicing chord tones against chord formula", () => {

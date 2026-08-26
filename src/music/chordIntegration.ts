@@ -1,9 +1,9 @@
 import { parseChordSymbol } from "./chordParser";
 import { generateVoicings, GeneratedVoicing } from "./chordVoicingGenerator";
-import { buildChord } from "./chordTheory";
+import { buildChord, ALL_SUPPORTED_QUALITIES } from "./chordTheory";
 import { ChordVoicing } from "../types";
 
-const ALIAS_MAP: Record<string, string> = {
+export const ALIAS_MAP: Record<string, string> = {
   "All": "",
   "Major": "maj",
   "Minor": "min",
@@ -54,7 +54,7 @@ export function getChordsForDictionary(
   } else {
     const roots = rootName === "All" ? ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "G#", "A", "Bb", "B"] : [rootName];
     const qualities = qualityName === "All" 
-      ? ["Major", "Minor", "7", "maj7", "m7", "sus4", "add9", "dim7"]
+      ? ALL_SUPPORTED_QUALITIES
       : [qualityName];
       
     for (const r of roots) {

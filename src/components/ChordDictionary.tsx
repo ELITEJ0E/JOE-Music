@@ -16,33 +16,10 @@ import { guitarSynth } from "../audio/guitarSynth";
 import { ChordVoicing } from "../types";
 import { ChordDiagram } from "./ChordDiagram";
 import { FretboardView } from "./FretboardView";
-import { buildChord } from "../music/chordTheory";
+import { buildChord, ALL_SUPPORTED_QUALITIES } from "../music/chordTheory";
 
-const ROOTS = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-const QUALITIES = [
-  "All",
-  "Major",
-  "Minor",
-  "5",
-  "dim",
-  "aug",
-  "sus2",
-  "sus4",
-  "6",
-  "m6",
-  "7",
-  "maj7",
-  "m7",
-  "dim7",
-  "m7b5",
-  "add9",
-  "9",
-  "m9",
-  "maj9",
-  "11",
-  "m11",
-  "13",
-];
+const ROOTS = ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"];
+const QUALITIES = ["All", ...ALL_SUPPORTED_QUALITIES];
 const CAGED_SHAPES = ["ALL", "C", "A", "G", "E", "D"];
 
 export const ChordDictionary: React.FC = () => {
@@ -241,9 +218,15 @@ export const ChordDictionary: React.FC = () => {
                   </div>
 
                   <div className="flex items-center space-x-1.5 sm:space-x-2">
-                    <span className="text-[9px] sm:text-[10px] font-mono text-[#a3ff12] px-1.5 sm:px-2 py-0.5 rounded-md bg-[#a3ff12]/15 border border-[#a3ff12]/30">
-                      {chord.difficulty || "Open"}
-                    </span>
+                    {chord.voicingType === "simplified" ? (
+                      <span className="text-[9px] sm:text-[10px] font-mono text-amber-400 px-1.5 sm:px-2 py-0.5 rounded-md bg-amber-500/15 border border-amber-500/30">
+                        Simplified
+                      </span>
+                    ) : (
+                      <span className="text-[9px] sm:text-[10px] font-mono text-[#a3ff12] px-1.5 sm:px-2 py-0.5 rounded-md bg-[#a3ff12]/15 border border-[#a3ff12]/30">
+                        {chord.difficulty || "Open"}
+                      </span>
+                    )}
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
