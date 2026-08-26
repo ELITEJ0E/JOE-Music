@@ -4,8 +4,6 @@
 import { normalizeChord } from "./chordNormalizer";
 import { NOTE_NAMES, scoreCandidate } from "./chordScoring";
 
-const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-
 // Define Chord Qualities
 const QUALITIES = [
   { q: "maj", p: [0, 4, 7], label: "" },

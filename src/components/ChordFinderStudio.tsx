@@ -791,30 +791,57 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                 </div>
               </div>
 
+              {/* Dedicated Sounding / Capo / Play Shape Overview HUD */}
+              {activeChord.isValid && (
+                <div className="grid grid-cols-3 gap-2 bg-black/40 border border-white/10 rounded-2xl p-2.5 sm:p-3 text-center font-mono select-none">
+                  <div className="flex flex-col items-center justify-center border-r border-white/10 pr-2">
+                    <span className="text-[9px] sm:text-[10px] uppercase font-bold tracking-wider text-zinc-400">SOUNDING</span>
+                    <span className="text-sm sm:text-base font-extrabold text-zinc-100">{activeChord.transposedChord}</span>
+                  </div>
+                  <div className="flex flex-col items-center justify-center border-r border-white/10 px-2">
+                    <span className="text-[9px] sm:text-[10px] uppercase font-bold tracking-wider text-zinc-400">CAPO</span>
+                    <span className={`text-sm sm:text-base font-extrabold ${capo > 0 ? "text-sky-400" : "text-zinc-300"}`}>
+                      {capo > 0 ? `${capo}` : "0"}
+                    </span>
+                  </div>
+                  <div className="flex flex-col items-center justify-center pl-2">
+                    <span className="text-[9px] sm:text-[10px] uppercase font-bold tracking-wider text-zinc-400">PLAY</span>
+                    <span className="text-sm sm:text-base font-black text-[#a3ff12]">
+                      {capo > 0 ? activeChord.shapeChord : activeChord.transposedChord}
+                    </span>
+                  </div>
+                </div>
+              )}
+
               {/* Large Chord Triad Display */}
               <div className="flex flex-col items-center justify-center py-2 sm:py-3 border-y border-white/5">
                 <div className="flex items-center justify-around w-full">
                   {/* Previous Chord */}
                   <div className="text-center opacity-40">
                     <div className="text-xl sm:text-3xl font-bold font-mono text-zinc-300">
-                      {prevChord.transposedChord}
+                      {capo > 0 && prevChord.isValid ? prevChord.shapeChord : prevChord.transposedChord}
                     </div>
+                    {capo > 0 && prevChord.isValid && (
+                      <div className="text-[8px] sm:text-[9px] font-mono text-zinc-400">
+                        {prevChord.transposedChord}
+                      </div>
+                    )}
                     <span className="text-[9px] sm:text-[10px] font-mono text-zinc-500">{prevChord.timeLabel}</span>
                   </div>
 
                   {/* Active Main Chord */}
                   <div className="text-center transform scale-105 sm:scale-120">
                     <div className="text-3xl sm:text-5xl font-black font-mono text-[#a3ff12] drop-shadow-[0_0_20px_rgba(163,255,18,0.4)]">
-                      {activeChord.transposedChord}
+                      {capo > 0 && activeChord.isValid ? activeChord.shapeChord : activeChord.transposedChord}
                     </div>
                     {capo > 0 && activeChord.isValid && (
                       <div className="mt-0.5 flex items-center justify-center gap-1.5">
                         <span className="px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-mono font-bold bg-sky-500/20 text-sky-400 border border-sky-500/30">
-                          Capo {capo} • Play {activeChord.shapeChord} shape
+                          Sounding: {activeChord.transposedChord}
                         </span>
                       </div>
                     )}
-                    {transpose !== 0 && activeChord.isValid && (
+                    {transpose !== 0 && activeChord.isValid && capo === 0 && (
                       <div className="text-[9px] font-mono text-zinc-400 mt-0.5">
                         Sounding (Original: {activeChord.detectedChord})
                       </div>
@@ -827,8 +854,13 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                   {/* Next Chord */}
                   <div className="text-center opacity-40">
                     <div className="text-xl sm:text-3xl font-bold font-mono text-zinc-300">
-                      {nextChord.transposedChord}
+                      {capo > 0 && nextChord.isValid ? nextChord.shapeChord : nextChord.transposedChord}
                     </div>
+                    {capo > 0 && nextChord.isValid && (
+                      <div className="text-[8px] sm:text-[9px] font-mono text-zinc-400">
+                        {nextChord.transposedChord}
+                      </div>
+                    )}
                     <span className="text-[9px] sm:text-[10px] font-mono text-zinc-500">{nextChord.timeLabel}</span>
                   </div>
                 </div>
@@ -842,8 +874,11 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                       {/* Simple compact header */}
                       <div className="flex items-center justify-between gap-2 mb-2 pb-2 border-b border-white/10 text-xs font-mono">
                         <div className="flex items-center gap-1.5 truncate">
-                          <span className="text-[#a3ff12] font-bold text-sm">
-                            {capo > 0 ? `${activeChord.shapeChord} shape` : activeChord.transposedChord}
+                          <span className="text-[#a3ff12] font-black text-sm sm:text-base">
+                            {capo > 0 && activeChord.isValid ? activeChord.shapeChord : activeChord.transposedChord}
+                          </span>
+                          <span className="text-[9px] text-zinc-400 font-semibold uppercase">
+                            {capo > 0 ? "Play Shape" : "Shape"}
                           </span>
                           {capo > 0 && (
                             <span className="text-[9px] sm:text-[10px] text-sky-400 font-semibold px-1.5 py-0.5 rounded bg-sky-400/10 border border-sky-400/20">
@@ -872,7 +907,9 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                             onClick={() =>
                               guitarSynth.strumChord(
                                 activeVoicingResult.voicing!.frets,
-                                "down"
+                                "down",
+                                24,
+                                capo
                               )
                             }
                             className="p-1 rounded bg-[#a3ff12]/10 hover:bg-[#a3ff12]/20 text-[#a3ff12] transition-colors"
@@ -973,7 +1010,9 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                     {segments.map((seg, idx) => {
                       const leftPct = duration > 0 ? (seg.startTime / duration) * 100 : 0;
                       const isCurrentSeg = currentTime >= seg.startTime && currentTime <= seg.endTime;
-                      const segmentTransposed = transposeChordSymbol(seg.chord, transpose, activeSong?.key);
+                      const segState = resolveChordFinderState(seg.chord, transpose, capo, activeSong?.key);
+                      const soundingChord = segState.transposedChord;
+                      const playShape = segState.shapeChord;
                       return (
                         <div
                           key={seg.id || idx}
@@ -984,8 +1023,11 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                           }`}
                           style={{ left: `${leftPct}%` }}
                         >
-                          <span className="bg-black/60 px-1 py-0.5 rounded backdrop-blur-xs">
-                            {segmentTransposed}
+                          <span className="bg-black/70 px-1 py-0.5 rounded backdrop-blur-xs flex items-center gap-1">
+                            <span className={isCurrentSeg ? "text-[#a3ff12]" : "text-zinc-200"}>{soundingChord}</span>
+                            {capo > 0 && segState.isValid && (
+                              <span className="text-[8px] text-sky-400 font-semibold opacity-90">({playShape})</span>
+                            )}
                           </span>
                         </div>
                       );
@@ -1024,7 +1066,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                       {/* Floating Active Drag Tooltip */}
                       {isDraggingTimeline && (
                         <div className="absolute -top-8 -translate-x-1/2 bg-black/95 border border-[#a3ff12] px-2.5 py-1 rounded-lg text-[10px] font-mono text-[#a3ff12] font-extrabold shadow-2xl whitespace-nowrap">
-                          {formatTime(currentTime)} {activeChord.transposedChord !== "-" ? `• ${activeChord.transposedChord}` : ""}
+                          {formatTime(currentTime)} {activeChord.transposedChord !== "-" ? `• ${capo > 0 ? activeChord.shapeChord : activeChord.transposedChord}` : ""}
                         </div>
                       )}
                     </div>

@@ -375,5 +375,180 @@ describe("JOE MUSIC — Capo & Voicing Mathematical Validation Pass", () => {
       // G/B lowest bass note is B (pitch class 11)
       expect(val.lowestBassPc).toBe(11);
     });
+
+    it("proves detected D/F# with Capo 2 resolves C/E shape with sounding bass F# and sounding voicing D/F#", () => {
+      const state = resolveChordFinderState("D/F#", 0, 2);
+      expect(state.detectedChord).toBe("D/F#");
+      expect(state.transposedChord).toBe("D/F#");
+      expect(state.shapeChord).toBe("C/E");
+
+      const parsedSounding = parseChordSymbol("D/F#")!;
+      const res = resolveGuitarChord(state.shapeChord, { capo: 2 });
+      expect(res.voicing).not.toBeNull();
+
+      const val = validateVoicingSounding(res.voicing!.frets, 2, parsedSounding.chord);
+      expect(val.isValid).toBe(true);
+      // D/F# lowest bass note is F# (pitch class 6)
+      expect(val.lowestBassPc).toBe(6);
+      // Sounding notes must contain D(2), F#(6), A(9)
+      expect(val.soundingPcs).toContain(2);
+      expect(val.soundingPcs).toContain(6);
+      expect(val.soundingPcs).toContain(9);
+    });
+  });
+
+  describe("7. JOE MUSIC — Final Capo & Play Shape Comprehensive Regression Suite", () => {
+    it("regression test: Test song progression at Capo 0", () => {
+      const detectedSequence = ["E", "B", "C#m7", "A", "E", "F#m7", "Bsus4"];
+      const expectedSounding = ["E", "B", "C#m7", "A", "E", "F#m7", "Bsus4"];
+      const expectedPlayShapes = ["E", "B", "C#m7", "A", "E", "F#m7", "Bsus4"];
+
+      for (let i = 0; i < detectedSequence.length; i++) {
+        const chord = detectedSequence[i];
+        const state = resolveChordFinderState(chord, 0, 0);
+
+        expect(state.detectedChord).toBe(expectedSounding[i]);
+        expect(state.transposedChord).toBe(expectedSounding[i]);
+        expect(state.shapeChord).toBe(expectedPlayShapes[i]);
+
+        // Resolve voicing for the play shape
+        const res = resolveGuitarChord(state.shapeChord, { capo: 0, detectedChord: state.detectedChord });
+        expect(res.voicing).not.toBeNull();
+
+        const diag = getChordDiagnosticInfo(
+          state.detectedChord,
+          state.transposedChord,
+          0,
+          state.shapeChord,
+          res.voicing!.frets
+        );
+        expect(diag.soundingMatch).toBe(true);
+        expect(diag.finalValidationResult).toBe("VALID");
+      }
+    });
+
+    it("regression test: Test song progression at Capo 2 (Sounding remains E..Bsus4, Play Shape becomes D..Asus4)", () => {
+      const detectedSequence = ["E", "B", "C#m7", "A", "E", "F#m7", "Bsus4"];
+      const expectedSounding = ["E", "B", "C#m7", "A", "E", "F#m7", "Bsus4"];
+      const expectedPlayShapes = ["D", "A", "Bm7", "G", "D", "Em7", "Asus4"];
+
+      for (let i = 0; i < detectedSequence.length; i++) {
+        const chord = detectedSequence[i];
+        const state = resolveChordFinderState(chord, 0, 2);
+
+        // Sounding timeline MUST remain E → B → C#m7 → A → E → F#m7 → Bsus4
+        expect(state.detectedChord).toBe(expectedSounding[i]);
+        expect(state.transposedChord).toBe(expectedSounding[i]);
+        // Play shape MUST resolve to D → A → Bm7 → G → D → Em7 → Asus4
+        expect(state.shapeChord).toBe(expectedPlayShapes[i]);
+
+        // Resolve voicing for play shape with Capo 2
+        const res = resolveGuitarChord(state.shapeChord, { capo: 2, detectedChord: state.detectedChord });
+        expect(res.voicing).not.toBeNull();
+
+        const diag = getChordDiagnosticInfo(
+          state.detectedChord,
+          state.transposedChord,
+          2,
+          state.shapeChord,
+          res.voicing!.frets
+        );
+        expect(diag.soundingMatch).toBe(true);
+        expect(diag.finalValidationResult).toBe("VALID");
+        expect(diag.missingChordTones).toEqual([]);
+        expect(diag.foreignChordTones).toEqual([]);
+      }
+    });
+
+    it("regression test: Individual Chord Mappings at Capo 2", () => {
+      const testCases: [string, string][] = [
+        ["C", "Bb"],
+        ["D", "C"],
+        ["E", "D"],
+        ["A", "G"],
+        ["B", "A"],
+        ["C#m7", "Bm7"],
+        ["F#m7", "Em7"],
+        ["Bsus4", "Asus4"],
+      ];
+
+      for (const [sounding, expectedShape] of testCases) {
+        const state = resolveChordFinderState(sounding, 0, 2);
+        expect(state.detectedChord).toBe(sounding);
+        expect(state.shapeChord).toBe(expectedShape);
+
+        const res = resolveGuitarChord(state.shapeChord, { capo: 2, detectedChord: state.detectedChord });
+        expect(res.voicing).not.toBeNull();
+
+        const diag = getChordDiagnosticInfo(
+          state.detectedChord,
+          state.transposedChord,
+          2,
+          state.shapeChord,
+          res.voicing!.frets
+        );
+        expect(diag.soundingMatch).toBe(true);
+      }
+    });
+
+    it("regression test: Capo Step Shift 0 → 1 → 2 → 3 for Sounding E", () => {
+      const sounding = "E";
+      const expectedSteps: { capo: number; expectedShape: string }[] = [
+        { capo: 0, expectedShape: "E" },
+        { capo: 1, expectedShape: "Eb" }, // or D#
+        { capo: 2, expectedShape: "D" },
+        { capo: 3, expectedShape: "C#" }, // or Db
+      ];
+
+      for (const step of expectedSteps) {
+        const state = resolveChordFinderState(sounding, 0, step.capo);
+        expect(state.detectedChord).toBe("E");
+        expect(state.transposedChord).toBe("E");
+        expect(state.shapeChord).toBe(step.expectedShape);
+
+        const res = resolveGuitarChord(state.shapeChord, { capo: step.capo, detectedChord: state.detectedChord });
+        expect(res.voicing).not.toBeNull();
+
+        const diag = getChordDiagnosticInfo(
+          state.detectedChord,
+          state.transposedChord,
+          step.capo,
+          state.shapeChord,
+          res.voicing!.frets
+        );
+        expect(diag.soundingMatch).toBe(true);
+        expect(diag.finalValidationResult).toBe("VALID");
+      }
+    });
+
+    it("proves changing voicing modes (Best, Easy, Open, Barre, Finger) preserves sounding chord and detectedChord", () => {
+      const sounding = "C#m7";
+      const capo = 2; // shape Bm7
+      const modes = ["standard", "easy", "open", "barre", "fingerstyle"] as const;
+
+      for (const mode of modes) {
+        const state = resolveChordFinderState(sounding, 0, capo);
+        expect(state.detectedChord).toBe("C#m7");
+        expect(state.shapeChord).toBe("Bm7");
+
+        const res = resolveGuitarChord(state.shapeChord, {
+          capo,
+          playabilityMode: mode,
+          detectedChord: state.detectedChord,
+        });
+        expect(res.detectedChord).toBe("C#m7");
+        expect(res.voicing).not.toBeNull();
+
+        const diag = getChordDiagnosticInfo(
+          state.detectedChord,
+          state.transposedChord,
+          capo,
+          state.shapeChord,
+          res.voicing!.frets
+        );
+        expect(diag.soundingMatch).toBe(true);
+        expect(diag.finalValidationResult).toBe("VALID");
+      }
+    });
   });
 });

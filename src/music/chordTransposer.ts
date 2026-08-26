@@ -7,9 +7,9 @@ import { getPitchClass, PitchClass } from "./chordTheory";
 export const PITCH_NAMES_SHARP = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 export const PITCH_NAMES_FLAT  = ["C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B"];
 
-// Pitch classes that are naturally flat or sharp in guitar / pop notation
+// Pitch classes that are naturally flat in guitar / pop notation
 // 0=C, 1=C#/Db, 2=D, 3=Eb, 4=E, 5=F, 6=F#, 7=G, 8=Ab/G#, 9=A, 10=Bb, 11=B
-const FLAT_ROOT_PCS = new Set([5, 10, 3, 8, 1]); // F, Bb, Eb, Ab, Db
+const FLAT_ROOT_PCS = new Set([5, 10, 3, 8]); // F, Bb, Eb, Ab
 
 /**
  * Determines whether a given root pitch class or key context prefers flat note spelling.
@@ -18,8 +18,8 @@ export function prefersFlatSpelling(rootPc: PitchClass, keyContext?: string): bo
   if (keyContext) {
     const cleanKey = keyContext.trim().toUpperCase();
     if (cleanKey.includes("B") && !cleanKey.includes("#")) return true;
-    if (cleanKey.includes("FLAT") || cleanKey.startsWith("F")) return true;
-    if (cleanKey === "C MIN" || cleanKey === "G MIN" || cleanKey === "D MIN") return true;
+    if (cleanKey.includes("FLAT") || cleanKey.startsWith("F") || cleanKey.startsWith("BB") || cleanKey.startsWith("EB") || cleanKey.startsWith("AB") || cleanKey.startsWith("DB")) return true;
+    if (cleanKey === "C MIN" || cleanKey === "G MIN" || cleanKey === "D MIN" || cleanKey === "F MIN") return true;
   }
   return FLAT_ROOT_PCS.has(rootPc);
 }
@@ -94,6 +94,10 @@ const CHORD_COMPONENTS_REGEX = /^([A-G][#b]?)([^/]*)(?:\/([A-G][#b]?))?$/;
 export function transposeChordSymbol(chordSymbol: string, semitones: number, keyContext?: string): string {
   if (!chordSymbol || chordSymbol === "-" || chordSymbol.toLowerCase() === "unknown chord") {
     return chordSymbol || "-";
+  }
+
+  if (semitones === 0) {
+    return chordSymbol.trim();
   }
 
   const match = chordSymbol.trim().match(CHORD_COMPONENTS_REGEX);
