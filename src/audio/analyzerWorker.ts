@@ -3,6 +3,7 @@
 
 import { normalizeChord } from "./chordNormalizer";
 import { NOTE_NAMES, scoreCandidate } from "./chordScoring";
+import { stabilizeChordSegments } from "./harmonicStabilizer";
 
 // Define Chord Qualities
 const QUALITIES = [
@@ -652,18 +653,29 @@ self.onmessage = function (e) {
       });
     }
 
-    // Diagnostics calculations
-    const segDurations = finalSegments.map(s => s.endTime - s.startTime);
-    const avgSegmentDuration = Number((segDurations.reduce((a, b) => a + b, 0) / (segDurations.length || 1)).toFixed(2));
+    // Apply Post-MIR Harmonic Stabilization & Musical Segmentation Layer
+    const rawChordSegmentCount = finalSegments.length;
+    const stabilizationResult = stabilizeChordSegments(finalSegments, {
+      beats,
+      tempo: estimatedBpm,
+      keyContext: estimatedKey,
+      duration,
+    });
+    const stabilizedSegments = stabilizationResult.segments;
+    const stabDiag = stabilizationResult.diagnostics;
+
+    // Diagnostics calculations based on stabilized timeline
+    const segDurations = stabilizedSegments.map(s => s.endTime - s.startTime);
+    const avgSegmentDuration = Number((segDurations.reduce((a, b) => a + b, 0) / (stabilizedSegments.length || 1)).toFixed(2));
     const sortedDurs = [...segDurations].sort((a, b) => a - b);
     const medianSegmentDuration = Number((sortedDurs[Math.floor(sortedDurs.length / 2)] || 0).toFixed(2));
     const minSegmentDuration = Number((sortedDurs[0] || 0).toFixed(2));
     const maxSegmentDuration = Number((sortedDurs[sortedDurs.length - 1] || 0).toFixed(2));
 
-    const numChordChanges = Math.max(0, finalSegments.length - 1);
+    const numChordChanges = Math.max(0, stabilizedSegments.length - 1);
     const changesPerMinute = Number((numChordChanges / ((duration / 60) || 1)).toFixed(1));
-    const averageChordConfidence = Math.round(finalSegments.reduce((a, b) => a + b.confidence, 0) / (finalSegments.length || 1));
-    const averageTransitionConfidence = Math.round(finalSegments.reduce((a, b) => a + b.stability, 0) / (finalSegments.length || 1));
+    const averageChordConfidence = Math.round(stabilizedSegments.reduce((a, b) => a + b.confidence, 0) / (stabilizedSegments.length || 1));
+    const averageTransitionConfidence = Math.round(stabilizedSegments.reduce((a, b) => a + b.stability, 0) / (stabilizedSegments.length || 1));
 
     // Group into logical UI sections
     const sections = [];
@@ -672,9 +684,9 @@ self.onmessage = function (e) {
     let currentSecChords = [];
     let currentSecStart = 0;
     
-    finalSegments.forEach(seg => {
+    stabilizedSegments.forEach(seg => {
       currentSecChords.push(seg.chord);
-      if (seg.endTime - currentSecStart > 16 || seg.id === finalSegments[finalSegments.length-1].id) {
+      if (seg.endTime - currentSecStart > 16 || seg.id === stabilizedSegments[stabilizedSegments.length-1].id) {
         if (currentSecChords.length > 0) {
           sections.push({
             name: sectionNames[secIdx % sectionNames.length],
@@ -691,8 +703,8 @@ self.onmessage = function (e) {
       }
     });
 
-    const uniqueChords = Array.from(new Set(finalSegments.map(s => s.chord)));
-    const overallConfidence = finalSegments.reduce((a,b) => a + b.confidence, 0) / (finalSegments.length || 1);
+    const uniqueChords = Array.from(new Set(stabilizedSegments.map(s => s.chord)));
+    const overallConfidence = stabilizedSegments.reduce((a,b) => a + b.confidence, 0) / (stabilizedSegments.length || 1);
 
     reportProgress("Analysis Complete", 100);
 
@@ -703,7 +715,7 @@ self.onmessage = function (e) {
         tuningDeviationCents,
         key: estimatedKey,
         sections,
-        chordSegments: finalSegments,
+        chordSegments: stabilizedSegments,
         uniqueChords,
         overallConfidence: Math.min(99, Math.round(overallConfidence)),
         beats,
@@ -721,8 +733,13 @@ self.onmessage = function (e) {
           hasNaNOrInf,
           viterbiInputDims: `${numFrames}x${nStates}`,
           viterbiOutputLen: statePath.length,
-          rawChordSegmentCount: rawSegments.length,
-          finalChordSegmentCount: finalSegments.length,
+          rawChordSegmentCount,
+          finalChordSegmentCount: stabilizedSegments.length,
+          rawSegmentCount: stabDiag.rawSegmentCount,
+          stabilizedSegmentCount: stabDiag.stabilizedSegmentCount,
+          mergedSegments: stabDiag.mergedSegments,
+          rejectedTransientSlashSegments: stabDiag.rejectedTransientSlashSegments,
+          finalProgression: stabDiag.finalProgression,
           avgSegmentDuration,
           medianSegmentDuration,
           minSegmentDuration,

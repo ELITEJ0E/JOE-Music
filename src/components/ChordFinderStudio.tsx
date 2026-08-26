@@ -23,6 +23,7 @@ import { resolveGuitarChord, GuitarVoicingResult } from "../audio/guitarChordRes
 import { parseChordLabel } from "../audio/chordNormalizer";
 import { guitarSynth } from "../audio/guitarSynth";
 import { analyzeAudioFile } from "../audio/audioAnalyzer";
+import { stabilizeChordSegments } from "../audio/harmonicStabilizer";
 import { audioEngine } from "../audio/audioContext";
 import { SongAnalysis, SavedSong } from "../types";
 import { resolveChordFinderState, transposeChordSymbol } from "../music/chordTransposer";
@@ -192,7 +193,13 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
   const segments = React.useMemo(() => {
     if (!activeSong) return [];
     if (activeSong.chordSegments && activeSong.chordSegments.length > 0) {
-      return activeSong.chordSegments;
+      const stabilized = stabilizeChordSegments(activeSong.chordSegments, {
+        beats: activeSong.beats,
+        tempo: activeSong.tempo,
+        keyContext: activeSong.key,
+        duration: activeSong.duration,
+      });
+      return stabilized.segments;
     }
     // Generate simulated segments for visualization if missing
     let t = 0;
@@ -1133,7 +1140,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
               </div>
 
               {/* Detection & Voicing Confidence Badges */}
-              <div className="flex items-center justify-center gap-3 text-[10px] sm:text-[11px] font-mono pt-1">
+              <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3 text-[10px] sm:text-[11px] font-mono pt-1">
                 <div className="flex items-center gap-1.5 bg-white/5 px-2.5 py-1 rounded-xl border border-white/5">
                   <span className="text-zinc-400">Detection Confidence:</span>
                   <span className="text-[#a3ff12] font-bold">{activeVoicingResult.detectionConfidence}%</span>
@@ -1142,6 +1149,22 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                   <span className="text-zinc-400">Voicing Confidence:</span>
                   <span className="text-white font-bold">{activeVoicingResult.voicingConfidence}%</span>
                 </div>
+                {activeSong?.diagnostics && (
+                  <div className="flex items-center gap-1.5 bg-white/5 px-2.5 py-1 rounded-xl border border-white/5">
+                    <span className="text-zinc-400">Segments:</span>
+                    <span className="text-zinc-300">
+                      {activeSong.diagnostics.rawSegmentCount ?? activeSong.diagnostics.rawChordSegmentCount ?? segments.length} raw →{" "}
+                      <span className="text-[#a3ff12] font-bold">
+                        {activeSong.diagnostics.stabilizedSegmentCount ?? activeSong.diagnostics.finalChordSegmentCount ?? segments.length} stabilized
+                      </span>
+                    </span>
+                    {(activeSong.diagnostics.rejectedTransientSlashSegments ?? 0) > 0 && (
+                      <span className="text-amber-400 text-[10px] ml-1">
+                        ({activeSong.diagnostics.rejectedTransientSlashSegments} transient slashes filtered)
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
             </>
           ) : (

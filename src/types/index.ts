@@ -75,6 +75,7 @@ export interface ChordSegment {
   voicingType?: "exact" | "simplified" | "generated" | "none";
   simplificationReason?: string;
   voicing?: ChordVoicing | null;
+  diagnostics?: any;
 }
 
 export interface SongAnalysis {
@@ -119,6 +120,11 @@ export interface SongAnalysis {
     viterbiOutputLen: number;
     rawChordSegmentCount: number;
     finalChordSegmentCount: number;
+    rawSegmentCount?: number;
+    stabilizedSegmentCount?: number;
+    mergedSegments?: number;
+    rejectedTransientSlashSegments?: number;
+    finalProgression?: string[];
     avgSegmentDuration?: number;
     medianSegmentDuration?: number;
     minSegmentDuration?: number;
