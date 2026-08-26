@@ -199,35 +199,12 @@ export const DeviceSettingsModal: React.FC<DeviceSettingsModalProps> = ({
   const isLavaDetected = currentInputDev?.label.toLowerCase().includes("lava") || 
     audioInputDevices.some(d => d.label.toLowerCase().includes("lava"));
 
-  // 5 Connection Statuses: Disconnected, Device detected, Audio input available, Receiving guitar signal, Unsupported
-  const isBrowserSupported = typeof navigator !== "undefined" && !!navigator.mediaDevices && !!navigator.mediaDevices.getUserMedia;
   const isSignalReceived = isInputActive && inputDb > -52;
 
-  let connectionStatus: "UNSUPPORTED" | "DISCONNECTED" | "DEVICE_DETECTED" | "AUDIO_INPUT_AVAILABLE" | "RECEIVING_GUITAR_SIGNAL";
-  let statusBadgeColor = "bg-red-500";
-  let statusLabel = "Disconnected";
-
-  if (!isBrowserSupported) {
-    connectionStatus = "UNSUPPORTED";
-    statusBadgeColor = "bg-zinc-600";
-    statusLabel = "Unsupported";
-  } else if (audioInputDevices.length === 0) {
-    connectionStatus = "DISCONNECTED";
-    statusBadgeColor = "bg-red-500";
-    statusLabel = "Disconnected";
-  } else if (isSignalReceived) {
-    connectionStatus = "RECEIVING_GUITAR_SIGNAL";
-    statusBadgeColor = "bg-[#a3ff12] animate-pulse";
-    statusLabel = isLavaDetected ? "LAVA ME PLAY • Receiving Signal" : "Audio Input • Receiving Signal";
-  } else if (isInputActive) {
-    connectionStatus = "AUDIO_INPUT_AVAILABLE";
-    statusBadgeColor = "bg-sky-400";
-    statusLabel = isLavaDetected ? "LAVA ME PLAY • Input Active" : "Audio Input Active";
-  } else {
-    connectionStatus = "DEVICE_DETECTED";
-    statusBadgeColor = isLavaDetected ? "bg-amber-400" : "bg-zinc-400";
-    statusLabel = isLavaDetected ? "LAVA ME PLAY Detected (Standby)" : "Device Detected (Standby)";
-  }
+  // Strict binary connection status based on active input / real signal
+  const isConnected = isInputActive;
+  const statusBadgeColor = isConnected ? "bg-[#a3ff12] animate-pulse" : "bg-red-500";
+  const statusLabel = isConnected ? "CONNECTED" : "NOT CONNECTED";
 
   const meterPercent = isInputActive ? Math.max(0, Math.min(100, ((inputDb + 65) / 65) * 100)) : 0;
   const activeDeviceTitle = isLavaDetected

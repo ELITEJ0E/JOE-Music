@@ -3,8 +3,6 @@ import {
   Search,
   Sliders,
   AudioWaveform,
-  Radio,
-  Clock,
   User,
   Settings,
   Volume2,
@@ -83,59 +81,13 @@ export const TopHeaderBar: React.FC<TopHeaderBarProps> = ({
     };
   }, []);
 
-  // Determine actual connection status
-  const isMicActive = inputState === "READY" || inputState === "MONITORING" || inputState === "RECORDING";
-  const isLavaDetected = devices.some((d) => d.label.toLowerCase().includes("lava"));
+  // Real active input or hardware detection
+  const isConnected = (inputState === "READY" || inputState === "MONITORING" || inputState === "RECORDING") || isReceivingSignal;
 
-  let pillLabel = "NO GUITAR CONNECTED";
-  let pillDotColor = "bg-zinc-600";
-  let pillBorder = "border-white/10";
-  let pillText = "text-zinc-400";
-
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    pillLabel = "AUDIO UNSUPPORTED";
-    pillDotColor = "bg-zinc-600";
-  } else if (devices.length === 0) {
-    pillLabel = "NO INPUT CONNECTED";
-    pillDotColor = "bg-red-500/80";
-    pillBorder = "border-red-500/20";
-    pillText = "text-zinc-400";
-  } else if (isLavaDetected) {
-    if (isReceivingSignal) {
-      pillLabel = "LAVA ME PLAY • RECEIVING";
-      pillDotColor = "bg-[#a3ff12] shadow-[0_0_8px_#a3ff12] animate-pulse";
-      pillBorder = "border-[#a3ff12]/40 bg-[#a3ff12]/10";
-      pillText = "text-white";
-    } else if (isMicActive) {
-      pillLabel = "LAVA ME PLAY • ACTIVE";
-      pillDotColor = "bg-[#a3ff12] shadow-[0_0_6px_#a3ff12]";
-      pillBorder = "border-[#a3ff12]/30";
-      pillText = "text-zinc-200";
-    } else {
-      pillLabel = "LAVA ME PLAY • DETECTED";
-      pillDotColor = "bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.5)]";
-      pillBorder = "border-amber-400/30";
-      pillText = "text-zinc-300";
-    }
-  } else {
-    // Non-LAVA audio input device
-    if (isReceivingSignal) {
-      pillLabel = "GUITAR IN • RECEIVING";
-      pillDotColor = "bg-[#a3ff12] shadow-[0_0_8px_#a3ff12] animate-pulse";
-      pillBorder = "border-[#a3ff12]/40 bg-[#a3ff12]/10";
-      pillText = "text-white";
-    } else if (isMicActive) {
-      pillLabel = "AUDIO IN • ACTIVE";
-      pillDotColor = "bg-sky-400 shadow-[0_0_6px_rgba(56,189,248,0.5)]";
-      pillBorder = "border-sky-400/30";
-      pillText = "text-zinc-200";
-    } else {
-      pillLabel = "GUITAR NOT CONNECTED";
-      pillDotColor = "bg-red-500/70";
-      pillBorder = "border-white/10";
-      pillText = "text-zinc-400";
-    }
-  }
+  const pillLabel = isConnected ? "CONNECTED" : "NOT CONNECTED";
+  const pillDotColor = isConnected ? "bg-[#a3ff12] shadow-[0_0_8px_#a3ff12]" : "bg-red-500/80";
+  const pillBorder = isConnected ? "border-[#a3ff12]/40 bg-[#a3ff12]/10" : "border-white/10";
+  const pillText = isConnected ? "text-[#a3ff12]" : "text-zinc-400";
 
   return (
     <header className="h-16 border-b border-white/10 bg-[#0a0c0e]/80 backdrop-blur-md px-6 flex items-center justify-between z-20 shrink-0">
@@ -188,15 +140,6 @@ export const TopHeaderBar: React.FC<TopHeaderBarProps> = ({
           </span>
         </button>
 
-        {/* Metronome / Rhythm Trigger */}
-        <button
-          onClick={onOpenMetronome}
-          className="w-9 h-9 rounded-xl bg-white/5 border border-white/10 hover:border-[#a3ff12]/40 flex items-center justify-center text-zinc-300 hover:text-white transition-colors"
-          title="Metronome / Rhythm"
-        >
-          <Clock className="w-4 h-4" />
-        </button>
-
         {/* Audio DSP Active Monitoring */}
         <button
           onClick={onOpenSettings}
@@ -204,15 +147,6 @@ export const TopHeaderBar: React.FC<TopHeaderBarProps> = ({
           title="Audio DSP Engine"
         >
           <AudioWaveform className="w-4 h-4 text-[#a3ff12]" />
-        </button>
-
-        {/* Broadcast / Wireless */}
-        <button
-          onClick={onOpenDevices}
-          className="w-9 h-9 rounded-xl bg-white/5 border border-white/10 hover:border-[#a3ff12]/40 flex items-center justify-center text-zinc-300 hover:text-white transition-colors"
-          title="Wireless & MIDI"
-        >
-          <Radio className="w-4 h-4" />
         </button>
 
         {/* Guitarist Profile Avatar */}

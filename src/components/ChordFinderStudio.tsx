@@ -419,14 +419,26 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
       const data = await response.json();
 
       if (!response.ok) {
-        setDialog({
-          isOpen: true,
-          title: "Song Search Failed",
-          message: data.error || "Failed to search and analyze song. Please check your query or try again.",
-          confirmText: "OK",
-          type: "alert",
-          onConfirm: () => setDialog((prev) => ({ ...prev, isOpen: false })),
-        });
+        if (data.requiresAudioUpload) {
+          if (data.title) setSongName(data.title);
+          setDialog({
+            isOpen: true,
+            title: "Audio Upload Required",
+            message: data.error,
+            confirmText: "Understood",
+            type: "alert",
+            onConfirm: () => setDialog((prev) => ({ ...prev, isOpen: false })),
+          });
+        } else {
+          setDialog({
+            isOpen: true,
+            title: "Song Search Failed",
+            message: data.error || "Failed to search and analyze song. Please check your query or try again.",
+            confirmText: "OK",
+            type: "alert",
+            onConfirm: () => setDialog((prev) => ({ ...prev, isOpen: false })),
+          });
+        }
       } else {
         data.title = data.title + " (AI-Estimated Chords)";
         data.id = `yt-analyzed-${Date.now()}`;

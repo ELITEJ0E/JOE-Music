@@ -25,7 +25,7 @@ import { SongsLibraryView, SunoSong } from "./components/SongsLibraryView";
 import { PWAInstallModal } from "./components/PWAInstallModal";
 import { usePWAInstall } from "./hooks/usePWAInstall";
 import { WorkstationMode, TonePreset } from "./types";
-import { Radio, Settings, User, Download } from "lucide-react";
+import { Settings, User, Download } from "lucide-react";
 
 export default function App() {
   const [activeMode, setActiveMode] = useState<WorkstationMode>("home");
@@ -110,13 +110,6 @@ export default function App() {
                 <span>Install</span>
               </button>
             )}
-            <button
-              onClick={() => setIsDevicesOpen(true)}
-              className="p-1.5 rounded-lg bg-[#14171c] text-zinc-300"
-              title="Wireless & Devices"
-            >
-              <Radio className="w-4 h-4" />
-            </button>
             <button
               onClick={() => setIsSettingsOpen(true)}
               className="p-1.5 rounded-lg bg-[#14171c] text-zinc-300"

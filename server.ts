@@ -71,6 +71,15 @@ async function startServer() {
       }
     }
 
+    if (isYoutubeUrl) {
+      return res.status(400).json({
+        error: "Direct YouTube audio extraction is technically unavailable in this environment due to CORS and browser restrictions. Please import an actual audio file for this track.",
+        requiresAudioUpload: true,
+        title: resolvedYoutubeTitle || songQuery,
+        artist: resolvedYoutubeAuthor || ""
+      });
+    }
+
     try {
       const ai = getAIClient();
       if (!ai) {
