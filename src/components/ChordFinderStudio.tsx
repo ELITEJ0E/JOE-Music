@@ -305,6 +305,65 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
   const activeChord = getDisplayChord(activeIdx);
   const nextChord = getDisplayChord(activeIdx + 1);
 
+  // REAL TIMING CHECK Diagnostic computation (Phase 6F)
+  const realTimingCheck = React.useMemo(() => {
+    if (!activeSong) return null;
+    const bpm = activeSong.tempo || 120;
+    const beatInterval = 60 / bpm;
+    const beat1 = activeSong.beats && activeSong.beats.length > 0 ? activeSong.beats[0] : 0;
+    
+    // Current beat and subdivision at currentTime
+    const elapsedFromBeat1 = Math.max(0, currentTime - beat1);
+    const totalBeatsElapsed = elapsedFromBeat1 / beatInterval;
+    const currentBeatNum = Math.floor(totalBeatsElapsed) + 1;
+    const barNum = Math.floor((currentBeatNum - 1) / 4) + 1;
+    const beatInBar = ((currentBeatNum - 1) % 4) + 1;
+    const fraction = totalBeatsElapsed - Math.floor(totalBeatsElapsed);
+    const isEighth = fraction >= 0.35 && fraction <= 0.65;
+    const currentSubdivision = isEighth ? `${beatInBar}&` : `${beatInBar}`;
+
+    // Active chord info
+    const activeSeg = segments[activeIdx] || segments[0];
+    const chordStart = activeSeg ? activeSeg.startTime : 0;
+
+    // Nearest beat to chord start
+    let nearestBeat = beat1;
+    let minDiff = Infinity;
+    if (activeSong.beats && activeSong.beats.length > 0) {
+      for (const b of activeSong.beats) {
+        const diff = Math.abs(b - chordStart);
+        if (diff < minDiff) {
+          minDiff = diff;
+          nearestBeat = b;
+        }
+      }
+    } else {
+      const beatIdx = Math.round((chordStart - beat1) / beatInterval);
+      nearestBeat = beat1 + beatIdx * beatInterval;
+    }
+
+    const offsetMs = Math.round((chordStart - nearestBeat) * 1000);
+
+    // Nearest subdivision for chord start (1, 1&, 2, 2&, 3, 3&, 4, 4&)
+    const eighthNote = beatInterval / 2;
+    const eighthIndex = Math.round((chordStart - beat1) / eighthNote);
+    const subBar = Math.floor(eighthIndex / 8) + 1;
+    const subBeat = Math.floor((eighthIndex % 8) / 2) + 1;
+    const subOffbeat = eighthIndex % 2 !== 0;
+    const subdivisionLabel = `Bar ${subBar}, Beat ${subOffbeat ? `${subBeat}&` : `${subBeat}`}`;
+
+    return {
+      bpm,
+      beat1: `${beat1.toFixed(3)}s`,
+      currentBeat: `Beat ${currentBeatNum} (Bar ${barNum}, ${currentSubdivision})`,
+      chordStart: `${chordStart.toFixed(3)}s`,
+      nearestBeat: `${nearestBeat.toFixed(3)}s (${subdivisionLabel})`,
+      offsetMs,
+      offsetDisplay: `${offsetMs >= 0 ? "+" : ""}${offsetMs} ms`,
+      activeChord: activeSeg ? activeSeg.chord : "N/A"
+    };
+  }, [activeSong, currentTime, segments, activeIdx]);
+
   // Seek helper that syncs currentTime and audio element
   const seekToTime = (newTime: number) => {
     const clamped = Math.max(0, Math.min(newTime, duration));
@@ -1155,6 +1214,49 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                   </div>
                 )}
               </div>
+
+              {/* REAL TIMING CHECK Diagnostic Panel (Phase 6F) */}
+              {realTimingCheck && (
+                <div className="w-full max-w-2xl mx-auto mt-2 bg-black/40 border border-white/10 rounded-2xl p-3 backdrop-blur-md">
+                  <div className="flex items-center justify-between border-b border-white/5 pb-2 mb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-[#a3ff12] animate-pulse" />
+                      <span className="text-[11px] font-mono font-bold text-white uppercase tracking-wider">REAL TIMING CHECK</span>
+                    </div>
+                    <span className="text-[10px] font-mono text-zinc-400">
+                      Active Chord: <span className="text-[#a3ff12] font-bold">{realTimingCheck.activeChord}</span>
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[10px] sm:text-[11px] font-mono">
+                    <div className="bg-white/5 p-2 rounded-xl border border-white/5">
+                      <span className="text-zinc-400 block text-[9px] uppercase">BPM</span>
+                      <span className="text-[#a3ff12] font-bold text-xs">{realTimingCheck.bpm} BPM</span>
+                    </div>
+                    <div className="bg-white/5 p-2 rounded-xl border border-white/5">
+                      <span className="text-zinc-400 block text-[9px] uppercase">Beat 1 (First Beat)</span>
+                      <span className="text-white font-bold text-xs">{realTimingCheck.beat1}</span>
+                    </div>
+                    <div className="bg-white/5 p-2 rounded-xl border border-white/5">
+                      <span className="text-zinc-400 block text-[9px] uppercase">Current Beat</span>
+                      <span className="text-white font-bold text-xs">{realTimingCheck.currentBeat}</span>
+                    </div>
+                    <div className="bg-white/5 p-2 rounded-xl border border-white/5">
+                      <span className="text-zinc-400 block text-[9px] uppercase">Chord Start</span>
+                      <span className="text-white font-bold text-xs">{realTimingCheck.chordStart}</span>
+                    </div>
+                    <div className="bg-white/5 p-2 rounded-xl border border-white/5">
+                      <span className="text-zinc-400 block text-[9px] uppercase">Nearest Beat</span>
+                      <span className="text-white font-bold text-xs">{realTimingCheck.nearestBeat}</span>
+                    </div>
+                    <div className="bg-white/5 p-2 rounded-xl border border-white/5">
+                      <span className="text-zinc-400 block text-[9px] uppercase">Offset in ms</span>
+                      <span className={`font-bold text-xs ${Math.abs(realTimingCheck.offsetMs) <= 30 ? "text-[#a3ff12]" : Math.abs(realTimingCheck.offsetMs) <= 75 ? "text-amber-400" : "text-rose-400"}`}>
+                        {realTimingCheck.offsetDisplay}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
             </>
           ) : (
             /* Empty State when no song is loaded yet */
