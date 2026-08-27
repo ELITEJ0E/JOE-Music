@@ -283,4 +283,57 @@ describe("Post-MIR Harmonic Stabilizer & Musical Segmentation Engine", () => {
     expect(result.segments[0].startTime).toBe(0.0);
     expect(result.segments[0].endTime).toBe(4.0);
   });
+
+  // Test 10: Owl City "Good Time" progression regression
+  it("10. Owl City progression regression: F -> C -> G -> Am should NOT be ruined by short transients", () => {
+    const rawSegments: ChordSegment[] = [
+      // F major (with a short Fm glitch at the start)
+      { id: "s0", chord: "Fm", root: "F", bass: "F", quality: "min", extensions: [], startTime: 0.0, endTime: 0.25, confidence: 75, stability: 70, diagnostics: { scoreMargin: 0.03, thirdEvidence: 0.2 } },
+      { id: "s1", chord: "F", root: "F", bass: "F", quality: "maj", extensions: [], startTime: 0.25, endTime: 1.5, confidence: 95, stability: 92, diagnostics: { scoreMargin: 0.3, thirdEvidence: 0.7 } },
+      
+      // C major (with a short glitch at boundary)
+      { id: "s2", chord: "F", root: "F", bass: "F", quality: "maj", extensions: [], startTime: 1.5, endTime: 1.7, confidence: 60, stability: 60, diagnostics: { scoreMargin: 0.05, thirdEvidence: 0.4 } },
+      { id: "s3", chord: "C", root: "C", bass: "C", quality: "maj", extensions: [], startTime: 1.7, endTime: 3.5, confidence: 94, stability: 90, diagnostics: { scoreMargin: 0.4, thirdEvidence: 0.8 } },
+      
+      // G major (with a G5 artifact)
+      { id: "s4", chord: "G5", root: "G", bass: "G", quality: "5", extensions: [], startTime: 3.5, endTime: 4.0, confidence: 70, stability: 65, diagnostics: { scoreMargin: 0.02, thirdEvidence: 0.1 } },
+      { id: "s5", chord: "G", root: "G", bass: "G", quality: "maj", extensions: [], startTime: 4.0, endTime: 5.5, confidence: 96, stability: 93, diagnostics: { scoreMargin: 0.5, thirdEvidence: 0.9 } },
+      
+      // Am
+      { id: "s6", chord: "Am", root: "A", bass: "A", quality: "min", extensions: [], startTime: 5.5, endTime: 7.5, confidence: 95, stability: 95, diagnostics: { scoreMargin: 0.3, thirdEvidence: 0.6 } }
+    ];
+
+    const beats: number[] = [];
+    for (let t = 0; t <= 8; t += 0.5) beats.push(t);
+
+    const result = stabilizeChordSegments(rawSegments, {
+      tempo: 126, // ~126 bpm for Good Time
+      beats,
+      duration: 7.5,
+    });
+
+    // The micro glitches (Fm, early F bleeding, G5) should be absorbed into the strong blocks.
+    expect(result.diagnostics.finalProgression).toEqual(["F", "C", "G", "Am"]);
+  });
+
+  // Test 11: Negative tests for transient bass notes
+  it("11. Transient passing tones should not disrupt the underlying chord progression", () => {
+    const rawSegments: ChordSegment[] = [
+      { id: "s0", chord: "C", root: "C", bass: "C", quality: "maj", extensions: [], startTime: 0.0, endTime: 1.8, confidence: 95, stability: 94 },
+      // Passing bass note creating C/B transient
+      { id: "s1", chord: "C/B", root: "C", bass: "B", quality: "maj", extensions: [], startTime: 1.8, endTime: 2.1, confidence: 80, stability: 70 },
+      // Passing chord Am7 transient
+      { id: "s2", chord: "Am7", root: "A", bass: "A", quality: "min7", extensions: [], startTime: 2.1, endTime: 2.3, confidence: 60, stability: 55, diagnostics: { scoreMargin: 0.02, thirdEvidence: 0.4 } },
+      { id: "s3", chord: "Am", root: "A", bass: "A", quality: "min", extensions: [], startTime: 2.3, endTime: 4.0, confidence: 96, stability: 95, diagnostics: { scoreMargin: 0.4, thirdEvidence: 0.8 } },
+    ];
+
+    const result = stabilizeChordSegments(rawSegments, {
+      tempo: 120,
+      beats: [0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0],
+      duration: 4.0,
+    });
+
+    // C/B should be absorbed into C (slash rejection), and the short Am7 into Am (transition glitch)
+    expect(result.diagnostics.finalProgression).toEqual(["C", "Am"]);
+  });
 });

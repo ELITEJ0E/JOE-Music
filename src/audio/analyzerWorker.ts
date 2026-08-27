@@ -445,8 +445,35 @@ self.onmessage = function (e) {
         meanBassChroma[k] = maxB > 0 ? meanBassChroma[k] / maxB : 0;
       }
 
+      // Helper: get diatonic chords for key
+      const [keyNote, keyQuality] = estimatedKey.split(" ");
+      const keyRootIdx = NOTE_NAMES.indexOf(keyNote);
+      let diatonicRoots: number[] = [];
+      let diatonicQualities: string[] = [];
+      
+      if (keyQuality === "Major") {
+        diatonicRoots = [0, 2, 4, 5, 7, 9, 11].map(iv => (keyRootIdx + iv) % 12);
+        diatonicQualities = ["maj", "min", "min", "maj", "maj", "min", "dim"];
+      } else {
+        diatonicRoots = [0, 2, 3, 5, 7, 8, 10].map(iv => (keyRootIdx + iv) % 12);
+        diatonicQualities = ["min", "dim", "maj", "min", "min", "maj", "maj"];
+      }
+
       // Evidence-Aware Scoring Function uses imported scoreCandidate
-      const scoredCandidates = CHORD_STATES.map(c => scoreCandidate(c, meanChroma, meanBassChroma));
+      const scoredCandidates = CHORD_STATES.map(c => {
+         const result = scoreCandidate(c, meanChroma, meanBassChroma);
+         
+         // 8. Weak Diatonic Prior
+         const diatonicIdx = diatonicRoots.indexOf(result.candidate.rootIdx);
+         if (diatonicIdx !== -1) {
+            const expectedQuality = diatonicQualities[diatonicIdx];
+            if (result.candidate.quality === expectedQuality || result.candidate.quality === expectedQuality + "7") {
+               result.score += 0.04; // Weak prior, won't override strong evidence
+               result.trebleScore += 0.04;
+            }
+         }
+         return result;
+      });
       
       // Step 1: Initial sort by score
       scoredCandidates.sort((a, b) => b.score - a.score);
@@ -469,8 +496,8 @@ self.onmessage = function (e) {
          const pcMin3 = (root + 3) % 12;
          const actualThirdEvidence = Math.max(meanChroma[pcMaj3], meanChroma[pcMin3]);
          
-         const POWER_CHORD_MARGIN = 0.15;
-         const POWER_CHORD_ABSENCE_THRESHOLD = 0.25;
+         const POWER_CHORD_MARGIN = 0.12;
+         const POWER_CHORD_ABSENCE_THRESHOLD = 0.12; // 6. Prevent G -> G5 if third is present even slightly
          
          // If third is moderately present OR the score margin isn't huge, fallback to the best triad
          if (actualThirdEvidence >= POWER_CHORD_ABSENCE_THRESHOLD || winner.score <= bestTriadScore + POWER_CHORD_MARGIN) {
@@ -482,6 +509,27 @@ self.onmessage = function (e) {
              // Re-sort so winner is at index 0 for consistency
              scoredCandidates.splice(scoredCandidates.indexOf(winner), 1);
              scoredCandidates.unshift(winner);
+         }
+      }
+      
+      // 7. Prevent false minor/major decisions (e.g. F vs Fm) when margin is small
+      if (winner.candidate.quality === "min" || winner.candidate.quality === "maj") {
+         const root = winner.candidate.rootIdx;
+         const isWinnerMinor = winner.candidate.quality === "min";
+         const oppQuality = isWinnerMinor ? "maj" : "min";
+         const opponent = scoredCandidates.find(c => c.candidate.rootIdx === root && c.candidate.quality === oppQuality);
+         
+         if (opponent) {
+             const margin = winner.score - opponent.score;
+             // If they are very close, and the opponent is the diatonic one, prefer the opponent
+             const oppDiatonicIdx = diatonicRoots.indexOf(opponent.candidate.rootIdx);
+             const oppIsDiatonic = oppDiatonicIdx !== -1 && diatonicQualities[oppDiatonicIdx] === oppQuality;
+             
+             if (margin < 0.05 && oppIsDiatonic) {
+                 winner = opponent;
+                 scoredCandidates.splice(scoredCandidates.indexOf(winner), 1);
+                 scoredCandidates.unshift(winner);
+             }
          }
       }
       
