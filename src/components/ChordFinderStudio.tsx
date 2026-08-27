@@ -17,6 +17,9 @@ import {
   Repeat,
   GripVertical,
   Clock,
+  Youtube,
+  Radio,
+  Volume2,
 } from "lucide-react";
 import { findChordByName } from "../data/chordDatabase";
 import { resolveGuitarChord, GuitarVoicingResult } from "../audio/guitarChordResolver";
@@ -32,6 +35,9 @@ import { arrangeChordProgression, ProgressionArrangementResult } from "../music/
 import { ChordDiagram } from "./ChordDiagram";
 import { CustomConfirmDialog } from "./ui/CustomConfirmDialog";
 import { TimelineScrubber } from "./ui/TimelineScrubber";
+import { YouTubeSyncPlayer } from "./YouTubeSyncPlayer";
+import { liveChordDetector, LiveChordDetection } from "../audio/liveChordDetector";
+import { extractYoutubeVideoId, getYoutubeThumbnail } from "../utils/youtubeHelper";
 import {
   saveSongToDB,
   loadSongsFromDB,
@@ -41,6 +47,7 @@ import {
 } from "../utils/storage";
 
 import { SunoSong } from "./SongsLibraryView";
+import { SAMPLE_SONGS } from "../data/sampleSongs";
 
 interface ChordFinderStudioProps {
   initialSong?: SunoSong | null;
@@ -52,6 +59,9 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
   const [youtubeUrl, setYoutubeUrl] = useState("");
   const [songName, setSongName] = useState("");
   const [analysisProgress, setAnalysisProgress] = useState<{ message: string; pct: number } | null>(null);
+  const [liveDetection, setLiveDetection] = useState<LiveChordDetection | null>(null);
+  const [showYouTubePlayer, setShowYouTubePlayer] = useState(true);
+  const [seekTrigger, setSeekTrigger] = useState<{ time: number; ts: number } | null>(null);
 
   // Analyze initial song if provided
   useEffect(() => {
@@ -141,19 +151,26 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
 
   // Load saved songs from database and restore last played song on mount
   useEffect(() => {
-    loadSongsFromDB().then((songs) => {
-      setSavedSongs(songs);
+    loadSongsFromDB().then(async (songs) => {
+      let songList = songs;
+      if (songs.length === 0) {
+        for (const sample of SAMPLE_SONGS) {
+          await saveSongToDB(sample as SavedSong);
+        }
+        songList = await loadSongsFromDB();
+      }
+      setSavedSongs(songList);
       const lastId = getLastPlayedSongId();
       if (lastId) {
-        const found = songs.find((s) => s.id === lastId);
+        const found = songList.find((s) => s.id === lastId);
         if (found) {
           setActiveSong(found);
           return;
         }
       }
-      if (songs.length > 0) {
-        setActiveSong(songs[0]);
-        saveLastPlayedSongId(songs[0].id);
+      if (songList.length > 0) {
+        setActiveSong(songList[0]);
+        saveLastPlayedSongId(songList[0].id);
       }
     });
   }, []);
@@ -235,6 +252,10 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
   useEffect(() => {
     let interval: number;
     if (isPlaying && !isDraggingTimeline) {
+      // If it's a YouTube track, YouTubeSyncPlayer handles real-time currentTime updates
+      if (activeSong?.youtubeVideoId) {
+        return;
+      }
       interval = window.setInterval(() => {
         if (audioRef.current && audioRef.current.src) {
           setCurrentTime(audioRef.current.currentTime);
@@ -265,7 +286,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
       }, 50);
     }
     return () => clearInterval(interval);
-  }, [isPlaying, duration, isRepeating, slowDown, isDraggingTimeline]);
+  }, [isPlaying, duration, isRepeating, slowDown, isDraggingTimeline, activeSong?.youtubeVideoId]);
 
   const barSeconds = Math.max(1.5, Math.min(4.0, (60 / (activeSong?.tempo || 120)) * 4));
 
@@ -368,6 +389,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
   const seekToTime = (newTime: number) => {
     const clamped = Math.max(0, Math.min(newTime, duration));
     setCurrentTime(clamped);
+    setSeekTrigger({ time: clamped, ts: Date.now() });
     if (audioRef.current && audioRef.current.src && !isNaN(audioRef.current.duration)) {
       audioRef.current.currentTime = clamped;
     }
@@ -485,58 +507,61 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
   const handleAnalyzeYoutube = async () => {
     const query = songName.trim() || youtubeUrl.trim();
     if (!query) return;
-    setAnalysisProgress({ message: "Searching song database...", pct: 50 });
+
+    // Detect if direct YouTube URL was pasted
+    const extractedId = extractYoutubeVideoId(query);
+
+    setAnalysisProgress({
+      message: extractedId
+        ? "Extracting YouTube audio & harmonic data..."
+        : "Searching song database & analyzing chords...",
+      pct: 35,
+    });
 
     try {
       const response = await fetch("/api/analyze-song", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ songQuery: query }),
+        body: JSON.stringify({ songQuery: query, youtubeUrl: youtubeUrl.trim() }),
       });
 
       const data = await response.json();
 
       if (!response.ok) {
-        if (data.requiresAudioUpload) {
-          if (data.title) setSongName(data.title);
-          setDialog({
-            isOpen: true,
-            title: "Audio Upload Required",
-            message: data.error,
-            confirmText: "Understood",
-            type: "alert",
-            onConfirm: () => setDialog((prev) => ({ ...prev, isOpen: false })),
-          });
-        } else {
-          setDialog({
-            isOpen: true,
-            title: "Song Search Failed",
-            message: data.error || "Failed to search and analyze song. Please check your query or try again.",
-            confirmText: "OK",
-            type: "alert",
-            onConfirm: () => setDialog((prev) => ({ ...prev, isOpen: false })),
-          });
-        }
+        setDialog({
+          isOpen: true,
+          title: "Song Analysis Notice",
+          message:
+            data.error ||
+            "Unable to retrieve chords for this query. Please verify the URL or try searching by Song Name and Artist.",
+          confirmText: "OK",
+          type: "alert",
+          onConfirm: () => setDialog((prev) => ({ ...prev, isOpen: false })),
+        });
       } else {
-        data.title = data.title + " (AI-Estimated Chords)";
-        data.id = `yt-analyzed-${Date.now()}`;
+        const videoId = data.youtubeVideoId || extractedId || "";
+        const songWithMeta: SavedSong = {
+          ...data,
+          youtubeVideoId: videoId,
+          youtubeUrl: videoId ? `https://www.youtube.com/watch?v=${videoId}` : query,
+          thumbnailUrl: data.thumbnailUrl || (videoId ? getYoutubeThumbnail(videoId, "hq") : undefined),
+          isYoutubeTrack: !!videoId,
+          lastPlayedAt: Date.now(),
+          savedAt: Date.now(),
+          id: data.id || `yt-${videoId || Date.now()}`,
+        };
+
         // Map legacy format to new format if needed
-        if (!data.chordSegments) {
+        if (!songWithMeta.chordSegments || songWithMeta.chordSegments.length === 0) {
           let t = 0;
-          data.chordSegments = (data.sections || []).flatMap((sec: any) =>
+          songWithMeta.chordSegments = (songWithMeta.sections || []).flatMap((sec: any) =>
             (sec.chords || []).map((c: string) => {
-              const seg = { chord: c, startTime: t, endTime: t + 2, confidence: 90 };
+              const seg = { chord: c, startTime: t, endTime: t + 2, confidence: 92 };
               t += 2;
               return seg;
             })
           );
         }
-
-        const songWithMeta: SavedSong = {
-          ...data,
-          lastPlayedAt: Date.now(),
-          savedAt: Date.now(),
-        };
 
         await saveSongToDB(songWithMeta);
         saveLastPlayedSongId(songWithMeta.id);
@@ -545,13 +570,16 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
 
         setCurrentTime(0);
         setIsPlaying(false);
+        setYoutubeUrl("");
+        setSongName("");
       }
     } catch (err) {
       console.error(err);
       setDialog({
         isOpen: true,
-        title: "Database Server Offline",
-        message: "A network error occurred while contacting the AI analysis server. Check your connection or try again later.",
+        title: "Connection Notice",
+        message:
+          "A network timeout or error occurred while contacting the AI chord engine. Please check your connection and try again.",
         confirmText: "OK",
         type: "error",
         onConfirm: () => setDialog((prev) => ({ ...prev, isOpen: false })),
@@ -564,17 +592,25 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
   useEffect(() => {
     return () => {
       audioEngine.releaseInput("chord-finder");
+      liveChordDetector.stop();
     };
   }, []);
 
   const toggleLiveMic = async () => {
     if (isLiveMic) {
+      liveChordDetector.stop();
       audioEngine.releaseInput("chord-finder");
       setIsLiveMic(false);
+      setLiveDetection(null);
     } else {
       try {
         await audioEngine.acquireInput("chord-finder");
-        setIsLiveMic(true);
+        const started = await liveChordDetector.start((detection) => {
+          setLiveDetection(detection);
+        });
+        if (started) {
+          setIsLiveMic(true);
+        }
       } catch (err) {
         setDialog({
           isOpen: true,
@@ -741,38 +777,50 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
         </div>
 
         {/* YouTube Link / Song Search */}
-        <div className="frosted-card rounded-3xl p-4 flex flex-col justify-between min-h-[140px]">
-          <div className="flex items-center space-x-2">
-            <LinkIcon className="w-4 h-4 text-zinc-400" />
-            <h3 className="text-xs font-bold font-mono text-zinc-200 uppercase tracking-wider">
-              AI Song Search
-            </h3>
+        <div className="frosted-card rounded-3xl p-4 flex flex-col justify-between min-h-[140px] border border-white/10 hover:border-red-500/30 transition-all">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <div className="w-5 h-5 rounded-lg bg-red-600/20 text-red-500 flex items-center justify-center border border-red-500/30">
+                <Youtube className="w-3 h-3" />
+              </div>
+              <h3 className="text-xs font-bold font-mono text-zinc-200 uppercase tracking-wider">
+                YouTube & Song Chords
+              </h3>
+            </div>
+            <span className="text-[9px] font-mono px-2 py-0.5 rounded-full bg-red-500/10 text-red-400 border border-red-500/20 font-bold">
+              SYNCED PLAYER
+            </span>
           </div>
 
           <div className="flex flex-col gap-2 mt-2">
-            <input
-              type="text"
-              placeholder="Song Name & Artist..."
-              value={songName}
-              onChange={(e) => setSongName(e.target.value)}
-              className="flex-1 bg-white/5 text-xs font-mono text-white rounded-xl px-3 py-2 border border-white/10 focus:border-[#a3ff12]/50 focus:outline-none placeholder:text-zinc-500"
-            />
             <div className="flex items-center gap-2">
               <input
                 type="text"
-                placeholder="Or paste YouTube URL..."
-                value={youtubeUrl}
-                onChange={(e) => setYoutubeUrl(e.target.value)}
+                placeholder="Paste YouTube Link or Song Title..."
+                value={youtubeUrl || songName}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setYoutubeUrl(val);
+                  setSongName(val);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !analysisProgress) {
+                    handleAnalyzeYoutube();
+                  }
+                }}
                 className="flex-1 bg-white/5 text-xs font-mono text-white rounded-xl px-3 py-2 border border-white/10 focus:border-[#a3ff12]/50 focus:outline-none placeholder:text-zinc-500"
               />
               <button
                 onClick={handleAnalyzeYoutube}
-                disabled={!!analysisProgress}
-                className="px-3 py-2 bg-[#a3ff12] hover:bg-[#92eb10] text-black font-extrabold text-xs rounded-xl transition-all cursor-pointer font-mono"
+                disabled={!!analysisProgress || (!youtubeUrl.trim() && !songName.trim())}
+                className="px-3.5 py-2 bg-[#a3ff12] hover:bg-[#92eb10] disabled:opacity-40 disabled:cursor-not-allowed text-black font-extrabold text-xs rounded-xl transition-all cursor-pointer font-mono shrink-0 shadow-[0_0_12px_rgba(163,255,18,0.2)]"
               >
-                {analysisProgress ? "..." : "SEARCH"}
+                {analysisProgress ? "..." : "TRANSCRIBE"}
               </button>
             </div>
+            <p className="text-[10px] font-mono text-zinc-400">
+              Paste YouTube video link or title to transcribe chords & sync video
+            </p>
           </div>
         </div>
 
@@ -869,6 +917,91 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
           </div>
         </div>
       ) : null}
+
+      {/* Live Acoustic Mic Listening HUD (Chord AI Listening Mode) */}
+      {isLiveMic && (
+        <div className="frosted-card rounded-3xl p-4 sm:p-5 border border-emerald-500/40 bg-[#061208]/90 shadow-[0_0_30px_rgba(16,185,129,0.15)] animate-in fade-in slide-in-from-top-2 duration-300">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3 pb-3 border-b border-emerald-500/20">
+            <div className="flex items-center space-x-3">
+              <div className="w-9 h-9 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/40 animate-pulse">
+                <Radio className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-mono font-bold text-emerald-400 uppercase tracking-wider">
+                    LIVE ACOUSTIC LISTENING (CHORD AI MODE)
+                  </span>
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                </div>
+                <p className="text-xs text-zinc-400">
+                  Listening to guitar / external YouTube audio via microphone in real-time
+                </p>
+              </div>
+            </div>
+
+            {liveDetection && (
+              <div className="flex items-center gap-2 font-mono text-xs">
+                <span className="px-2.5 py-1 bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 rounded-lg">
+                  BASS: {liveDetection.bassNote}
+                </span>
+                <span className="px-2.5 py-1 bg-emerald-500/20 text-emerald-400 font-bold border border-emerald-500/40 rounded-lg">
+                  {liveDetection.confidence}% CONFIDENCE
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Live Detected Chord Display & Chromagram Spectrum */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
+            <div className="bg-black/50 p-3 rounded-2xl border border-emerald-500/20 text-center">
+              <span className="text-[10px] font-mono uppercase text-zinc-400">DETECTED CHORD</span>
+              <div className="text-3xl sm:text-4xl font-black font-mono text-emerald-400 drop-shadow-[0_0_15px_rgba(52,211,153,0.5)]">
+                {liveDetection?.chord || "Listening..."}
+              </div>
+            </div>
+
+            <div className="md:col-span-2 bg-black/40 p-3 rounded-2xl border border-white/5">
+              <span className="text-[10px] font-mono uppercase text-zinc-400 block mb-1.5">
+                12-SEMITONE HARMONIC CHROMAGRAM (C → B)
+              </span>
+              <div className="grid grid-cols-12 gap-1 h-12 items-end">
+                {["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"].map((note, idx) => {
+                  const energy = liveDetection?.chroma ? liveDetection.chroma[idx] : 0;
+                  const isHigh = energy > 0.6;
+                  return (
+                    <div key={note} className="flex flex-col items-center h-full justify-end">
+                      <div
+                        className={`w-full rounded-t transition-all duration-75 ${
+                          isHigh ? "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]" : "bg-emerald-950/60"
+                        }`}
+                        style={{ height: `${Math.max(8, energy * 100)}%` }}
+                      />
+                      <span className="text-[8px] font-mono text-zinc-400 mt-1">{note}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Synchronized YouTube Video Player for YouTube Tracks */}
+      {activeSong?.youtubeVideoId && showYouTubePlayer && (
+        <YouTubeSyncPlayer
+          videoId={activeSong.youtubeVideoId}
+          title={activeSong.title}
+          artist={activeSong.artist}
+          currentTime={currentTime}
+          isPlaying={isPlaying}
+          seekTrigger={seekTrigger}
+          onTimeUpdate={(t) => setCurrentTime(t)}
+          onPlayStateChange={(p) => setIsPlaying(p)}
+          onSeek={(t) => seekToTime(t)}
+          playbackRate={slowDown ? 0.75 : 1.0}
+          onPlaybackRateChange={(rate) => setSlowDown(rate < 1.0)}
+        />
+      )}
 
       {/* Main Center Area: Side-by-Side Workspace Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">

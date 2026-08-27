@@ -57,10 +57,10 @@ export interface SongSection {
 export interface ChordSegment {
   id: string;
   chord: string;
-  root: string;
-  bass: string;
-  quality: string;
-  extensions: string[];
+  root?: string;
+  bass?: string;
+  quality?: string;
+  extensions?: string[];
   startTime: number;
   endTime: number;
   rawStartTime?: number;
@@ -102,6 +102,9 @@ export interface SongAnalysis {
   beats?: number[]; // Timestamps of detected beats
   tips?: string;
   youtubeUrl?: string;
+  youtubeVideoId?: string;
+  thumbnailUrl?: string;
+  isYoutubeTrack?: boolean;
   confidence?: number;
   audioBlob?: Blob;
   duration?: number;
