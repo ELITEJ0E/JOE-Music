@@ -28,6 +28,13 @@ async function startServer() {
     res.json({ status: "ok", timestamp: Date.now() });
   });
 
+  // Expose ONLY the VITE_AUDIO_EXTRACTOR_URL environment variable safely for client-side runtime recovery
+  app.get("/api/extractor-url", (req, res) => {
+    res.json({
+      url: process.env.VITE_AUDIO_EXTRACTOR_URL || process.env.AUDIO_EXTRACTOR_URL || ""
+    });
+  });
+
   // AI Chord Lookup & Song Progression Analyzer (with YouTube oEmbed metadata resolver)
   app.post("/api/analyze-song", async (req, res) => {
     try {

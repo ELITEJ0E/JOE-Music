@@ -426,18 +426,54 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
   };
 
   const handleAnalyzeYoutube = async () => {
-    const query = songName.trim() || youtubeUrl.trim();
+    const ytUrl = youtubeUrl.trim();
+    const sName = songName.trim();
+    const query = sName || ytUrl;
     if (!query) return;
+    
+    const isYtUrl = (val: string) => val.includes("youtube.com") || val.includes("youtu.be");
+    
+    let targetUrl = "";
+    if (isYtUrl(ytUrl)) {
+      targetUrl = ytUrl;
+    } else if (isYtUrl(sName)) {
+      targetUrl = sName;
+    }
 
-    const isYoutubeUrl = query.includes("youtube.com") || query.includes("youtu.be");
+    if (targetUrl) {
+      let extractorUrl = import.meta.env.VITE_AUDIO_EXTRACTOR_URL;
+      console.log("[YouTube Diagnostics] Build-time extractorConfigured:", !!extractorUrl);
+      
+      if (!extractorUrl) {
+        try {
+          const configRes = await fetch("/api/extractor-url");
+          if (configRes.ok) {
+            const configData = await configRes.json();
+            if (configData.url) {
+              extractorUrl = configData.url;
+              console.log("[YouTube Diagnostics] Recovered extractorUrl from backend runtime env!");
+            }
+          }
+        } catch (configErr) {
+          console.error("[YouTube Diagnostics] Failed to fetch runtime extractor URL:", configErr);
+        }
+      }
 
-    if (isYoutubeUrl) {
-      const extractorUrl = import.meta.env.VITE_AUDIO_EXTRACTOR_URL;
+      console.log("[YouTube Diagnostics] extractorConfigured:", !!extractorUrl);
+      if (extractorUrl) {
+        try {
+          const parsedUrl = new URL(extractorUrl);
+          console.log("[YouTube Diagnostics] extractorURL origin only:", parsedUrl.origin);
+        } catch (e) {
+          console.log("[YouTube Diagnostics] extractorURL origin only: invalid URL", extractorUrl);
+        }
+      }
+
       if (!extractorUrl) {
         setDialog({
           isOpen: true,
           title: "Configuration Error",
-          message: "Audio extractor not configured.",
+          message: "YouTube audio extractor is not configured.",
           confirmText: "OK",
           type: "error",
           onConfirm: () => setDialog((prev) => ({ ...prev, isOpen: false })),
@@ -448,44 +484,99 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
       abortControllerRef.current = new AbortController();
       setAnalysisProgress({ message: "Fetching audio from YouTube...", pct: 10 });
 
+      console.log("[YouTube Diagnostics] requestStarted: true, URL:", `${extractorUrl}/extract`);
+
+      let response: Response;
       try {
-        const response = await fetch(`${extractorUrl}/extract`, {
+        response = await fetch(`${extractorUrl}/extract`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url: query }),
+          body: JSON.stringify({ url: targetUrl }),
           signal: abortControllerRef.current.signal,
         });
+      } catch (fetchErr: any) {
+        if (fetchErr.name === "AbortError") {
+          throw fetchErr;
+        }
+        console.error("[YouTube Diagnostics] Network/CORS failure details:", fetchErr);
+        setDialog({
+          isOpen: true,
+          title: "Connection Failed",
+          message: "Unable to reach the YouTube audio extractor.",
+          confirmText: "OK",
+          type: "error",
+          onConfirm: () => setDialog((prev) => ({ ...prev, isOpen: false })),
+        });
+        setAnalysisProgress(null);
+        abortControllerRef.current = null;
+        return;
+      }
 
-        if (!response.ok) {
-          let errorMsg = "Failed to extract audio from YouTube.";
+      console.log("[YouTube Diagnostics] responseStatus:", response.status);
+      const responseContentType = response.headers.get("content-type") || "";
+      console.log("[YouTube Diagnostics] responseContentType:", responseContentType);
+
+      if (!response.ok) {
+        let errorMsg = "YouTube audio extraction failed.";
+        if (response.status === 500) {
+          errorMsg = "YouTube audio extraction failed.";
+        } else {
           try {
             const errData = await response.json();
             if (errData.error) errorMsg = errData.error;
           } catch (_) {}
-          
-          setDialog({
-            isOpen: true,
-            title: "Song Search Failed",
-            message: errorMsg,
-            confirmText: "OK",
-            type: "error",
-            onConfirm: () => setDialog((prev) => ({ ...prev, isOpen: false })),
-          });
-          setAnalysisProgress(null);
-          abortControllerRef.current = null;
-          return;
         }
 
-        const titleHeader = response.headers.get("X-Video-Title");
-        const artistHeader = response.headers.get("X-Video-Artist");
-        const title = titleHeader ? decodeURIComponent(titleHeader) : "YouTube Track";
-        const artist = artistHeader ? decodeURIComponent(artistHeader) : "";
+        setDialog({
+          isOpen: true,
+          title: "Extraction Failed",
+          message: errorMsg,
+          confirmText: "OK",
+          type: "error",
+          onConfirm: () => setDialog((prev) => ({ ...prev, isOpen: false })),
+        });
+        setAnalysisProgress(null);
+        abortControllerRef.current = null;
+        return;
+      }
 
-        const blob = await response.blob();
-        const file = new File([blob], `${title}.mp3`, { type: "audio/mpeg" });
+      const titleHeader = response.headers.get("X-Video-Title");
+      const artistHeader = response.headers.get("X-Video-Artist");
+      const title = titleHeader ? decodeURIComponent(titleHeader) : "YouTube Track";
+      const artist = artistHeader ? decodeURIComponent(artistHeader) : "";
+      console.log("[YouTube Diagnostics] Headers - X-Video-Title:", title, "X-Video-Artist:", artist);
 
-        setAnalysisProgress({ message: "Reading audio file...", pct: 30 });
-        
+      let blob: Blob;
+      try {
+        blob = await response.blob();
+      } catch (blobErr) {
+        console.error("[YouTube Diagnostics] Failed to read blob:", blobErr);
+        blob = new Blob([], { type: "audio/mpeg" });
+      }
+
+      console.log("[YouTube Diagnostics] blobSize:", blob.size);
+
+      if (!blob || blob.size === 0) {
+        setDialog({
+          isOpen: true,
+          title: "Extraction Error",
+          message: "YouTube extractor returned no audio.",
+          confirmText: "OK",
+          type: "error",
+          onConfirm: () => setDialog((prev) => ({ ...prev, isOpen: false })),
+        });
+        setAnalysisProgress(null);
+        abortControllerRef.current = null;
+        return;
+      }
+
+      const file = new File([blob], `${title}.mp3`, { type: "audio/mpeg" });
+      console.log("[YouTube Diagnostics] fileSize:", file.size);
+
+      console.log("[YouTube Diagnostics] analyzeAudioFileStarted: true");
+      setAnalysisProgress({ message: "Reading audio file...", pct: 30 });
+
+      try {
         const result = await analyzeAudioFile(
           file,
           (msg, pct) => setAnalysisProgress({ message: msg, pct: 30 + (pct * 0.7) }),
