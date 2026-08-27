@@ -508,6 +508,24 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
     const query = songName.trim() || youtubeUrl.trim();
     if (!query) return;
 
+    // Check if it matches a sample song first
+    const lowerQuery = query.toLowerCase();
+    const sampleMatch = SAMPLE_SONGS.find(
+      (s) => s.title.toLowerCase().includes(lowerQuery) || s.artist?.toLowerCase().includes(lowerQuery)
+    );
+
+    if (sampleMatch) {
+      await saveSongToDB(sampleMatch as SavedSong);
+      saveLastPlayedSongId(sampleMatch.id);
+      setActiveSong(sampleMatch as SavedSong);
+      loadSongsFromDB().then(setSavedSongs);
+      setCurrentTime(0);
+      setIsPlaying(false);
+      setYoutubeUrl("");
+      setSongName("");
+      return;
+    }
+
     // Detect if direct YouTube URL was pasted
     const extractedId = extractYoutubeVideoId(query);
 
@@ -530,7 +548,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
       if (!response.ok) {
         setDialog({
           isOpen: true,
-          title: "Song Analysis Notice",
+          title: "Analysis Notice",
           message:
             data.error ||
             "Unable to retrieve chords for this query. Please verify the URL or try searching by Song Name and Artist.",

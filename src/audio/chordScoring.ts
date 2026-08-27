@@ -99,10 +99,21 @@ export function scoreCandidate(
         // Slash penalties: 
         // Inversions (3rd, 5th in bass) are more common, lower penalty
         // Non-chord tones need massive evidence to overcome
-        let slashPenalty = isChordTone ? 0.3 : 0.6;
+        let slashPenalty = isChordTone ? 0.35 : 0.9;
+        
+        // Special case: 3rd in the bass (e.g. D/F#, C/E) is the most common inversion
+        const isThirdInBass = ((root + 3) % 12 === k || (root + 4) % 12 === k);
+        if (isThirdInBass && isChordTone) {
+            slashPenalty = 0.25;
+        }
         
         const bassRatio = bassEv / (rootBassEv + 1e-6);
-        if (bassRatio < 2.0) continue; // must be 2x stronger than root bass
+        // Bass must be substantially stronger than root in the bass region
+        if (bassRatio < 2.5) continue; 
+        
+        // If it is a non-chord tone slash (like E/A), the bass note MUST also 
+        // have some presence in the upper harmonic structure, otherwise it's just a transient bass movement
+        if (!isChordTone && meanChroma[k] < 0.25) continue;
         
         const slashScore = trebleScore + (bassEv * 0.15) - slashPenalty;
         

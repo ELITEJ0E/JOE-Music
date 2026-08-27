@@ -300,25 +300,34 @@ export function stabilizeChordSegments(
         continue;
       }
 
-      // Check if this is a fleeting 1-beat deviation surrounded by currentActiveChord
+      // Check if this is a fleeting deviation (1 or 2 beats) surrounded by currentActiveChord
+      let isFleeting = false;
       const nextBeat = i + 1 < beatDecisions.length ? beatDecisions[i + 1] : null;
-      const isFleeting = nextBeat && nextBeat.winningChord === currentActiveChord;
+      const nextNextBeat = i + 2 < beatDecisions.length ? beatDecisions[i + 2] : null;
+      
+      if (nextBeat && nextBeat.winningChord === currentActiveChord) {
+          isFleeting = true;
+      } else if (nextBeat && nextNextBeat && nextNextBeat.winningChord === currentActiveChord) {
+          isFleeting = true; // 2-beat fleeting
+      }
 
-      if (isFleeting) {
-        // Evaluate candidate strength vs active chord
-        const candScore = beat.score;
-        const parsedActive = parseChordLabel(currentActiveChord, options.keyContext);
-        const parsedCand = parseChordLabel(candChord, options.keyContext);
-        const sameRoot = parsedActive.root === parsedCand.root;
+      const candScore = beat.score;
+      const parsedActive = parseChordLabel(currentActiveChord, options.keyContext);
+      const parsedCand = parseChordLabel(candChord, options.keyContext);
+      const sameRoot = parsedActive.root === parsedCand.root;
+      
+      // We heavily penalize transient slash chords (e.g. E/B passing notes)
+      const isTransientSlash = candChord.includes("/") && (isFleeting || sameRoot);
 
-        // If candidate does NOT exceed currentScore by changeMargin or shares same root, absorb it!
-        if (candScore <= currentScore + changeMargin || sameRoot || candChord.includes("/")) {
-          beat.winningChord = currentActiveChord;
-          beat.rawChord = candChord;
-          beat.root = parsedActive.root;
-          beat.quality = parsedActive.qualitySymbol;
-          beat.bass = parsedActive.bass || parsedActive.root;
-          continue;
+      if (isFleeting || isTransientSlash) {
+        // If it's fleeting or a transient slash, absorb it if it lacks massive margin
+        if (candScore <= currentScore + changeMargin * 1.5 || sameRoot) {
+            beat.winningChord = currentActiveChord;
+            beat.rawChord = candChord;
+            beat.root = parsedActive.root;
+            beat.quality = parsedActive.qualitySymbol;
+            beat.bass = parsedActive.bass || parsedActive.root;
+            continue;
         }
       }
 
