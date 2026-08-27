@@ -262,38 +262,6 @@ self.onmessage = function (e) {
       if (hasNaNOrInf) break;
     }
 
-    // Musical Progression Prior based on Key
-    const keyParts = estimatedKey.split(" ");
-    const keyRootIdx = NOTE_NAMES.indexOf(keyParts[0]);
-    const isMinor = keyParts[1] === "Minor";
-    
-    // diatonic intervals for major/minor key
-    const diatonicIntervals = isMinor ? [0, 2, 3, 5, 7, 8, 10] : [0, 2, 4, 5, 7, 9, 11];
-    const diatonicRoots = diatonicIntervals.map(i => (keyRootIdx + i) % 12);
-    
-    const keyPrior = new Float32Array(nStates);
-    for (let s = 0; s < nStates; s++) {
-      let prior = 0;
-      const state = CHORD_STATES[s];
-      // Boost chords whose root is in the key
-      if (diatonicRoots.includes(state.rootIdx)) {
-        prior += 0.2; // Moderate diatonic bonus
-        // Give a slight extra bonus to I, IV, V in major, or i, iv, v in minor
-        if ((state.rootIdx === keyRootIdx) || 
-            (state.rootIdx === (keyRootIdx + 5) % 12) || 
-            (state.rootIdx === (keyRootIdx + 7) % 12)) {
-          prior += 0.1;
-        }
-      }
-      
-      // Strongly penalize very complex extensions if not strongly diatonic
-      if (["add9", "maj9", "m9", "aug", "dim"].includes(state.quality)) {
-        prior -= 0.15;
-      }
-      
-      keyPrior[s] = prior;
-    }
-
     // Beat-Aware Adaptive HMM Configuration
     const EMISSION_SCALE = 2.5; // Scaled emission log-likelihood
     const pSelfBase = 0.88;    // Normal self-transition probability between beats
@@ -303,7 +271,7 @@ self.onmessage = function (e) {
     const initCol = new Float32Array(nStates);
     for (let s = 0; s < nStates; s++) {
       const sim = cosineSimilarity(chromagram[0], CHORD_STATES[s].profile);
-      initCol[s] = EMISSION_SCALE * Math.log(sim + 1e-6) + keyPrior[s];
+      initCol[s] = EMISSION_SCALE * Math.log(sim + 1e-6);
     }
     viterbi.push(initCol);
     
@@ -324,7 +292,7 @@ self.onmessage = function (e) {
       const emProbs = new Float32Array(nStates);
       for (let s = 0; s < nStates; s++) {
         const sim = cosineSimilarity(obs, CHORD_STATES[s].profile);
-        emProbs[s] = EMISSION_SCALE * Math.log(sim + 1e-6) + keyPrior[s];
+        emProbs[s] = EMISSION_SCALE * Math.log(sim + 1e-6);
       }
 
       // Find top 2 max values in viterbi[t-1] for O(N) transition optimization
