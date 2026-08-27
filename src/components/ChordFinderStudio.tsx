@@ -485,6 +485,104 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
   const handleAnalyzeYoutube = async () => {
     const query = songName.trim() || youtubeUrl.trim();
     if (!query) return;
+
+    const isYoutubeUrl = query.includes("youtube.com") || query.includes("youtu.be");
+
+    if (isYoutubeUrl) {
+      const extractorUrl = import.meta.env.VITE_AUDIO_EXTRACTOR_URL;
+      if (!extractorUrl) {
+        setDialog({
+          isOpen: true,
+          title: "Configuration Error",
+          message: "Audio extractor not configured.",
+          confirmText: "OK",
+          type: "error",
+          onConfirm: () => setDialog((prev) => ({ ...prev, isOpen: false })),
+        });
+        return;
+      }
+
+      abortControllerRef.current = new AbortController();
+      setAnalysisProgress({ message: "Fetching audio from YouTube...", pct: 10 });
+
+      try {
+        const response = await fetch(`${extractorUrl}/extract`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: query }),
+          signal: abortControllerRef.current.signal,
+        });
+
+        if (!response.ok) {
+          let errorMsg = "Failed to extract audio from YouTube.";
+          try {
+            const errData = await response.json();
+            if (errData.error) errorMsg = errData.error;
+          } catch (_) {}
+          
+          setDialog({
+            isOpen: true,
+            title: "Song Search Failed",
+            message: errorMsg,
+            confirmText: "OK",
+            type: "error",
+            onConfirm: () => setDialog((prev) => ({ ...prev, isOpen: false })),
+          });
+          setAnalysisProgress(null);
+          abortControllerRef.current = null;
+          return;
+        }
+
+        const titleHeader = response.headers.get("X-Video-Title");
+        const artistHeader = response.headers.get("X-Video-Artist");
+        const title = titleHeader ? decodeURIComponent(titleHeader) : "YouTube Track";
+        const artist = artistHeader ? decodeURIComponent(artistHeader) : "";
+
+        const blob = await response.blob();
+        const file = new File([blob], `${title}.mp3`, { type: "audio/mpeg" });
+
+        setAnalysisProgress({ message: "Reading audio file...", pct: 30 });
+        
+        const result = await analyzeAudioFile(
+          file,
+          (msg, pct) => setAnalysisProgress({ message: msg, pct: 30 + (pct * 0.7) }),
+          abortControllerRef.current.signal
+        );
+
+        const songWithMeta: SavedSong = {
+          ...result,
+          title,
+          artist,
+          lastPlayedAt: Date.now(),
+          savedAt: Date.now(),
+        };
+
+        await saveSongToDB(songWithMeta);
+        saveLastPlayedSongId(songWithMeta.id);
+        setActiveSong(songWithMeta);
+        loadSongsFromDB().then(setSavedSongs);
+
+        setCurrentTime(0);
+        setIsPlaying(false);
+        setAnalysisProgress(null);
+        abortControllerRef.current = null;
+      } catch (err: any) {
+        setAnalysisProgress(null);
+        abortControllerRef.current = null;
+        if (err.name !== "AbortError" && err.message !== "Analysis cancelled by user.") {
+          setDialog({
+            isOpen: true,
+            title: "Analysis Failed",
+            message: err.message || "An error occurred during YouTube extraction or analysis.",
+            confirmText: "OK",
+            type: "error",
+            onConfirm: () => setDialog((prev) => ({ ...prev, isOpen: false })),
+          });
+        }
+      }
+      return;
+    }
+
     setAnalysisProgress({ message: "Searching song database...", pct: 50 });
 
     try {
@@ -745,7 +843,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
           <div className="flex items-center space-x-2">
             <LinkIcon className="w-4 h-4 text-zinc-400" />
             <h3 className="text-xs font-bold font-mono text-zinc-200 uppercase tracking-wider">
-              AI Song Search
+              Search & YouTube
             </h3>
           </div>
 
