@@ -17,7 +17,6 @@ export function scoreCandidate(
     // Define essential tones that MUST be present for complex chords
     let definingIntervals: number[] = [];
     if (q === "min") definingIntervals = [3];
-    else if (q === "maj") definingIntervals = [4];
     else if (q === "7") definingIntervals = [10];
     else if (q === "maj7") definingIntervals = [11];
     else if (q === "min7") definingIntervals = [10, 3];
@@ -65,12 +64,14 @@ export function scoreCandidate(
 
     // Complexity penalty: Prefer simpler triads over extensions unless heavily supported
     let complexityPenalty = 0;
-    if (["maj", "min", "5"].includes(q)) complexityPenalty = 0.0;
-    else if (["sus2", "sus4", "aug", "dim"].includes(q)) complexityPenalty = 0.05;
-    else if (["6", "m6", "7"].includes(q)) complexityPenalty = 0.08;
-    else if (["maj7", "min7", "dim7"].includes(q)) complexityPenalty = 0.12;
-    else if (["add9", "9", "maj9", "m9"].includes(q)) complexityPenalty = 0.20;
-    else complexityPenalty = 0.25;
+    if (["maj", "min"].includes(q)) complexityPenalty = 0.0;
+    else if (q === "5") complexityPenalty = 0.05;
+    else if (["aug", "dim"].includes(q)) complexityPenalty = 0.10;
+    else if (["sus2", "sus4"].includes(q)) complexityPenalty = 0.20;
+    else if (["6", "m6", "7"].includes(q)) complexityPenalty = 0.15;
+    else if (["maj7", "min7", "dim7"].includes(q)) complexityPenalty = 0.15;
+    else if (["add9", "9", "maj9", "m9"].includes(q)) complexityPenalty = 0.25;
+    else complexityPenalty = 0.30;
 
     let trebleScore = chordToneStrength - missingTonePenalty - complexityPenalty;
     

@@ -492,10 +492,10 @@ self.onmessage = function (e) {
           missingTones: c.missingTones.join(", ")
       }));
       
-      // Step 2: Post-process power chords vs triads
+      // Step 2: Post-process power chords, sus2, and sus4 vs triads
       let winner = scoredCandidates[0];
       
-      if (winner.candidate.quality === "5") {
+      if (["5", "sus2", "sus4"].includes(winner.candidate.quality)) {
          // Find best major/minor triads for this root
          const root = winner.candidate.rootIdx;
          const bestMajor = scoredCandidates.find(c => c.candidate.rootIdx === root && c.candidate.quality === "maj");
@@ -508,17 +508,21 @@ self.onmessage = function (e) {
          // Evaluate third presence (maj3 or min3)
          const pcMaj3 = (root + 4) % 12;
          const pcMin3 = (root + 3) % 12;
-         const actualThirdEvidence = Math.max(meanChroma[pcMaj3], meanChroma[pcMin3]);
+         const majThirdEv = meanChroma[pcMaj3];
+         const minThirdEv = meanChroma[pcMin3];
+         const actualThirdEvidence = Math.max(majThirdEv, minThirdEv);
          
-         const POWER_CHORD_MARGIN = 0.12;
-         const POWER_CHORD_ABSENCE_THRESHOLD = 0.12; // 6. Prevent G -> G5 if third is present even slightly
+         const OVERSPECIFIED_MARGIN = 0.25;
+         const THIRD_ABSENCE_THRESHOLD = 0.08; 
          
-         // If third is moderately present OR the score margin isn't huge, fallback to the best triad
-         if (actualThirdEvidence >= POWER_CHORD_ABSENCE_THRESHOLD || winner.score <= bestTriadScore + POWER_CHORD_MARGIN) {
-             if (majorScore >= minorScore && bestMajor) {
-                 winner = bestMajor;
-             } else if (bestMinor) {
+         // If third is moderately present OR the score margin isn't huge, fallback to a triad
+         if (actualThirdEvidence >= THIRD_ABSENCE_THRESHOLD || winner.score <= bestTriadScore + OVERSPECIFIED_MARGIN) {
+             // Only choose Minor if it genuinely beats Major on its own harmonic merits (ignoring small priors)
+             // and actually has non-trivial minor 3rd evidence.
+             if (minThirdEv > majThirdEv + 0.05 && minThirdEv >= 0.15 && bestMinor) {
                  winner = bestMinor;
+             } else if (bestMajor) {
+                 winner = bestMajor;
              }
              // Re-sort so winner is at index 0 for consistency
              scoredCandidates.splice(scoredCandidates.indexOf(winner), 1);
