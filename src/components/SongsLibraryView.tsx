@@ -917,7 +917,7 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
               <div className="space-y-2">
                 <input
                   type="password"
-                  placeholder="Enter 'joelify'..."
+                  placeholder="Enter password..."
                   value={passwordInput}
                   onChange={(e) => {
                     setPasswordInput(e.target.value);
