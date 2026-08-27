@@ -24,6 +24,7 @@ export interface UseSunoPlaylistResult {
 const LOCAL_STORAGE_PREFIX = "guitar_studio_suno_cache_";
 const MEMORY_CACHE = new Map<string, CachedEntry>();
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes fresh window
+const SYNCED_PLAYLISTS = new Set<string>();
 
 /**
  * Synchronously retrieves cached playlist from Memory Map, LocalStorage, or Master Catalog.
@@ -298,13 +299,18 @@ export function useSunoPlaylist(playlistId: string): UseSunoPlaylistResult {
     setIsLoading(false);
     setPage(1);
 
-    // Call in background to update / resync
-    fetchPlaylistData(1, false, false);
+    // Call in background to update / resync ONLY if not synced during this app session
+    const normalizedId = SUNO_PLAYLIST_ALIASES[playlistId?.trim()] || playlistId?.trim();
+    if (!SYNCED_PLAYLISTS.has(normalizedId)) {
+      SYNCED_PLAYLISTS.add(normalizedId);
+      fetchPlaylistData(1, false, false);
+    }
   }, [playlistId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const refresh = useCallback(async () => {
     const normalizedId = SUNO_PLAYLIST_ALIASES[playlistId.trim()] || playlistId.trim();
     MEMORY_CACHE.delete(normalizedId);
+    SYNCED_PLAYLISTS.delete(normalizedId); // Allow syncing again on manual refresh
     if (typeof window !== "undefined") {
       try {
         localStorage.removeItem(`${LOCAL_STORAGE_PREFIX}${normalizedId}`);

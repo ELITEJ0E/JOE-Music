@@ -18,7 +18,9 @@ import {
   ChevronRight,
   ArrowRight,
   Clock,
-  Share2
+  Share2,
+  Lock,
+  Unlock
 } from "lucide-react";
 import {
   MY_SUNO_PLAYLISTS,
@@ -50,6 +52,37 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Password Lock States
+  const [isUpcomingUnlocked, setIsUpcomingUnlocked] = useState<boolean>(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("joelify_upcoming_unlocked") === "true";
+    }
+    return false;
+  });
+  const [passwordInput, setPasswordInput] = useState("");
+  const [passwordError, setPasswordError] = useState("");
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [pendingPlaylistId, setPendingPlaylistId] = useState<string | null>(null);
+
+  const handleUnlock = (pwd: string) => {
+    if (pwd.trim().toLowerCase() === "joelify") {
+      setIsUpcomingUnlocked(true);
+      if (typeof window !== "undefined") {
+        localStorage.setItem("joelify_upcoming_unlocked", "true");
+      }
+      setPasswordError("");
+      setPasswordInput("");
+      setShowPasswordModal(false);
+      if (pendingPlaylistId) {
+        setSelectedPlaylistId(pendingPlaylistId);
+        setPendingPlaylistId(null);
+      }
+      showToast("Unlocked Upcoming Releases!");
+    } else {
+      setPasswordError("Incorrect password.");
+    }
+  };
 
   // Global Player & Queue Engine State
   const [queue, setQueue] = useState<SunoTrack[]>([]);
@@ -371,10 +404,18 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
           {filteredPlaylists.map((pl) => {
             const isSelected = selectedPlaylistId === pl.id;
+            const isLocked = pl.category === "Upcoming" && !isUpcomingUnlocked;
             return (
               <div
                 key={pl.id}
-                onClick={() => setSelectedPlaylistId(pl.id)}
+                onClick={() => {
+                  if (isLocked) {
+                    setPendingPlaylistId(pl.id);
+                    setShowPasswordModal(true);
+                  } else {
+                    setSelectedPlaylistId(pl.id);
+                  }
+                }}
                 className={`group relative rounded-2xl p-3.5 sm:p-4 border transition-all cursor-pointer flex flex-col justify-between overflow-hidden ${
                   isSelected
                     ? "bg-[#a3ff12]/10 border-[#a3ff12] shadow-[0_0_20px_rgba(163,255,18,0.15)]"
@@ -388,11 +429,15 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
                       alt={pl.title}
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                     />
-                    {isSelected && (
+                    {isLocked ? (
+                      <div className="absolute inset-0 bg-black/70 flex items-center justify-center backdrop-blur-xs">
+                        <Lock className="w-5 h-5 text-amber-400" />
+                      </div>
+                    ) : isSelected ? (
                       <div className="absolute inset-0 bg-[#a3ff12]/30 flex items-center justify-center">
                         <Check className="w-5 h-5 text-black bg-[#a3ff12] rounded-full p-0.5" />
                       </div>
-                    )}
+                    ) : null}
                   </div>
 
                   <div className="min-w-0 flex-1 space-y-1">
@@ -402,8 +447,9 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
                       </span>
                     </div>
 
-                    <h4 className="text-sm font-bold text-white truncate font-mono" title={pl.title}>
+                    <h4 className="text-sm font-bold text-white truncate font-mono flex items-center gap-1.5" title={pl.title}>
                       {pl.title}
+                      {isLocked && <Lock className="w-3.5 h-3.5 text-amber-400 shrink-0" />}
                     </h4>
                     <p className="text-[11px] text-zinc-400 line-clamp-2 leading-relaxed font-mono">
                       {pl.description}
@@ -414,7 +460,13 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
                 <div className="mt-3 pt-2 border-t border-white/5 flex items-center justify-between text-[10px] font-mono text-zinc-400">
                   <span className="text-zinc-500">Curated by Joel</span>
                   <span className="text-[#a3ff12] flex items-center gap-1 font-bold">
-                    {isSelected ? "ACTIVE" : "SELECT"} <ChevronRight className="w-3 h-3" />
+                    {isLocked ? (
+                      <span className="text-amber-400 flex items-center gap-1">LOCKED <Lock className="w-3 h-3" /></span>
+                    ) : isSelected ? (
+                      "ACTIVE"
+                    ) : (
+                      "SELECT"
+                    )} <ChevronRight className="w-3 h-3" />
                   </span>
                 </div>
               </div>
@@ -425,7 +477,47 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
 
       {/* Selected Playlist Active View */}
       <div className="frosted-card rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-7 border border-white/10 space-y-6">
-        {/* Playlist Header & Play All Action */}
+        {selectedPlaylistId === "34ac065b-e68e-4dfa-9780-00c49bae047a" && !isUpcomingUnlocked ? (
+          <div className="flex flex-col items-center justify-center py-12 md:py-16 text-center max-w-md mx-auto space-y-6">
+            <div className="w-16 h-16 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 animate-pulse">
+              <Lock className="w-8 h-8" />
+            </div>
+            
+            <div className="space-y-2">
+              <h3 className="text-lg sm:text-xl font-bold font-mono text-white">Upcoming Releases Locked</h3>
+              <p className="text-xs sm:text-sm font-mono text-zinc-400 leading-relaxed">
+                This playlist contains Joel's unreleased work-in-progress compositions, synth-pop demos, and new guitar tracks. Enter the password to unlock.
+              </p>
+            </div>
+
+            <div className="w-full space-y-3">
+              <input
+                type="password"
+                placeholder="Enter password..."
+                value={passwordInput}
+                onChange={(e) => {
+                  setPasswordInput(e.target.value);
+                  setPasswordError("");
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleUnlock(passwordInput);
+                }}
+                className="w-full bg-[#12151a] border border-white/10 rounded-xl py-2.5 px-4 text-sm text-center text-white font-mono focus:outline-none focus:border-amber-400/50"
+              />
+              {passwordError && (
+                <div className="text-[11px] font-mono text-rose-500">{passwordError}</div>
+              )}
+              <button
+                onClick={() => handleUnlock(passwordInput)}
+                className="w-full py-2.5 rounded-xl bg-[#a3ff12] hover:bg-[#8ee60b] text-black font-mono font-black text-xs transition-all shadow-[0_0_15px_rgba(163,255,18,0.2)] cursor-pointer"
+              >
+                UNLOCK PLAYLIST
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* Playlist Header & Play All Action */}
         <div className="flex flex-col sm:flex-row gap-4 sm:gap-6 items-start border-b border-white/10 pb-5 sm:pb-6">
           <div className="relative w-24 h-24 sm:w-36 sm:h-36 rounded-2xl overflow-hidden shrink-0 bg-black shadow-2xl border border-white/10">
             <img
@@ -691,6 +783,8 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
             </button>
           </div>
         )}
+          </>
+        )}
       </div>
 
       {/* Persistent Global Player Bar */}
@@ -782,6 +876,81 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
                   className="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white text-[10px] font-mono font-bold transition-colors cursor-pointer"
                 >
                   DAW
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Password Modal Overlay */}
+      {showPasswordModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="relative w-full max-w-md frosted-card border border-white/10 rounded-2xl p-6 md:p-8 space-y-6 shadow-2xl animate-in zoom-in-95 duration-200 bg-[#0b0e12]">
+            
+            {/* Close Button */}
+            <button
+              onClick={() => {
+                setShowPasswordModal(false);
+                setPendingPlaylistId(null);
+                setPasswordError("");
+                setPasswordInput("");
+              }}
+              className="absolute top-4 right-4 text-zinc-400 hover:text-white text-sm font-mono w-7 h-7 flex items-center justify-center rounded-lg hover:bg-white/5 cursor-pointer"
+              title="Close"
+            >
+              ✕
+            </button>
+
+            <div className="flex flex-col items-center text-center space-y-4">
+              <div className="w-12 h-12 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
+                <Lock className="w-6 h-6" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-base font-bold font-mono text-white uppercase tracking-wider">🔒 Password Required</h3>
+                <p className="text-xs font-mono text-zinc-400 leading-relaxed">
+                  "Upcoming Releases" is restricted. Enter the exclusive password to view tracks.
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <input
+                  type="password"
+                  placeholder="Enter 'joelify'..."
+                  value={passwordInput}
+                  onChange={(e) => {
+                    setPasswordInput(e.target.value);
+                    setPasswordError("");
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleUnlock(passwordInput);
+                  }}
+                  className="w-full bg-[#12151a] border border-white/10 rounded-xl py-2.5 px-4 text-sm text-center text-white font-mono focus:outline-none focus:border-amber-400/50 focus:ring-1 focus:ring-amber-400/20"
+                  autoFocus
+                />
+                {passwordError && (
+                  <p className="text-[11px] font-mono text-rose-500 text-center">{passwordError}</p>
+                )}
+              </div>
+
+              <div className="flex gap-2.5 pt-1">
+                <button
+                  onClick={() => {
+                    setShowPasswordModal(false);
+                    setPendingPlaylistId(null);
+                    setPasswordError("");
+                    setPasswordInput("");
+                  }}
+                  className="flex-1 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-mono text-zinc-300 font-bold cursor-pointer transition-colors"
+                >
+                  CANCEL
+                </button>
+                <button
+                  onClick={() => handleUnlock(passwordInput)}
+                  className="flex-1 py-2.5 rounded-xl bg-[#a3ff12] hover:bg-[#8ee60b] text-black font-mono font-black text-xs transition-all shadow-[0_0_15px_rgba(163,255,18,0.2)] cursor-pointer"
+                >
+                  UNLOCK
                 </button>
               </div>
             </div>

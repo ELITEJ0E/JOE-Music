@@ -1,4 +1,4 @@
-import { SUNO_CATALOG_MASTER } from "../src/lib/suno-catalog-data";
+import { SUNO_CATALOG_MASTER } from "../src/lib/suno-catalog-data.js";
 
 const PLAYLIST_ALIASES: Record<string, string> = {
   "7b5e949e-1d72-4685-9c7f-0fa5e5668190": "ff247038-e0ae-4778-989d-0529e575027b",
