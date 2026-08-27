@@ -38,6 +38,7 @@ import { TimelineScrubber } from "./ui/TimelineScrubber";
 import { YouTubeSyncPlayer } from "./YouTubeSyncPlayer";
 import { liveChordDetector, LiveChordDetection } from "../audio/liveChordDetector";
 import { extractYoutubeVideoId, getYoutubeThumbnail } from "../utils/youtubeHelper";
+import { resolveYouTubeAudio, YouTubeAcquisitionState } from "../utils/youtubeAudioProvider";
 import {
   saveSongToDB,
   loadSongsFromDB,
@@ -526,13 +527,138 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
       return;
     }
 
-    // Detect if direct YouTube URL was pasted
+    // Detect if direct YouTube URL was pasted or requested
     const extractedId = extractYoutubeVideoId(query);
 
+    if (extractedId) {
+      // 1. Fetch metadata first
+      setAnalysisProgress({
+        message: "Retrieving YouTube video metadata...",
+        pct: 20,
+      });
+
+      let metaTitle = query;
+      let metaArtist = "YouTube";
+      let metaThumb = getYoutubeThumbnail(extractedId, "hq");
+
+      try {
+        const infoRes = await fetch(`/api/youtube-info?url=${encodeURIComponent(extractedId)}`);
+        if (infoRes.ok) {
+          const info = await infoRes.json();
+          if (info.title) metaTitle = info.title;
+          if (info.author_name) metaArtist = info.author_name;
+          if (info.thumbnail_url) metaThumb = info.thumbnail_url;
+        }
+      } catch (e) {
+        console.warn("YouTube metadata fetch fallback:", e);
+      }
+
+      // 2. Attempt real audio extraction backend via yt-dlp endpoint
+      setAnalysisProgress({
+        message: "Acquiring YouTube audio stream (yt-dlp)...",
+        pct: 40,
+      });
+
+      try {
+        const ytRes = await resolveYouTubeAudio(extractedId);
+        
+        setAnalysisProgress({
+          message: "Analyzing acquired YouTube audio with MIR engine...",
+          pct: 60,
+        });
+
+        const audioFile = new File([ytRes.audioBlob], `${extractedId}.mp3`, { type: "audio/mpeg" });
+        abortControllerRef.current = new AbortController();
+        const analysisResult = await analyzeAudioFile(
+          audioFile,
+          (msg, pct) => setAnalysisProgress({ message: msg, pct: 60 + pct * 0.4 }),
+          abortControllerRef.current.signal
+        );
+
+        const songWithMeta: SavedSong = {
+          ...analysisResult,
+          title: ytRes.title || metaTitle,
+          artist: ytRes.artist || metaArtist,
+          youtubeVideoId: extractedId,
+          youtubeUrl: `https://www.youtube.com/watch?v=${extractedId}`,
+          thumbnailUrl: metaThumb,
+          isYoutubeTrack: true,
+          audioBlob: ytRes.audioBlob,
+          lastPlayedAt: Date.now(),
+          savedAt: Date.now(),
+          id: `yt-${extractedId}`,
+        };
+
+        await saveSongToDB(songWithMeta);
+        saveLastPlayedSongId(songWithMeta.id);
+        setActiveSong(songWithMeta);
+        loadSongsFromDB().then(setSavedSongs);
+
+        setCurrentTime(0);
+        setIsPlaying(false);
+        setYoutubeUrl("");
+        setSongName("");
+        setAnalysisProgress(null);
+        return;
+      } catch (err: any) {
+        console.warn("YouTube audio extraction unavailable:", err?.message);
+
+        // If backend audio extraction is unavailable, prepare PLAYBACK_ONLY track
+        const playbackOnlySong: SavedSong = {
+          id: `yt-playback-${extractedId}`,
+          title: metaTitle,
+          artist: metaArtist,
+          duration: 180,
+          tempo: 120,
+          timeSignature: "4/4",
+          key: "C",
+          scale: "major",
+          sections: [
+            {
+              id: "sec-yt-play",
+              name: "Full Video Playback",
+              start: 0,
+              end: 180,
+              bars: 45,
+              chords: [],
+            },
+          ],
+          chordSegments: [],
+          beats: [],
+          youtubeVideoId: extractedId,
+          youtubeUrl: `https://www.youtube.com/watch?v=${extractedId}`,
+          thumbnailUrl: metaThumb,
+          isYoutubeTrack: true,
+          lastPlayedAt: Date.now(),
+          savedAt: Date.now(),
+        };
+
+        await saveSongToDB(playbackOnlySong);
+        saveLastPlayedSongId(playbackOnlySong.id);
+        setActiveSong(playbackOnlySong);
+        loadSongsFromDB().then(setSavedSongs);
+
+        setCurrentTime(0);
+        setIsPlaying(false);
+        setYoutubeUrl("");
+        setSongName("");
+        setAnalysisProgress(null);
+
+        setDialog({
+          isOpen: true,
+          title: "YouTube Video Synchronized",
+          message:
+            "Playback is available via the synchronized player. Note: Direct server-side audio acquisition (yt-dlp) is unavailable in this cloud environment, so automated chord analysis is paused. You can play along with the video or upload a local MP3/WAV file for full MIR chord extraction.",
+          confirmText: "Got It",
+          type: "alert",
+          onConfirm: () => setDialog((prev) => ({ ...prev, isOpen: false })),
+        });
+        return;
+      }
+    }
+
     setAnalysisProgress({
-      message: extractedId
-        ? "Extracting YouTube audio & harmonic data..."
-        : "Searching song database & analyzing chords...",
+      message: "Searching song database & analyzing chords...",
       pct: 35,
     });
 

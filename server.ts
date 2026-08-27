@@ -29,6 +29,63 @@ async function startServer() {
     res.json({ status: "ok", timestamp: Date.now() });
   });
 
+  // YouTube Audio Extraction Endpoint (yt-dlp + FFmpeg backend)
+  app.post("/api/youtube/audio", async (req, res) => {
+    const { videoId } = req.body;
+    if (!videoId || typeof videoId !== "string") {
+      return res.status(400).json({ error: "Missing or invalid 'videoId' parameter." });
+    }
+
+    const cleanId = videoId.replace(/[^a-zA-Z0-9_-]/g, "");
+    const videoUrl = `https://www.youtube.com/watch?v=${cleanId}`;
+
+    // Check if yt-dlp is available in the local execution environment
+    let hasYtDlp = false;
+    try {
+      const { execSync } = await import("child_process");
+      execSync("yt-dlp --version", { stdio: "ignore", timeout: 2000 });
+      hasYtDlp = true;
+    } catch {
+      hasYtDlp = false;
+    }
+
+    if (!hasYtDlp) {
+      return res.status(501).json({
+        error: "YOUTUBE_AUDIO_UNAVAILABLE",
+        message:
+          "YouTube audio extraction is unavailable in this deployment environment (yt-dlp & FFmpeg required on server). Video playback remains available in the synchronized player.",
+      });
+    }
+
+    // If yt-dlp is available, extract audio to temporary directory
+    try {
+      const { exec } = await import("child_process");
+      const { promisify } = await import("util");
+      const fs = await import("fs");
+      const execAsync = promisify(exec);
+      
+      const outPath = path.join("/tmp", `yt-audio-${cleanId}.mp3`);
+      if (!fs.existsSync(outPath)) {
+        await execAsync(`yt-dlp -x --audio-format mp3 -o "${outPath}" "${videoUrl}"`, { timeout: 30000 });
+      }
+
+      if (fs.existsSync(outPath)) {
+        res.setHeader("Content-Type", "audio/mpeg");
+        return res.sendFile(outPath);
+      } else {
+        return res.status(500).json({
+          error: "YOUTUBE_AUDIO_UNAVAILABLE",
+          message: "Failed to locate extracted audio file after yt-dlp execution.",
+        });
+      }
+    } catch (err: any) {
+      return res.status(503).json({
+        error: "YOUTUBE_AUDIO_UNAVAILABLE",
+        message: err?.message || "yt-dlp extraction failed or was blocked by YouTube.",
+      });
+    }
+  });
+
   // YouTube Info Endpoint
   app.get("/api/youtube-info", async (req, res) => {
     const query = req.query.url as string;

@@ -181,7 +181,7 @@ export function trackBeatsFromOnsetEnvelope(
   // (b) Fine continuous search & joint period-phase optimization across the full onset envelope
   // Coarse beat period candidate
   const coarseInterval = Math.max(0.25, Math.min(1.25, (refinedLag * hopSize) / sampleRate));
-  const onsetFluxSampleOffset = (5 * fftSize) / 8; // 5120 samples for N=8192
+  const onsetFluxSampleOffset = fftSize / 2; // 4096 samples for N=8192 (STFT window center)
 
   // Continuous onset energy scoring function for candidate (period T, phase offset phi)
   const windowSigmaFrames = Math.max(1.0, (0.035 * sampleRate) / hopSize); // 35ms Gaussian window
