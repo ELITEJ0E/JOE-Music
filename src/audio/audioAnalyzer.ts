@@ -48,7 +48,7 @@ export async function analyzeAudioFile(
           ...analysis.diagnostics
         };
 
-        resolve({
+        const songResult: SongAnalysis = {
           id: `song-${Date.now()}`,
           title: file.name.replace(/\.[^/.]+$/, ""),
           artist: "Uploaded Audio Analysis",
@@ -59,6 +59,7 @@ export async function analyzeAudioFile(
           difficulty: analysis.uniqueChords.length > 5 ? "Intermediate" : "Beginner",
           chords: analysis.uniqueChords,
           chordSegments: analysis.chordSegments,
+          rawTimelinesForDebug: analysis.rawTimelinesForDebug,
           tuning: "E A D G B E (Standard)",
           tuningDeviation: analysis.tuningDeviationCents,
           sections: analysis.sections,
@@ -69,7 +70,22 @@ export async function analyzeAudioFile(
           duration: duration,
           analysisVersion: "1.0.0",
           diagnostics: mainDiagnostics
-        });
+        };
+        
+        console.group(`=== MIR DIAGNOSTICS: ${songResult.title} ===`);
+        console.log("Estimated Key:", songResult.key);
+        console.log("Estimated Tuning Deviation (cents):", songResult.tuningDeviation);
+        if (songResult.rawTimelinesForDebug && songResult.rawTimelinesForDebug.length > 0) {
+            console.log("=== RAW MIR vs VITERBI vs FINAL ===");
+            songResult.rawTimelinesForDebug.forEach((seg, i) => {
+                const stabilized = songResult.chordSegments.find(s => s.startTime === seg.startTime);
+                console.log(`[${seg.startTime.toFixed(2)}s - ${seg.endTime.toFixed(2)}s]: RAW=${seg.diagnostics?.rawMirWinner} | VITERBI=${seg.diagnostics?.viterbiChord} | FINAL_BEFORE_STAB=${seg.chord} | STABILIZED=${stabilized ? stabilized.chord : "merged/lost"}`);
+                console.log(`  Top 5 Candidates:`, seg.diagnostics?.top5Candidates);
+            });
+        }
+        console.groupEnd();
+
+        resolve(songResult);
         worker.terminate();
       } else if (e.data.type === "error") {
         reject(new Error(e.data.error));

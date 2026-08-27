@@ -420,6 +420,9 @@ self.onmessage = function (e) {
       const endTime = Math.max(startTime + 0.15, snappedEndTime);
       currentStartTime = endTime;
 
+      const viterbiChordState = CHORD_STATES[seg.stateId];
+      const viterbiChord = viterbiChordState.label;
+
       // Extract Mean Chroma and Mean Bass Chroma for the segment
       const numSegFrames = seg.endFrame - seg.startFrame + 1;
       const meanChroma = new Float32Array(12);
@@ -440,9 +443,11 @@ self.onmessage = function (e) {
         if (meanBassChroma[k] > maxB) maxB = meanBassChroma[k];
       }
       // Normalize to 0-1 for evidence scoring
+      const rawChromaArray = [];
       for (let k = 0; k < 12; k++) {
         meanChroma[k] = maxC > 0 ? meanChroma[k] / maxC : 0;
         meanBassChroma[k] = maxB > 0 ? meanBassChroma[k] / maxB : 0;
+        rawChromaArray.push(Number(meanChroma[k].toFixed(3)));
       }
 
       // Helper: get diatonic chords for key
@@ -477,6 +482,15 @@ self.onmessage = function (e) {
       
       // Step 1: Initial sort by score
       scoredCandidates.sort((a, b) => b.score - a.score);
+      
+      const rawMirWinner = scoredCandidates[0].candidate.label;
+      const top5Candidates = scoredCandidates.slice(0, 5).map(c => ({
+          chord: c.candidate.label,
+          score: Number(c.score.toFixed(3)),
+          trebleScore: Number(c.trebleScore.toFixed(3)),
+          thirdEvidence: Number(c.thirdEvidence.toFixed(3)),
+          missingTones: c.missingTones.join(", ")
+      }));
       
       // Step 2: Post-process power chords vs triads
       let winner = scoredCandidates[0];
@@ -551,6 +565,10 @@ self.onmessage = function (e) {
 
       const diag = {
         detectedChord: norm.canonicalLabel,
+        rawMirWinner,
+        viterbiChord,
+        top5Candidates,
+        rawChromaArray,
         topAlternative: alt ? alt.candidate.label : "none",
         detectedScore: Number(winner.score.toFixed(3)),
         trebleScore: Number(winner.trebleScore.toFixed(3)),
@@ -649,6 +667,7 @@ self.onmessage = function (e) {
         key: estimatedKey,
         sections,
         chordSegments: stabilizedSegments,
+        rawTimelinesForDebug: finalSegments, // this has rawMirWinner, viterbiChord, top5Candidates
         uniqueChords,
         overallConfidence: Math.min(99, Math.round(overallConfidence)),
         beats,

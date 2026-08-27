@@ -96,6 +96,7 @@ export interface SongAnalysis {
   difficulty: "Beginner" | "Intermediate" | "Advanced";
   chords: string[]; // List of unique chords used
   chordSegments?: ChordSegment[]; // Timeline of chords
+  rawTimelinesForDebug?: any[]; // Raw MIR diagnostics
   tuning: string;
   tuningDeviation?: number; // Estimated cents deviation from A=440
   sections: SongSection[];
