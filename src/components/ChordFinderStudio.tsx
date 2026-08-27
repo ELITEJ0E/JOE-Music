@@ -305,64 +305,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
   const activeChord = getDisplayChord(activeIdx);
   const nextChord = getDisplayChord(activeIdx + 1);
 
-  // REAL TIMING CHECK Diagnostic computation (Phase 6F)
-  const realTimingCheck = React.useMemo(() => {
-    if (!activeSong) return null;
-    const bpm = activeSong.tempo || 120;
-    const beatInterval = 60 / bpm;
-    const beat1 = activeSong.beats && activeSong.beats.length > 0 ? activeSong.beats[0] : 0;
-    
-    // Current beat and subdivision at currentTime
-    const elapsedFromBeat1 = Math.max(0, currentTime - beat1);
-    const totalBeatsElapsed = elapsedFromBeat1 / beatInterval;
-    const currentBeatNum = Math.floor(totalBeatsElapsed) + 1;
-    const barNum = Math.floor((currentBeatNum - 1) / 4) + 1;
-    const beatInBar = ((currentBeatNum - 1) % 4) + 1;
-    const fraction = totalBeatsElapsed - Math.floor(totalBeatsElapsed);
-    const isEighth = fraction >= 0.35 && fraction <= 0.65;
-    const currentSubdivision = isEighth ? `${beatInBar}&` : `${beatInBar}`;
 
-    // Active chord info
-    const activeSeg = segments[activeIdx] || segments[0];
-    const chordStart = activeSeg ? activeSeg.startTime : 0;
-
-    // Nearest beat to chord start
-    let nearestBeat = beat1;
-    let minDiff = Infinity;
-    if (activeSong.beats && activeSong.beats.length > 0) {
-      for (const b of activeSong.beats) {
-        const diff = Math.abs(b - chordStart);
-        if (diff < minDiff) {
-          minDiff = diff;
-          nearestBeat = b;
-        }
-      }
-    } else {
-      const beatIdx = Math.round((chordStart - beat1) / beatInterval);
-      nearestBeat = beat1 + beatIdx * beatInterval;
-    }
-
-    const offsetMs = Math.round((chordStart - nearestBeat) * 1000);
-
-    // Nearest subdivision for chord start (1, 1&, 2, 2&, 3, 3&, 4, 4&)
-    const eighthNote = beatInterval / 2;
-    const eighthIndex = Math.round((chordStart - beat1) / eighthNote);
-    const subBar = Math.floor(eighthIndex / 8) + 1;
-    const subBeat = Math.floor((eighthIndex % 8) / 2) + 1;
-    const subOffbeat = eighthIndex % 2 !== 0;
-    const subdivisionLabel = `Bar ${subBar}, Beat ${subOffbeat ? `${subBeat}&` : `${subBeat}`}`;
-
-    return {
-      bpm,
-      beat1: `${beat1.toFixed(3)}s`,
-      currentBeat: `Beat ${currentBeatNum} (Bar ${barNum}, ${currentSubdivision})`,
-      chordStart: `${chordStart.toFixed(3)}s`,
-      nearestBeat: `${nearestBeat.toFixed(3)}s (${subdivisionLabel})`,
-      offsetMs,
-      offsetDisplay: `${offsetMs >= 0 ? "+" : ""}${offsetMs} ms`,
-      activeChord: activeSeg ? activeSeg.chord : "N/A"
-    };
-  }, [activeSong, currentTime, segments, activeIdx]);
 
   // Seek helper that syncs currentTime and audio element
   const seekToTime = (newTime: number) => {
@@ -799,6 +742,30 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
         capo: 0,
       };
 
+  const prevVoicingResult: GuitarVoicingResult | null = activeSong && prevChord.isValid
+    ? resolveGuitarChord(prevChord.shapeChord, {
+        keyContext: activeSong.key,
+        detectionConfidence: prevChord.confidence,
+        voicingIndex: 1, // Fallback index for prev chord
+        playabilityMode,
+        simplifyIfUnavailable: playabilityMode === "easy",
+        capo,
+        detectedChord: prevChord.detectedChord,
+      })
+    : null;
+
+  const nextVoicingResult: GuitarVoicingResult | null = activeSong && nextChord.isValid
+    ? resolveGuitarChord(nextChord.shapeChord, {
+        keyContext: activeSong.key,
+        detectionConfidence: nextChord.confidence,
+        voicingIndex: 1, // Fallback index for next chord
+        playabilityMode,
+        simplifyIfUnavailable: playabilityMode === "easy",
+        capo,
+        detectedChord: nextChord.detectedChord,
+      })
+    : null;
+
   const lastPlayedId = getLastPlayedSongId();
 
   return (
@@ -1065,94 +1032,142 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
               </div>
 
               {/* Guitar Chord Fretboard Diagram */}
-              <div className="flex flex-col items-center justify-center pt-1">
-                {activeVoicingResult.voicing ? (
-                  <div className="flex flex-col items-center w-full">
-                    <div className="bg-[#13161a] rounded-2xl p-3 sm:p-4 border border-white/10 shadow-2xl relative w-full max-w-[260px] sm:max-w-[280px]">
-                      {/* Simple compact header */}
-                      <div className="flex items-center justify-between gap-2 mb-2 pb-2 border-b border-white/10 text-xs font-mono">
-                        <div className="flex items-center gap-1.5 truncate">
-                          <span className="text-[#a3ff12] font-black text-sm sm:text-base">
-                            {capo > 0 && activeChord.isValid ? activeChord.shapeChord : activeChord.transposedChord}
-                          </span>
-                          <span className="text-[9px] text-zinc-400 font-semibold uppercase">
-                            {capo > 0 ? "Play Shape" : "Shape"}
-                          </span>
-                          {capo > 0 && (
-                            <span className="text-[9px] sm:text-[10px] text-sky-400 font-semibold px-1.5 py-0.5 rounded bg-sky-400/10 border border-sky-400/20">
-                              Capo {capo}
-                            </span>
-                          )}
-                          {activeVoicingResult.voicing?.cagedShape && !capo && (
-                            <span className="text-[10px] text-zinc-400">
-                              ({activeVoicingResult.voicing.cagedShape}-Shape)
-                            </span>
-                          )}
-                        </div>
-
-                        <div className="flex items-center gap-1 shrink-0">
-                          {activeVoicingResult.voicingType === "exact" && (
-                            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-[#a3ff12]/10 text-[#a3ff12]">
-                              Exact
-                            </span>
-                          )}
-                          {activeVoicingResult.voicingType === "simplified" && (
-                            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-yellow-400/10 text-yellow-400">
-                              Playable
-                            </span>
-                          )}
-                          <button
-                            onClick={() =>
-                              guitarSynth.strumChord(
-                                activeVoicingResult.voicing!.frets,
-                                "down",
-                                24,
-                                capo
-                              )
-                            }
-                            className="p-1 rounded bg-[#a3ff12]/10 hover:bg-[#a3ff12]/20 text-[#a3ff12] transition-colors"
-                            title="Hear Chord Strum"
-                          >
-                            <Play className="w-3.5 h-3.5 fill-[#a3ff12]" />
-                          </button>
-                        </div>
+              <div className="flex flex-row items-center justify-center pt-2 w-full relative overflow-hidden px-2 sm:px-6 h-[320px] sm:h-[360px]">
+                
+                {/* Previous Chord Diagram (Left Background) */}
+                <div className="absolute left-0 sm:left-[10%] xl:left-[15%] top-1/2 -translate-y-1/2 scale-[0.65] sm:scale-75 opacity-30 z-0 pointer-events-none blur-[1px] transition-all duration-300 -translate-x-8 sm:-translate-x-0">
+                  {prevVoicingResult?.voicing ? (
+                    <div className="bg-[#13161a] rounded-2xl p-3 border border-white/5 shadow-lg relative w-[240px]">
+                      <div className="text-center pb-2 text-xs font-mono font-bold text-zinc-400 border-b border-white/5 mb-2">
+                        {capo > 0 ? prevChord.shapeChord : prevChord.transposedChord}
                       </div>
-
-                      <ChordDiagram
-                        frets={activeVoicingResult.voicing.frets}
-                        fingers={activeVoicingResult.voicing.fingers}
-                        barre={activeVoicingResult.voicing.barre}
-                        position={activeVoicingResult.voicing.baseFret}
-                        cagedShape={activeVoicingResult.voicing.cagedShape}
-                        title={capo > 0 ? `${activeChord.shapeChord} (Capo ${capo})` : activeChord.transposedChord}
-                        capo={capo}
-                      />
+                      <div className="pointer-events-none">
+                        <ChordDiagram
+                          frets={prevVoicingResult.voicing.frets}
+                          fingers={prevVoicingResult.voicing.fingers}
+                          barre={prevVoicingResult.voicing.barre}
+                          position={prevVoicingResult.voicing.baseFret}
+                          cagedShape={prevVoicingResult.voicing.cagedShape}
+                          title=""
+                          capo={capo}
+                        />
+                      </div>
                     </div>
+                  ) : <div className="w-[240px]" />}
+                </div>
 
-                    {activeVoicingResult.simplificationReason && (
-                      <span className="text-[10px] font-mono text-zinc-400 mt-1.5 text-center max-w-[240px]">
-                        {activeVoicingResult.simplificationReason}
-                      </span>
-                    )}
+                {/* Active Chord Diagram (Center Foreground) */}
+                <div className="z-10 shrink-0 transform transition-all duration-300 scale-100 flex flex-col items-center">
+                  {activeVoicingResult.voicing ? (
+                    <div className="flex flex-col items-center w-full">
+                      <div className="bg-[#13161a] rounded-2xl p-3 sm:p-4 border border-[#a3ff12]/20 shadow-2xl relative w-[240px] sm:w-[280px]">
+                        {/* Simple compact header */}
+                        <div className="flex items-center justify-between gap-2 mb-2 pb-2 border-b border-white/10 text-xs font-mono">
+                          <div className="flex items-center gap-1.5 truncate">
+                            <span className="text-[#a3ff12] font-black text-sm sm:text-base">
+                              {capo > 0 && activeChord.isValid ? activeChord.shapeChord : activeChord.transposedChord}
+                            </span>
+                            <span className="text-[9px] text-zinc-400 font-semibold uppercase hidden sm:inline">
+                              {capo > 0 ? "Play Shape" : "Shape"}
+                            </span>
+                            {capo > 0 && (
+                              <span className="text-[9px] sm:text-[10px] text-sky-400 font-semibold px-1.5 py-0.5 rounded bg-sky-400/10 border border-sky-400/20">
+                                Capo {capo}
+                              </span>
+                            )}
+                            {activeVoicingResult.voicing?.cagedShape && !capo && (
+                              <span className="text-[10px] text-zinc-400 hidden sm:inline">
+                                ({activeVoicingResult.voicing.cagedShape}-Shape)
+                              </span>
+                            )}
+                          </div>
 
-                    {/* Fingerstyle Progression arrangement flow feedback */}
-                    {playabilityMode === "fingerstyle" && activeArrangedStep?.voiceLeadingDescription && (
-                      <div className="mt-2 px-3 py-1 rounded-lg bg-sky-500/10 border border-sky-500/20 text-[10px] font-mono text-sky-300 flex items-center gap-2">
-                        <span className="font-bold">Step {activeIdx + 1}/{segments.length}:</span>
-                        <span>{activeArrangedStep.voiceLeadingDescription}</span>
+                          <div className="flex items-center gap-1 shrink-0">
+                            {activeVoicingResult.voicingType === "exact" && (
+                              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-[#a3ff12]/10 text-[#a3ff12] hidden sm:inline">
+                                Exact
+                              </span>
+                            )}
+                            {activeVoicingResult.voicingType === "simplified" && (
+                              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-yellow-400/10 text-yellow-400 hidden sm:inline">
+                                Playable
+                              </span>
+                            )}
+                            <button
+                              onClick={() =>
+                                guitarSynth.strumChord(
+                                  activeVoicingResult.voicing!.frets,
+                                  "down",
+                                  24,
+                                  capo
+                                )
+                              }
+                              className="p-1 rounded bg-[#a3ff12]/10 hover:bg-[#a3ff12]/20 text-[#a3ff12] transition-colors pointer-events-auto"
+                              title="Hear Chord Strum"
+                            >
+                              <Play className="w-3.5 h-3.5 fill-[#a3ff12]" />
+                            </button>
+                          </div>
+                        </div>
+
+                        <ChordDiagram
+                          frets={activeVoicingResult.voicing.frets}
+                          fingers={activeVoicingResult.voicing.fingers}
+                          barre={activeVoicingResult.voicing.barre}
+                          position={activeVoicingResult.voicing.baseFret}
+                          cagedShape={activeVoicingResult.voicing.cagedShape}
+                          title={capo > 0 ? `${activeChord.shapeChord} (Capo ${capo})` : activeChord.transposedChord}
+                          capo={capo}
+                        />
                       </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="bg-[#13161a] rounded-2xl p-4 border border-white/10 shadow-xl flex flex-col items-center justify-center h-40 w-64 text-center space-y-2">
-                    <span className="text-xs font-mono font-bold text-zinc-300">
-                      No guitar voicing available
-                    </span>
-                    <span className="text-[11px] font-mono text-zinc-500 max-w-[200px]">
-                      {activeVoicingResult.simplificationReason || `No safe diagram for ${activeChord.shapeChord}`}
-                    </span>
-                  </div>
-                )}
+
+                      {activeVoicingResult.simplificationReason && (
+                        <span className="text-[10px] font-mono text-zinc-400 mt-2 text-center max-w-[240px]">
+                          {activeVoicingResult.simplificationReason}
+                        </span>
+                      )}
+
+                      {/* Fingerstyle Progression arrangement flow feedback */}
+                      {playabilityMode === "fingerstyle" && activeArrangedStep?.voiceLeadingDescription && (
+                        <div className="mt-2 px-3 py-1 rounded-lg bg-sky-500/10 border border-sky-500/20 text-[10px] font-mono text-sky-300 flex items-center gap-2 max-w-[260px] text-center">
+                          <span className="font-bold shrink-0">Step {activeIdx + 1}:</span>
+                          <span className="truncate">{activeArrangedStep.voiceLeadingDescription}</span>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="bg-[#13161a] rounded-2xl p-4 border border-white/10 shadow-xl flex flex-col items-center justify-center h-48 w-[240px] sm:w-[280px] text-center space-y-2">
+                      <span className="text-xs font-mono font-bold text-zinc-300">
+                        No guitar voicing available
+                      </span>
+                      <span className="text-[11px] font-mono text-zinc-500 max-w-[200px]">
+                        {activeVoicingResult.simplificationReason || `No safe diagram for ${activeChord.shapeChord}`}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Next Chord Diagram (Right Background) */}
+                <div className="absolute right-0 sm:right-[10%] xl:right-[15%] top-1/2 -translate-y-1/2 scale-[0.65] sm:scale-75 opacity-30 z-0 pointer-events-none blur-[1px] transition-all duration-300 translate-x-8 sm:translate-x-0">
+                  {nextVoicingResult?.voicing ? (
+                    <div className="bg-[#13161a] rounded-2xl p-3 border border-white/5 shadow-lg relative w-[240px]">
+                      <div className="text-center pb-2 text-xs font-mono font-bold text-zinc-400 border-b border-white/5 mb-2">
+                        {capo > 0 ? nextChord.shapeChord : nextChord.transposedChord}
+                      </div>
+                      <div className="pointer-events-none">
+                        <ChordDiagram
+                          frets={nextVoicingResult.voicing.frets}
+                          fingers={nextVoicingResult.voicing.fingers}
+                          barre={nextVoicingResult.voicing.barre}
+                          position={nextVoicingResult.voicing.baseFret}
+                          cagedShape={nextVoicingResult.voicing.cagedShape}
+                          title=""
+                          capo={capo}
+                        />
+                      </div>
+                    </div>
+                  ) : <div className="w-[240px]" />}
+                </div>
               </div>
 
               {/* Draggable Audio Waveform Timeline Scrubber & Transport Controls (Placed below chord diagram, above confidence) */}
@@ -1313,48 +1328,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                 )}
               </div>
 
-              {/* REAL TIMING CHECK Diagnostic Panel (Phase 6F) */}
-              {realTimingCheck && (
-                <div className="w-full max-w-2xl mx-auto mt-2 bg-black/40 border border-white/10 rounded-2xl p-3 backdrop-blur-md">
-                  <div className="flex items-center justify-between border-b border-white/5 pb-2 mb-2">
-                    <div className="flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full bg-[#a3ff12] animate-pulse" />
-                      <span className="text-[11px] font-mono font-bold text-white uppercase tracking-wider">REAL TIMING CHECK</span>
-                    </div>
-                    <span className="text-[10px] font-mono text-zinc-400">
-                      Active Chord: <span className="text-[#a3ff12] font-bold">{realTimingCheck.activeChord}</span>
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[10px] sm:text-[11px] font-mono">
-                    <div className="bg-white/5 p-2 rounded-xl border border-white/5">
-                      <span className="text-zinc-400 block text-[9px] uppercase">BPM</span>
-                      <span className="text-[#a3ff12] font-bold text-xs">{realTimingCheck.bpm} BPM</span>
-                    </div>
-                    <div className="bg-white/5 p-2 rounded-xl border border-white/5">
-                      <span className="text-zinc-400 block text-[9px] uppercase">Beat 1 (First Beat)</span>
-                      <span className="text-white font-bold text-xs">{realTimingCheck.beat1}</span>
-                    </div>
-                    <div className="bg-white/5 p-2 rounded-xl border border-white/5">
-                      <span className="text-zinc-400 block text-[9px] uppercase">Current Beat</span>
-                      <span className="text-white font-bold text-xs">{realTimingCheck.currentBeat}</span>
-                    </div>
-                    <div className="bg-white/5 p-2 rounded-xl border border-white/5">
-                      <span className="text-zinc-400 block text-[9px] uppercase">Chord Start</span>
-                      <span className="text-white font-bold text-xs">{realTimingCheck.chordStart}</span>
-                    </div>
-                    <div className="bg-white/5 p-2 rounded-xl border border-white/5">
-                      <span className="text-zinc-400 block text-[9px] uppercase">Nearest Beat</span>
-                      <span className="text-white font-bold text-xs">{realTimingCheck.nearestBeat}</span>
-                    </div>
-                    <div className="bg-white/5 p-2 rounded-xl border border-white/5">
-                      <span className="text-zinc-400 block text-[9px] uppercase">Offset in ms</span>
-                      <span className={`font-bold text-xs ${Math.abs(realTimingCheck.offsetMs) <= 30 ? "text-[#a3ff12]" : Math.abs(realTimingCheck.offsetMs) <= 75 ? "text-amber-400" : "text-rose-400"}`}>
-                        {realTimingCheck.offsetDisplay}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              )}
+
             </>
           ) : (
             /* Empty State when no song is loaded yet */
@@ -1581,14 +1555,34 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                             : "bg-white/5 hover:bg-white/10 border-white/5 hover:border-white/10"
                         }`}
                       >
-                        <div className="flex justify-between items-start gap-2">
-                          <span
-                            className={`text-xs font-bold transition-colors truncate ${
-                              isActive ? "text-[#a3ff12]" : "text-white group-hover:text-[#a3ff12]"
-                            }`}
-                          >
-                            {song.title}
-                          </span>
+                        <div className="flex justify-between items-center gap-2 overflow-hidden">
+                          <div className="overflow-hidden whitespace-nowrap min-w-0 flex-1 relative">
+                            <div
+                              className={`inline-flex whitespace-nowrap ${
+                                isActive
+                                  ? "animate-[marquee-scroll_8s_linear_infinite]"
+                                  : "group-hover:animate-[marquee-scroll_8s_linear_infinite]"
+                              }`}
+                            >
+                              <span
+                                className={`text-xs font-bold transition-colors pr-6 shrink-0 ${
+                                  isActive ? "text-[#a3ff12]" : "text-white group-hover:text-[#a3ff12]"
+                                }`}
+                              >
+                                {song.title}
+                              </span>
+                              <span
+                                className={`text-xs font-bold transition-colors pr-6 shrink-0 ${
+                                  isActive
+                                    ? "text-[#a3ff12] opacity-100"
+                                    : "text-white group-hover:text-[#a3ff12] opacity-0 group-hover:opacity-100"
+                                }`}
+                              >
+                                {song.title}
+                              </span>
+                            </div>
+                          </div>
+
                           <div className="flex items-center gap-1 shrink-0">
                             {isLastPlayed && (
                               <span className="px-1.5 py-0.5 bg-[#a3ff12]/20 border border-[#a3ff12]/30 text-[#a3ff12] rounded text-[8px] font-mono font-bold">
@@ -1605,16 +1599,22 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                           </div>
                         </div>
 
-                        <span className="text-[10px] text-zinc-400 mt-1 truncate">
+                        <div className="mt-1 text-[11px] font-semibold text-[#a3ff12] truncate">
                           {song.artist || "Unknown Artist"}
-                        </span>
+                        </div>
 
-                        <div className="flex items-center justify-between mt-2.5 text-[9px] font-mono text-zinc-500">
-                          <span className="px-2 py-0.5 bg-white/5 rounded-md text-zinc-300">
+                        <div className="flex items-center justify-between mt-2.5 text-[9.5px] font-mono">
+                          <span className="px-2 py-0.5 bg-[#a3ff12]/15 border border-[#a3ff12]/30 rounded-md text-[#a3ff12] font-bold">
                             {song.key || "C Maj"}
                           </span>
-                          <span>{song.tempo || 120} BPM</span>
-                          {song.duration && <span>{formatTime(song.duration)}</span>}
+                          <span className="px-2 py-0.5 bg-[#a3ff12]/10 border border-[#a3ff12]/20 rounded-md text-[#a3ff12] font-bold">
+                            {song.tempo || 120} BPM
+                          </span>
+                          {song.duration && (
+                            <span className="text-[#a3ff12]/80 font-medium">
+                              {formatTime(song.duration)}
+                            </span>
+                          )}
                         </div>
                       </div>
                     );
