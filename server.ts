@@ -258,11 +258,22 @@ Provide a concise, practical, high-value guitar instruction response. Mention sp
       while (currentPage <= maxPages) {
         const prodApiUrl = `https://studio-api.prod.suno.com/api/playlist/${encodeURIComponent(targetId)}/?page=${currentPage}`;
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 5000);
-        const response = await fetch(prodApiUrl, { headers: browserHeaders, signal: controller.signal });
+        const timeout = setTimeout(() => controller.abort(), 2500); // fast timeout
+        let response;
+        try {
+          response = await fetch(prodApiUrl, { headers: browserHeaders, signal: controller.signal });
+        } catch (e: any) {
+          clearTimeout(timeout);
+          console.warn(`studio-api.prod.suno.com timeout or network error on page ${currentPage}`);
+          break; // Fail fast, don't keep looping
+        }
+        
         clearTimeout(timeout);
 
-        if (!response.ok) break;
+        if (!response.ok) {
+           console.warn(`studio-api.prod.suno.com returned status ${response.status}`);
+           break; // Fail fast on 403, 500, etc.
+        }
 
         const json = await response.json();
         meta = json;
@@ -293,7 +304,7 @@ Provide a concise, practical, high-value guitar instruction response. Mention sp
       try {
         const studioAiUrl = `https://studio-api.suno.ai/api/playlist/${encodeURIComponent(targetId)}/?page=${page}`;
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 5000);
+        const timeout = setTimeout(() => controller.abort(), 2000);
         const response = await fetch(studioAiUrl, { headers: browserHeaders, signal: controller.signal });
         clearTimeout(timeout);
 
@@ -314,7 +325,7 @@ Provide a concise, practical, high-value guitar instruction response. Mention sp
       try {
         const pageUrl = `https://suno.com/playlist/${targetId}`;
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 5000);
+        const timeout = setTimeout(() => controller.abort(), 2000);
         const response = await fetch(pageUrl, {
           headers: {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
@@ -361,40 +372,45 @@ Provide a concise, practical, high-value guitar instruction response. Mention sp
         }
       ];
 
-      for (const proxy of proxies) {
-        try {
-          const fetchUrl = proxy.url(targetId);
+      try {
+        const proxyPromises = proxies.map(async (proxy) => {
           const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 6000);
-          const resProxy = await fetch(fetchUrl, { signal: controller.signal });
-          clearTimeout(timeout);
+          const timeout = setTimeout(() => controller.abort(), 3000); // 3s max for proxies
+          try {
+            const resProxy = await fetch(proxy.url(targetId), { signal: controller.signal });
+            clearTimeout(timeout);
 
-          if (!resProxy.ok) continue;
+            if (!resProxy.ok) throw new Error("Proxy response not ok");
 
-          let rawData: any;
-          const contentType = resProxy.headers.get("content-type") || "";
-          if (contentType.includes("application/json")) {
-            rawData = await resProxy.json();
-          } else {
-            rawData = await resProxy.text();
-          }
-
-          const html = proxy.parse(rawData);
-          if (html && typeof html === "string") {
-            const { foundClips, foundName } = extractRSCClips(html);
-            if (foundClips.length > 0) {
-              foundData = {
-                name: foundName,
-                playlist_clips: foundClips,
-                num_total_results: foundClips.length,
-              };
-              console.log(`Proxy ${proxy.name} successfully resolved ${foundClips.length} tracks.`);
-              break;
+            let rawData: any;
+            const contentType = resProxy.headers.get("content-type") || "";
+            if (contentType.includes("application/json")) {
+              rawData = await resProxy.json();
+            } else {
+              rawData = await resProxy.text();
             }
+
+            const html = proxy.parse(rawData);
+            if (html && typeof html === "string") {
+              const { foundClips, foundName } = extractRSCClips(html);
+              if (foundClips.length > 0) {
+                return {
+                  name: foundName,
+                  playlist_clips: foundClips,
+                  num_total_results: foundClips.length
+                };
+              }
+            }
+          } catch (e) {
+            clearTimeout(timeout);
+            throw e; 
           }
-        } catch (err: any) {
-          console.warn(`Proxy ${proxy.name} error:`, err?.message);
-        }
+          throw new Error("No clips found via proxy");
+        });
+
+        foundData = await Promise.any(proxyPromises);
+      } catch (err: any) {
+        console.warn(`[Express API] All proxies failed.`);
       }
     }
 

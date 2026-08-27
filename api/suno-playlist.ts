@@ -88,11 +88,23 @@ export default async function handler(req: any, res: any) {
     while (page <= 5) {
       const prodApiUrl = `https://studio-api.prod.suno.com/api/playlist/${encodeURIComponent(targetId)}/?page=${page}`;
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 4500);
-      const response = await fetch(prodApiUrl, { headers: browserHeaders, signal: controller.signal });
+      const timeout = setTimeout(() => controller.abort(), 2500); // reduced timeout
+      
+      let response;
+      try {
+        response = await fetch(prodApiUrl, { headers: browserHeaders, signal: controller.signal });
+      } catch (err: any) {
+        clearTimeout(timeout);
+        console.warn(`[Vercel API] studio-api.prod.suno.com failed on page ${page}:`, err?.message);
+        break; // Fail fast on timeout or network error, do not try next pages
+      }
+      
       clearTimeout(timeout);
 
-      if (!response.ok) break;
+      if (!response.ok) {
+        console.warn(`[Vercel API] studio-api.prod.suno.com returned status ${response.status}`);
+        break; // Fail fast on 403, 500, etc.
+      }
 
       const json = await response.json();
       meta = json;
@@ -123,7 +135,7 @@ export default async function handler(req: any, res: any) {
     try {
       const studioAiUrl = `https://studio-api.suno.ai/api/playlist/${encodeURIComponent(targetId)}/?page=1`;
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 4000);
+      const timeout = setTimeout(() => controller.abort(), 2000);
       const response = await fetch(studioAiUrl, { headers: browserHeaders, signal: controller.signal });
       clearTimeout(timeout);
 
@@ -144,7 +156,7 @@ export default async function handler(req: any, res: any) {
     try {
       const pageUrl = `https://suno.com/playlist/${targetId}`;
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 4000);
+      const timeout = setTimeout(() => controller.abort(), 2000);
       const response = await fetch(pageUrl, {
         headers: {
           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
@@ -170,7 +182,7 @@ export default async function handler(req: any, res: any) {
     }
   }
 
-  // Step 4: Multi-proxy scraping fallback
+  // Step 4: Multi-proxy scraping fallback (Run in parallel for speed)
   if (!foundData) {
     const proxies = [
       {
@@ -190,38 +202,46 @@ export default async function handler(req: any, res: any) {
       }
     ];
 
-    for (const proxy of proxies) {
-      try {
+    try {
+      const proxyPromises = proxies.map(async (proxy) => {
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 5000);
-        const resProxy = await fetch(proxy.url(targetId), { signal: controller.signal });
-        clearTimeout(timeout);
+        const timeout = setTimeout(() => controller.abort(), 3000); // 3s max for proxies
+        try {
+          const resProxy = await fetch(proxy.url(targetId), { signal: controller.signal });
+          clearTimeout(timeout);
 
-        if (!resProxy.ok) continue;
+          if (!resProxy.ok) throw new Error("Proxy response not ok");
 
-        let rawData: any;
-        const contentType = resProxy.headers.get("content-type") || "";
-        if (contentType.includes("application/json")) {
-          rawData = await resProxy.json();
-        } else {
-          rawData = await resProxy.text();
-        }
-
-        const html = proxy.parse(rawData);
-        if (html && typeof html === "string") {
-          const { foundClips, foundName } = extractRSCClips(html);
-          if (foundClips.length > 0) {
-            foundData = {
-              name: foundName,
-              playlist_clips: foundClips,
-              num_total_results: foundClips.length
-            };
-            break;
+          let rawData: any;
+          const contentType = resProxy.headers.get("content-type") || "";
+          if (contentType.includes("application/json")) {
+            rawData = await resProxy.json();
+          } else {
+            rawData = await resProxy.text();
           }
+
+          const html = proxy.parse(rawData);
+          if (html && typeof html === "string") {
+            const { foundClips, foundName } = extractRSCClips(html);
+            if (foundClips.length > 0) {
+              return {
+                name: foundName,
+                playlist_clips: foundClips,
+                num_total_results: foundClips.length
+              };
+            }
+          }
+        } catch (e) {
+          clearTimeout(timeout);
+          throw e; // throw so Promise.any ignores it
         }
-      } catch (err: any) {
-        // continue to next proxy
-      }
+        throw new Error("No clips found via proxy");
+      });
+
+      // Use Promise.any to take the first successful proxy
+      foundData = await Promise.any(proxyPromises);
+    } catch (err: any) {
+      console.warn(`[Vercel API] All proxies failed.`);
     }
   }
 
