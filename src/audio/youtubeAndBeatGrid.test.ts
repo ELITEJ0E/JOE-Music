@@ -70,14 +70,14 @@ describe("Phase 7 - YouTube Audio Pipeline & Beat Timing Grid Regression Test", 
     const beats = Array.from({ length: 32 }, (_, i) => Number((i * 0.5).toFixed(3)));
 
     const rawSegments: ChordSegment[] = [
-      { id: "1", chord: "E", startTime: 0.0, endTime: 2.0, confidence: 95 },
-      { id: "2", chord: "B", startTime: 2.0, endTime: 4.0, confidence: 95 },
-      { id: "3", chord: "C#m7", startTime: 4.0, endTime: 6.0, confidence: 95 },
-      { id: "4", chord: "A", startTime: 6.0, endTime: 8.0, confidence: 95 },
-      { id: "5", chord: "E", startTime: 8.0, endTime: 10.0, confidence: 95 },
-      { id: "6", chord: "F#m7", startTime: 10.0, endTime: 12.0, confidence: 95 },
-      { id: "7", chord: "Bsus4", startTime: 12.0, endTime: 14.0, confidence: 95 },
-      { id: "8", chord: "E", startTime: 14.0, endTime: 16.0, confidence: 95 },
+      { id: "1", chord: "E", startTime: 0.0, endTime: 2.0, confidence: 95, stability: 95 },
+      { id: "2", chord: "B", startTime: 2.0, endTime: 4.0, confidence: 95, stability: 95 },
+      { id: "3", chord: "C#m7", startTime: 4.0, endTime: 6.0, confidence: 95, stability: 95 },
+      { id: "4", chord: "A", startTime: 6.0, endTime: 8.0, confidence: 95, stability: 95 },
+      { id: "5", chord: "E", startTime: 8.0, endTime: 10.0, confidence: 95, stability: 95 },
+      { id: "6", chord: "F#m7", startTime: 10.0, endTime: 12.0, confidence: 95, stability: 95 },
+      { id: "7", chord: "Bsus4", startTime: 12.0, endTime: 14.0, confidence: 95, stability: 95 },
+      { id: "8", chord: "E", startTime: 14.0, endTime: 16.0, confidence: 95, stability: 95 },
     ];
 
     const result = stabilizeChordSegments(rawSegments, {
