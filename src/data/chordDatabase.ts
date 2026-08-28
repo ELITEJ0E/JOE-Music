@@ -477,6 +477,139 @@ export const CHORD_DATABASE: ChordVoicing[] = [
     notes: ["A", "F", "A", "C#", "F"],
     difficulty: "Intermediate",
   },
+
+  // Power Chords (5)
+  {
+    id: "e5-open",
+    name: "E Power Chord (E5)",
+    root: "E",
+    quality: "5",
+    frets: [0, 2, 2, "x", "x", "x"],
+    fingers: [0, 1, 2, 0, 0, 0],
+    notes: ["E", "B", "E"],
+    difficulty: "Beginner",
+  },
+  {
+    id: "a5-open",
+    name: "A Power Chord (A5)",
+    root: "A",
+    quality: "5",
+    frets: ["x", 0, 2, 2, "x", "x"],
+    fingers: [0, 0, 1, 2, 0, 0],
+    notes: ["A", "E", "A"],
+    difficulty: "Beginner",
+  },
+  {
+    id: "d5-open",
+    name: "D Power Chord (D5)",
+    root: "D",
+    quality: "5",
+    frets: ["x", "x", 0, 2, 3, "x"],
+    fingers: [0, 0, 0, 1, 3, 0],
+    notes: ["D", "A", "D"],
+    difficulty: "Beginner",
+  },
+  {
+    id: "c5-barre",
+    name: "C Power Chord (C5)",
+    root: "C",
+    quality: "5",
+    frets: ["x", 3, 5, 5, "x", "x"],
+    fingers: [0, 1, 3, 4, 0, 0],
+    notes: ["C", "G", "C"],
+    difficulty: "Beginner",
+  },
+  {
+    id: "g5-barre",
+    name: "G Power Chord (G5)",
+    root: "G",
+    quality: "5",
+    frets: [3, 5, 5, "x", "x", "x"],
+    fingers: [1, 3, 4, 0, 0, 0],
+    notes: ["G", "D", "G"],
+    difficulty: "Beginner",
+  },
+  {
+    id: "f5-barre",
+    name: "F Power Chord (F5)",
+    root: "F",
+    quality: "5",
+    frets: [1, 3, 3, "x", "x", "x"],
+    fingers: [1, 3, 4, 0, 0, 0],
+    notes: ["F", "C", "F"],
+    difficulty: "Beginner",
+  },
+  {
+    id: "f-sharp-5-barre",
+    name: "F# Power Chord (F#5)",
+    root: "F#",
+    quality: "5",
+    frets: [2, 4, 4, "x", "x", "x"],
+    fingers: [1, 3, 4, 0, 0, 0],
+    notes: ["F#", "C#", "F#"],
+    difficulty: "Beginner",
+  },
+  {
+    id: "b5-barre",
+    name: "B Power Chord (B5)",
+    root: "B",
+    quality: "5",
+    frets: ["x", 2, 4, 4, "x", "x"],
+    fingers: [0, 1, 3, 4, 0, 0],
+    notes: ["B", "F#", "B"],
+    difficulty: "Beginner",
+  },
+  {
+    id: "bb-maj-barre",
+    name: "Bb Major (Bb)",
+    root: "Bb",
+    quality: "Major",
+    frets: ["x", 1, 3, 3, 3, 1],
+    barre: { fret: 1, fromString: 1, toString: 5 },
+    notes: ["Bb", "F", "Bb", "D", "F"],
+    cagedShape: "A",
+    difficulty: "Intermediate",
+  },
+  {
+    id: "eb-maj-barre",
+    name: "Eb Major (Eb)",
+    root: "Eb",
+    quality: "Major",
+    frets: ["x", 6, 8, 8, 8, 6],
+    barre: { fret: 6, fromString: 1, toString: 5 },
+    notes: ["Eb", "Bb", "Eb", "G", "Bb"],
+    cagedShape: "A",
+    difficulty: "Intermediate",
+  },
+  {
+    id: "ab-maj-barre",
+    name: "Ab Major (Ab)",
+    root: "Ab",
+    quality: "Major",
+    frets: [4, 6, 6, 5, 4, 4],
+    barre: { fret: 4, fromString: 0, toString: 5 },
+    notes: ["Ab", "Eb", "Ab", "C", "Eb", "Ab"],
+    cagedShape: "E",
+    difficulty: "Intermediate",
+  },
+  {
+    id: "c-sus2-open",
+    name: "C Suspended 2nd (Csus2)",
+    root: "C",
+    quality: "sus2",
+    frets: ["x", 3, 0, 0, 1, 3],
+    notes: ["C", "G", "D", "C", "G"],
+    difficulty: "Beginner",
+  },
+  {
+    id: "g-sus2-open",
+    name: "G Suspended 2nd (Gsus2)",
+    root: "G",
+    quality: "sus2",
+    frets: [3, 0, 0, 0, 3, 3],
+    notes: ["G", "A", "D", "G", "D", "G"],
+    difficulty: "Beginner",
+  },
 ];
 
 let shorthandMap: Record<string, ChordVoicing> | null = null;
@@ -588,6 +721,93 @@ function generateBarreVoicing(root: string, quality: string): ChordVoicing | und
       quality: "maj7",
       frets: ["x", aFret, aFret + 2, aFret + 1, aFret + 2, aFret],
       barre: aFret > 0 ? { fret: aFret, fromString: 1, toString: 5 } : undefined,
+      notes: [normRoot],
+      difficulty: "Intermediate",
+    };
+  }
+
+  if (quality === "5" || quality === "power") {
+    if (preferE) {
+      return {
+        id: `gen-${normRoot.toLowerCase()}-5-e`,
+        name: `${normRoot} Power Chord (5)`,
+        root: normRoot,
+        quality: "5",
+        frets: [eFret, eFret + 2, eFret + 2, "x", "x", "x"],
+        notes: [normRoot],
+        difficulty: "Beginner",
+      };
+    } else {
+      return {
+        id: `gen-${normRoot.toLowerCase()}-5-a`,
+        name: `${normRoot} Power Chord (5)`,
+        root: normRoot,
+        quality: "5",
+        frets: ["x", aFret, aFret + 2, aFret + 2, "x", "x"],
+        notes: [normRoot],
+        difficulty: "Beginner",
+      };
+    }
+  }
+
+  if (quality === "sus4") {
+    return {
+      id: `gen-${normRoot.toLowerCase()}-sus4`,
+      name: `${normRoot} Suspended 4th (sus4)`,
+      root: normRoot,
+      quality: "sus4",
+      frets: ["x", aFret, aFret + 2, aFret + 2, aFret + 3, aFret],
+      barre: aFret > 0 ? { fret: aFret, fromString: 1, toString: 5 } : undefined,
+      notes: [normRoot],
+      difficulty: "Intermediate",
+    };
+  }
+
+  if (quality === "sus2") {
+    return {
+      id: `gen-${normRoot.toLowerCase()}-sus2`,
+      name: `${normRoot} Suspended 2nd (sus2)`,
+      root: normRoot,
+      quality: "sus2",
+      frets: ["x", aFret, aFret + 2, aFret + 2, aFret, aFret],
+      barre: aFret > 0 ? { fret: aFret, fromString: 1, toString: 5 } : undefined,
+      notes: [normRoot],
+      difficulty: "Intermediate",
+    };
+  }
+
+  if (quality === "add9") {
+    return {
+      id: `gen-${normRoot.toLowerCase()}-add9`,
+      name: `${normRoot} Add 9 (add9)`,
+      root: normRoot,
+      quality: "add9",
+      frets: ["x", aFret, aFret + 2, aFret + 2, aFret + 5, aFret],
+      barre: aFret > 0 ? { fret: aFret, fromString: 1, toString: 5 } : undefined,
+      notes: [normRoot],
+      difficulty: "Advanced",
+    };
+  }
+
+  if (quality === "dim" || quality === "dim7") {
+    return {
+      id: `gen-${normRoot.toLowerCase()}-dim7`,
+      name: `${normRoot} Diminished 7th`,
+      root: normRoot,
+      quality: "dim7",
+      frets: ["x", aFret, aFret + 1, aFret + 2, aFret + 1, "x"],
+      notes: [normRoot],
+      difficulty: "Advanced",
+    };
+  }
+
+  if (quality === "aug") {
+    return {
+      id: `gen-${normRoot.toLowerCase()}-aug`,
+      name: `${normRoot} Augmented`,
+      root: normRoot,
+      quality: "aug",
+      frets: ["x", aFret, aFret + 3, aFret + 2, aFret + 2, "x"],
       notes: [normRoot],
       difficulty: "Intermediate",
     };
