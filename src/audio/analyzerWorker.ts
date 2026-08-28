@@ -98,12 +98,35 @@ function fft(real, imag) {
   }
 }
 
+// Parabolic (Quadratic) peak interpolation for sub-bin frequency estimation
+function getInterpolatedPeakFreq(
+  spectrum: Float32Array,
+  i: number,
+  sampleRate: number,
+  fftSize: number
+): number {
+  const mag = spectrum[i];
+  if (i > 0 && i < spectrum.length - 1) {
+    const magLeft = spectrum[i - 1];
+    const magRight = spectrum[i + 1];
+    const denom = magLeft - 2 * mag + magRight;
+    if (Math.abs(denom) > 1e-6) {
+      const p = (0.5 * (magLeft - magRight)) / denom;
+      if (isFinite(p) && Math.abs(p) <= 1.0) {
+        const trueBinIndex = i + p;
+        return (trueBinIndex * sampleRate) / fftSize;
+      }
+    }
+  }
+  return (i * sampleRate) / fftSize;
+}
+
 self.onmessage = function (e) {
   try {
     const { channelData, sampleRate, duration } = e.data;
     reportProgress("Preprocessing Audio...", 5);
 
-    // 1. STFT & HPCP Extraction
+    // 1. STFT & HPCP Extraction (Main Harmonic Pass, FFT Size 8192)
     reportProgress("Extracting CQT/HPCP Features...", 15);
     
     // We use a high resolution FFT to emulate CQT for chroma extraction
@@ -117,16 +140,16 @@ self.onmessage = function (e) {
     }
 
     const chromagram = [];
-    const bassChromagram = [];
+    const legacyBassChromagram = [];
     const onsetEnvelope = new Float32Array(numFrames);
     let prevSpectrum = new Float32Array(fftSize / 2);
 
     // Tuning Estimation Variables
     const peakFreqs = [];
 
-    // STFT Loop
+    // Main STFT Loop
     for (let f = 0; f < numFrames; f++) {
-      if (f % 200 === 0) reportProgress("Extracting CQT/HPCP Features...", 15 + (f/numFrames)*35);
+      if (f % 200 === 0) reportProgress("Extracting CQT/HPCP Features...", 15 + (f/numFrames)*30);
       
       const frameStart = f * hopSize;
       const real = new Float32Array(fftSize);
@@ -139,7 +162,7 @@ self.onmessage = function (e) {
       fft(real, imag);
       
       const chroma = new Float32Array(12);
-      const bassChroma = new Float32Array(12);
+      const legacyBassChroma = new Float32Array(12);
       let energy = 0;
       let onsetFlux = 0;
       
@@ -152,16 +175,19 @@ self.onmessage = function (e) {
         
         const diff = mag - prevSpectrum[i];
         if (diff > 0) onsetFlux += diff;
-        
-        const freq = (i * sampleRate) / fftSize;
+      }
+
+      for (let i = 0; i < fftSize / 2; i++) {
+        const mag = spectrum[i];
         if (mag > 0.01) {
-          if (freq >= 40 && freq <= 250) { // Bass region
-            const midi = 69 + 12 * Math.log2(freq / 440);
+          const trueFreq = getInterpolatedPeakFreq(spectrum, i, sampleRate, fftSize);
+          if (trueFreq >= 40 && trueFreq <= 250) { // Legacy bass region for comparison
+            const midi = 69 + 12 * Math.log2(trueFreq / 440);
             const pitchClass = Math.round(midi) % 12;
-            bassChroma[(pitchClass + 12) % 12] += mag;
+            legacyBassChroma[(pitchClass + 12) % 12] += mag;
           }
-          if (freq >= 65.41 && freq <= 1046.50) { // Harmonic region
-            const exactMidi = 69 + 12 * Math.log2(freq / 440);
+          if (trueFreq >= 65.41 && trueFreq <= 1046.50) { // Harmonic region
+            const exactMidi = 69 + 12 * Math.log2(trueFreq / 440);
             const pitchClass = Math.round(exactMidi) % 12;
             chroma[(pitchClass + 12) % 12] += mag;
             
@@ -178,12 +204,99 @@ self.onmessage = function (e) {
       let maxC = Math.max(...chroma) || 1;
       for (let i = 0; i < 12; i++) chroma[i] /= maxC;
       
-      let maxB = Math.max(...bassChroma) || 1;
-      for (let i = 0; i < 12; i++) bassChroma[i] /= maxB;
+      let maxB = Math.max(...legacyBassChroma) || 1;
+      for (let i = 0; i < 12; i++) legacyBassChroma[i] /= maxB;
       
       chromagram.push(chroma);
+      legacyBassChromagram.push(legacyBassChroma);
+    }
+
+    // 1b. Dedicated High-Resolution Bass Pass (40-250 Hz, FFT Size 32768)
+    reportProgress("Extracting High-Resolution Bass Features...", 48);
+    const bassFftSize = 32768;
+    const bassHopSize = 8192; // 4x main hop size for reasonable compute
+    const actualBassFftSize = channelData.length < bassFftSize
+      ? Math.max(2048, 1 << Math.floor(Math.log2(Math.max(2, channelData.length))))
+      : bassFftSize;
+    const numBassFrames = channelData.length >= actualBassFftSize
+      ? Math.floor((channelData.length - actualBassFftSize) / bassHopSize) + 1
+      : 1;
+
+    const bassHannWindow = new Float32Array(actualBassFftSize);
+    for (let i = 0; i < actualBassFftSize; i++) {
+      bassHannWindow[i] = 0.5 * (1 - Math.cos((2 * Math.PI * i) / (actualBassFftSize - 1)));
+    }
+
+    const bassChromagram = [];
+
+    for (let bf = 0; bf < numBassFrames; bf++) {
+      const frameStart = bf * bassHopSize;
+      const real = new Float32Array(actualBassFftSize);
+      const imag = new Float32Array(actualBassFftSize);
+
+      for (let i = 0; i < actualBassFftSize; i++) {
+        if (frameStart + i < channelData.length) {
+          real[i] = channelData[frameStart + i] * bassHannWindow[i];
+        }
+      }
+
+      fft(real, imag);
+
+      const bassSpectrum = new Float32Array(actualBassFftSize / 2);
+      for (let i = 0; i < actualBassFftSize / 2; i++) {
+        bassSpectrum[i] = Math.sqrt(real[i] * real[i] + imag[i] * imag[i]);
+      }
+
+      const bassChroma = new Float32Array(12);
+      for (let i = 0; i < actualBassFftSize / 2; i++) {
+        const mag = bassSpectrum[i];
+        if (mag > 0.01) {
+          const trueFreq = getInterpolatedPeakFreq(bassSpectrum, i, sampleRate, actualBassFftSize);
+          if (trueFreq >= 40 && trueFreq <= 250) {
+            const midi = 69 + 12 * Math.log2(trueFreq / 440);
+            const pitchClass = Math.round(midi) % 12;
+            bassChroma[(pitchClass + 12) % 12] += mag;
+          }
+        }
+      }
+
+      let maxB = Math.max(...bassChroma) || 1;
+      for (let i = 0; i < 12; i++) bassChroma[i] /= maxB;
+
       bassChromagram.push(bassChroma);
     }
+
+    // Temporary verification log: compare old (8192) vs new (32768) bass chroma peak pitch-class for first 10 frames
+    const compareCount = Math.min(10, bassChromagram.length);
+    const bassComparisonLog = [];
+    for (let bf = 0; bf < compareCount; bf++) {
+      const timeSec = (bf * bassHopSize) / sampleRate;
+      const legacyFrameIdx = Math.min(legacyBassChromagram.length - 1, Math.round((timeSec * sampleRate) / hopSize));
+      const oldChroma = legacyBassChromagram[legacyFrameIdx] || new Float32Array(12);
+      const newChroma = bassChromagram[bf] || new Float32Array(12);
+
+      let oldPeakPC = 0, oldPeakVal = -1;
+      let newPeakPC = 0, newPeakVal = -1;
+      for (let k = 0; k < 12; k++) {
+        if (oldChroma[k] > oldPeakVal) {
+          oldPeakVal = oldChroma[k];
+          oldPeakPC = k;
+        }
+        if (newChroma[k] > newPeakVal) {
+          newPeakVal = newChroma[k];
+          newPeakPC = k;
+        }
+      }
+      bassComparisonLog.push({
+        bassFrame: bf,
+        timeSec: Number(timeSec.toFixed(2)),
+        oldBassPeak: NOTE_NAMES[oldPeakPC],
+        newBassPeak: NOTE_NAMES[newPeakPC],
+        oldPeakVal: Number(oldPeakVal.toFixed(3)),
+        newPeakVal: Number(newPeakVal.toFixed(3))
+      });
+    }
+    console.log("[Bass Chroma Verification] Old (8192) vs New (32768) Bass Pass Peak Pitch Classes (First 10 frames):", bassComparisonLog);
 
     reportProgress("Estimating Tuning & Key...", 55);
     // Tuning deviation
@@ -423,22 +536,30 @@ self.onmessage = function (e) {
       const viterbiChordState = CHORD_STATES[seg.stateId];
       const viterbiChord = viterbiChordState.label;
 
-      // Extract Mean Chroma and Mean Bass Chroma for the segment
+      // Extract Mean Chroma (from main 8192 chromagram) and Mean Bass Chroma (from high-res 32768 bassChromagram)
       const numSegFrames = seg.endFrame - seg.startFrame + 1;
       const meanChroma = new Float32Array(12);
-      const meanBassChroma = new Float32Array(12);
-      
       for (let f = seg.startFrame; f <= seg.endFrame; f++) {
         for (let k = 0; k < 12; k++) {
           meanChroma[k] += chromagram[f][k];
-          meanBassChroma[k] += bassChromagram[f][k];
+        }
+      }
+
+      const meanBassChroma = new Float32Array(12);
+      const startBassFrame = Math.max(0, Math.min(bassChromagram.length - 1, Math.floor((rawStartTime * sampleRate) / bassHopSize)));
+      const endBassFrame = Math.max(startBassFrame, Math.min(bassChromagram.length - 1, Math.floor((rawEndTime * sampleRate) / bassHopSize)));
+      const numBassSegFrames = endBassFrame - startBassFrame + 1;
+
+      for (let bf = startBassFrame; bf <= endBassFrame; bf++) {
+        for (let k = 0; k < 12; k++) {
+          meanBassChroma[k] += bassChromagram[bf][k];
         }
       }
       
       let maxC = 0, maxB = 0;
       for (let k = 0; k < 12; k++) {
         meanChroma[k] /= numSegFrames;
-        meanBassChroma[k] /= numSegFrames;
+        meanBassChroma[k] /= numBassSegFrames;
         if (meanChroma[k] > maxC) maxC = meanChroma[k];
         if (meanBassChroma[k] > maxB) maxB = meanBassChroma[k];
       }
