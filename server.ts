@@ -100,12 +100,14 @@ Provide a concise, practical, high-value guitar instruction response. Mention sp
     }
 
     const payloads: string[] = [];
-    let idx = 0;
+    const pushIdx = html.search(/(?:self\.|window\.)?__next_f\.push\(/);
+    let searchPos = 0;
     while (true) {
-      const pushIdx = html.indexOf("__next_f.push(", idx);
-      if (pushIdx === -1) break;
+      const match = html.slice(searchPos).match(/(?:self\.|window\.)?__next_f\.push\(/);
+      if (!match || match.index === undefined) break;
 
-      const startIdx = pushIdx + "__next_f.push(".length;
+      const pushIdx = searchPos + match.index;
+      const startIdx = pushIdx + match[0].length;
       let parenCount = 1;
       let inString = false;
       let stringChar = "";
@@ -163,9 +165,9 @@ Provide a concise, practical, high-value guitar instruction response. Mention sp
             }
           }
         }
-        idx = foundEnd + 1;
+        searchPos = foundEnd + 1;
       } else {
-        idx = pushIdx + 1;
+        searchPos = pushIdx + 1;
       }
     }
 
@@ -432,7 +434,15 @@ Provide a concise, practical, high-value guitar instruction response. Mention sp
           : Array.isArray(tagsStr) ? tagsStr : ["Guitar", "Original"];
 
         const clipId = clip.id || clip.clip_id || `trk-${Math.random().toString(36).slice(2, 9)}`;
-        const audioUrl = clip.audio_url || clip.audioUrl || `https://cdn1.suno.ai/${clipId}.mp3`;
+        const cloudfrontUrl = `https://d2lwuy8qc234o3.cloudfront.net/1/clip/${clipId}.m4a`;
+        const rawMediaUrl = Array.isArray(clip.media_urls) && clip.media_urls.length > 0
+          ? (clip.media_urls.find((m: any) => m.url && !m.url.includes("forbidden") && !m.url.includes("cdn1.suno.ai"))?.url || clip.media_urls[0]?.url)
+          : null;
+        const audioUrl = (rawMediaUrl && !rawMediaUrl.includes("forbidden") && !rawMediaUrl.includes("cdn1.suno.ai"))
+          ? rawMediaUrl
+          : (clip.audio_url && !clip.audio_url.includes("forbidden") && !clip.audio_url.includes("cdn1.suno.ai"))
+          ? clip.audio_url
+          : cloudfrontUrl;
         const rawImg = clip.image_large_url || clip.image_url || clip.imageUrl;
         const imageUrl = rawImg || `https://cdn2.suno.ai/image_${clipId}.jpeg`;
 
@@ -449,6 +459,7 @@ Provide a concise, practical, high-value guitar instruction response. Mention sp
           album: clip.album || playlistTitle,
           duration: durationVal,
           audioUrl: audioUrl,
+          streamUrl: `/api/suno-audio/${clipId}`,
           videoUrl: clip.video_url || clip.videoUrl || null,
           imageUrl: imageUrl,
           lyrics: clip.metadata?.prompt || clip.metadata?.text || clip.prompt || clip.lyrics || "[Instrumental Audio Track]",
@@ -490,6 +501,291 @@ Provide a concise, practical, high-value guitar instruction response. Mention sp
       tracks: fallback.tracks,
       totalTracks: fallback.tracks.length,
       hasMore: false
+    });
+  });
+
+  // =========================================================================
+  // SUNO AUDIO DECRYPTION & STREAMING ENGINE (AES-CTR DRM RESOLVER)
+  // Decrypts Suno CloudFront encrypted audio streams in real-time with caching
+  // =========================================================================
+  interface CachedAudio {
+    buffer: Buffer;
+    mimeType: string;
+    timestamp: number;
+  }
+
+  const audioBufferCache = new Map<string, CachedAudio>();
+  const pendingDecryptions = new Map<string, Promise<CachedAudio | null>>();
+  const MAX_AUDIO_CACHE_ENTRIES = 60;
+
+  function pruneAudioCache() {
+    if (audioBufferCache.size > MAX_AUDIO_CACHE_ENTRIES) {
+      const entries = Array.from(audioBufferCache.entries()).sort((a, b) => a[1].timestamp - b[1].timestamp);
+      for (let i = 0; i < 15; i++) {
+        if (entries[i]) audioBufferCache.delete(entries[i][0]);
+      }
+    }
+  }
+
+  async function resolveAndDecryptSunoAudio(clipId: string, directUrl?: string): Promise<CachedAudio | null> {
+    const cacheKey = clipId || directUrl || "";
+    if (!cacheKey) return null;
+
+    // 1. Return from in-memory cache if available (valid for 4 hours)
+    const cached = audioBufferCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < 4 * 3600 * 1000) {
+      return cached;
+    }
+
+    // 2. Deduplicate inflight decryption promises
+    if (pendingDecryptions.has(cacheKey)) {
+      return pendingDecryptions.get(cacheKey)!;
+    }
+
+    const decryptPromise = (async (): Promise<CachedAudio | null> => {
+      try {
+        console.log(`[Audio Engine] Starting DRM decryption for clip: ${clipId}`);
+
+        // Step A: Fetch rights key and IV from Suno Studio API
+        const rightsHosts = [
+          "https://studio-api-prod.suno.com",
+          "https://studio-api.suno.ai",
+          "https://suno.com"
+        ];
+
+        let rightsData: { key: string; iv: string; glt: string } | null = null;
+
+        if (clipId) {
+          for (const host of rightsHosts) {
+            try {
+              const rightsRes = await fetch(`${host}/api/mango/rights`, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                  "Origin": "https://suno.com",
+                  "Referer": `https://suno.com/song/${clipId}`
+                },
+                body: JSON.stringify({
+                  content_params: {
+                    content_id: clipId,
+                    content_type: "clip"
+                  }
+                })
+              });
+
+              if (rightsRes.ok) {
+                const json = await rightsRes.json();
+                if (json && json.key && json.iv && json.glt) {
+                  rightsData = json;
+                  console.log(`[Audio Engine] Acquired rights successfully from ${host}`);
+                  break;
+                }
+              }
+            } catch (e: any) {
+              console.warn(`[Audio Engine] Rights fetch error on ${host}:`, e?.message);
+            }
+          }
+        }
+
+        // Step B: Download the encrypted media file from CloudFront
+        const candidateMediaUrls = [
+          directUrl,
+          clipId ? `https://d2lwuy8qc234o3.cloudfront.net/1/clip/${clipId}.m4a` : null,
+          clipId ? `https://d2lwuy8qc234o3.cloudfront.net/1/clip/${clipId}.mp3` : null,
+        ].filter(Boolean) as string[];
+
+        let rawEncryptedBuffer: Buffer | null = null;
+        let matchedUrl = "";
+
+        for (const mediaUrl of candidateMediaUrls) {
+          try {
+            const mediaRes = await fetch(mediaUrl, {
+              headers: {
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+                "Referer": "https://suno.com/"
+              }
+            });
+            if (mediaRes.ok) {
+              const arr = await mediaRes.arrayBuffer();
+              if (arr.byteLength > 1000) {
+                rawEncryptedBuffer = Buffer.from(arr);
+                matchedUrl = mediaUrl;
+                break;
+              }
+            }
+          } catch (e) {}
+        }
+
+        if (!rawEncryptedBuffer) {
+          console.error(`[Audio Engine] Failed to download media bytes for clip: ${clipId}`);
+          return null;
+        }
+
+        // If rights acquired, decrypt via AES-CTR (Suno DRM spec)
+        if (rightsData) {
+          const { key: encKeyB64, iv: encIvB64, glt } = rightsData;
+
+          // 1. User key derivation (SHA-256 of glt -> AES-GCM)
+          const gltBytes = new TextEncoder().encode(glt);
+          const userKeyHash = await crypto.subtle.digest("SHA-256", gltBytes);
+          const userKey = await crypto.subtle.importKey("raw", userKeyHash, { name: "AES-GCM" }, false, ["decrypt"]);
+
+          // 2. Decode content key & IV (AES-GCM with iv = slice(0, 12), additionalData = clipId)
+          const wrappedKey = Uint8Array.from(Buffer.from(encKeyB64, "base64"));
+          const wrappedIv = Uint8Array.from(Buffer.from(encIvB64, "base64"));
+          const additionalData = new TextEncoder().encode(clipId);
+
+          const rawKey = await crypto.subtle.decrypt(
+            { name: "AES-GCM", iv: wrappedKey.slice(0, 12), additionalData },
+            userKey,
+            wrappedKey.slice(12)
+          );
+          const contentKey = await crypto.subtle.importKey("raw", rawKey, { name: "AES-CTR" }, false, ["decrypt"]);
+
+          const rawIv = await crypto.subtle.decrypt(
+            { name: "AES-GCM", iv: wrappedIv.slice(0, 12), additionalData },
+            userKey,
+            wrappedIv.slice(12)
+          );
+          const contentIv = new Uint8Array(rawIv);
+
+          // 3. Decrypt full audio stream
+          const decBuf = await crypto.subtle.decrypt(
+            { name: "AES-CTR", counter: contentIv, length: 128 },
+            contentKey,
+            rawEncryptedBuffer
+          );
+
+          const decryptedBuffer = Buffer.from(decBuf);
+
+          // Sniff audio format
+          let mimeType = "audio/mp4";
+          if (decryptedBuffer.length >= 4 && decryptedBuffer[0] === 0x1A && decryptedBuffer[1] === 0x45 && decryptedBuffer[2] === 0xDF && decryptedBuffer[3] === 0xA3) {
+            mimeType = "audio/webm";
+          } else if (decryptedBuffer.length >= 3 && decryptedBuffer[0] === 0x49 && decryptedBuffer[1] === 0x44 && decryptedBuffer[2] === 0x33) {
+            mimeType = "audio/mpeg";
+          } else if (decryptedBuffer.length >= 2 && decryptedBuffer[0] === 0xFF && (decryptedBuffer[1] & 0xE0) === 0xE0) {
+            mimeType = "audio/mpeg";
+          }
+
+          console.log(`[Audio Engine] Successfully decrypted ${clipId}: ${decryptedBuffer.length} bytes (${mimeType})`);
+
+          const result: CachedAudio = {
+            buffer: decryptedBuffer,
+            mimeType,
+            timestamp: Date.now()
+          };
+
+          pruneAudioCache();
+          audioBufferCache.set(cacheKey, result);
+          if (clipId && cacheKey !== clipId) audioBufferCache.set(clipId, result);
+          return result;
+        }
+
+        // Fallback for unencrypted audio
+        let mimeType = matchedUrl.endsWith(".mp3") ? "audio/mpeg" : "audio/mp4";
+        const result: CachedAudio = {
+          buffer: rawEncryptedBuffer,
+          mimeType,
+          timestamp: Date.now()
+        };
+        pruneAudioCache();
+        audioBufferCache.set(cacheKey, result);
+        return result;
+      } catch (err: any) {
+        console.error(`[Audio Engine] Decryption failed for ${clipId}:`, err);
+        return null;
+      } finally {
+        pendingDecryptions.delete(cacheKey);
+      }
+    })();
+
+    pendingDecryptions.set(cacheKey, decryptPromise);
+    return decryptPromise;
+  }
+
+  // Audio Streaming Proxy Endpoint with Full HTTP 206 Partial Content / Range Request Support
+  app.get(["/api/suno-audio/:clipId", "/api/suno-audio", "/api/proxy-audio"], async (req, res) => {
+    const clipId = ((req.params.clipId || req.query.id || req.query.clipId || "") as string).trim();
+    const directUrl = (req.query.url as string)?.trim();
+
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Accept-Ranges", "bytes");
+
+    try {
+      const audioData = await resolveAndDecryptSunoAudio(clipId, directUrl);
+      if (!audioData || !audioData.buffer || audioData.buffer.length === 0) {
+        return res.status(404).json({ error: "Audio track not found or decryption failed", clipId });
+      }
+
+      const { buffer, mimeType } = audioData;
+      const totalLength = buffer.length;
+      const rangeHeader = req.headers.range;
+
+      res.setHeader("Content-Type", mimeType);
+      res.setHeader("Cache-Control", "public, max-age=86400, immutable");
+
+      if (rangeHeader) {
+        const parts = rangeHeader.replace(/bytes=/, "").split("-");
+        const start = parseInt(parts[0], 10) || 0;
+        const end = parts[1] ? parseInt(parts[1], 10) : totalLength - 1;
+
+        if (start >= totalLength || end >= totalLength || start > end) {
+          res.setHeader("Content-Range", `bytes */${totalLength}`);
+          return res.status(416).end();
+        }
+
+        const chunkSize = end - start + 1;
+        res.status(206);
+        res.setHeader("Content-Range", `bytes ${start}-${end}/${totalLength}`);
+        res.setHeader("Content-Length", chunkSize.toString());
+        return res.end(buffer.subarray(start, end + 1));
+      } else {
+        res.status(200);
+        res.setHeader("Content-Length", totalLength.toString());
+        return res.end(buffer);
+      }
+    } catch (err: any) {
+      console.error("[Audio API] Stream error:", err);
+      return res.status(502).json({ error: "Audio streaming error", message: err?.message });
+    }
+  });
+
+  // Single Song Metadata Resolver endpoint
+  app.get("/api/suno-song/:clipId", async (req, res) => {
+    const clipId = req.params.clipId;
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    try {
+      const songPage = await fetch(`https://suno.com/song/${clipId}`, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+          "Accept": "text/html"
+        }
+      });
+      if (songPage.ok) {
+        const html = await songPage.text();
+        const titleMatch = html.match(/<title>([^<]+)<\/title>/i);
+        const title = titleMatch ? titleMatch[1].replace(/ \| Suno/i, "").replace(/ - Suno/i, "").trim() : "Suno Track";
+        const mediaMatches = html.match(/https:\\\/\\\/[a-z0-9\.\-_]+\.cloudfront\.net\\\/[^\s"\\]+/g) || html.match(/https:\/\/[a-z0-9\.\-_]+\.cloudfront\.net\/[^\s"\\]+/g);
+        const audioUrl = mediaMatches?.[0]?.replace(/\\\//g, "/") || `https://d2lwuy8qc234o3.cloudfront.net/1/clip/${clipId}.m4a`;
+        
+        return res.json({
+          id: clipId,
+          title,
+          audioUrl,
+          streamUrl: `/api/suno-audio/${clipId}`,
+          imageUrl: `https://cdn2.suno.ai/image_${clipId}.jpeg`
+        });
+      }
+    } catch (e) {}
+
+    res.json({
+      id: clipId,
+      title: "Suno Track",
+      audioUrl: `https://d2lwuy8qc234o3.cloudfront.net/1/clip/${clipId}.m4a`,
+      streamUrl: `/api/suno-audio/${clipId}`,
+      imageUrl: `https://cdn2.suno.ai/image_${clipId}.jpeg`
     });
   });
 

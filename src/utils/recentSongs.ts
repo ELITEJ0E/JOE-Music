@@ -26,7 +26,7 @@ export const DEFAULT_RECENT_SONGS: RecentSongItem[] = [
     title: "红唇转圈",
     artist: "ELITEJOE",
     album: "Joel's Originals",
-    audioUrl: "https://cdn1.suno.ai/bd216e5e-4604-48e2-ac6e-7f1698044908.mp3",
+    audioUrl: "/api/suno-audio/bd216e5e-4604-48e2-ac6e-7f1698044908",
     imageUrl: "https://cdn2.suno.ai/1bc7ee09-ee52-487a-85c7-568e961bbc3d.jpeg",
     duration: 185,
     bpm: 154,
@@ -42,7 +42,7 @@ export const DEFAULT_RECENT_SONGS: RecentSongItem[] = [
     title: "Light It Up Tonight",
     artist: "ELITEJOE",
     album: "Joel's Originals",
-    audioUrl: "https://cdn1.suno.ai/269a9621-677f-4864-8193-4b2265cd73cc.mp3",
+    audioUrl: "/api/suno-audio/269a9621-677f-4864-8193-4b2265cd73cc",
     imageUrl: "https://cdn2.suno.ai/cdea3ba4-5f38-4462-968f-1fb74ba5ac92.jpeg",
     duration: 210,
     bpm: 120,
@@ -58,7 +58,7 @@ export const DEFAULT_RECENT_SONGS: RecentSongItem[] = [
     title: "Sweetheart Pulse",
     artist: "ELITEJOE",
     album: "Joel's Originals",
-    audioUrl: "https://cdn1.suno.ai/aff5c48b-1c9a-48e1-8f3a-75e6dc9b6165.mp3",
+    audioUrl: "/api/suno-audio/aff5c48b-1c9a-48e1-8f3a-75e6dc9b6165",
     imageUrl: "https://cdn2.suno.ai/image_aff5c48b-1c9a-48e1-8f3a-75e6dc9b6165.jpeg",
     duration: 198,
     bpm: 104,
@@ -74,7 +74,7 @@ export const DEFAULT_RECENT_SONGS: RecentSongItem[] = [
     title: "Blink Twice",
     artist: "ELITEJOE",
     album: "Upcoming Releases",
-    audioUrl: "https://cdn1.suno.ai/6234dc9e-ba8b-46f6-a071-67ade0b1da8c.mp3",
+    audioUrl: "/api/suno-audio/6234dc9e-ba8b-46f6-a071-67ade0b1da8c",
     imageUrl: "https://cdn2.suno.ai/1efe9cb2-dd3b-47c4-b0ad-c8efa5e4e139.jpeg",
     duration: 230,
     bpm: 124,
@@ -90,7 +90,7 @@ export const DEFAULT_RECENT_SONGS: RecentSongItem[] = [
     title: "You Were There",
     artist: "ELITEJOE",
     album: "Worship & Praise",
-    audioUrl: "https://cdn1.suno.ai/37bc2d3a-a30d-4d27-9ca4-d8f727463931.mp3",
+    audioUrl: "/api/suno-audio/37bc2d3a-a30d-4d27-9ca4-d8f727463931",
     imageUrl: "https://cdn2.suno.ai/7697a8ed-b029-451b-b54f-e5ba5b947890.jpeg",
     duration: 231,
     bpm: 72,
@@ -113,7 +113,17 @@ export function getRecentSongs(): RecentSongItem[] {
     }
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed) && parsed.length > 0) {
-      return parsed;
+      // Sanitize legacy or broken URLs
+      const cleaned = parsed.map((item: RecentSongItem) => {
+        if (!item.audioUrl || item.audioUrl.includes("cdn1.suno.ai") || item.audioUrl.includes("forbidden")) {
+          return {
+            ...item,
+            audioUrl: item.id ? `/api/suno-audio/${item.id}` : `https://d2lwuy8qc234o3.cloudfront.net/1/clip/${item.id}.m4a`
+          };
+        }
+        return item;
+      });
+      return cleaned;
     }
     return DEFAULT_RECENT_SONGS;
   } catch (err) {

@@ -104,8 +104,14 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
       setCurrentTime(0);
     };
     const handleError = () => {
-      console.warn("Audio stream error for:", activeSong.title);
-      setIsPlaying(false);
+      console.warn("Audio stream error for:", activeSong?.title);
+      const audio = audioRef.current;
+      if (audio && activeSong?.id && !audio.src.includes("/api/suno-audio/")) {
+        audio.src = `/api/suno-audio/${activeSong.id}`;
+        audio.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
+      } else {
+        setIsPlaying(false);
+      }
     };
 
     audio.addEventListener("timeupdate", handleTimeUpdate);
@@ -121,6 +127,15 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
     };
   }, [activeSong]);
 
+  const resolveSongUrl = (song: RecentSongItem | null) => {
+    if (!song) return "";
+    if (song.id) return `/api/suno-audio/${song.id}`;
+    if (song.audioUrl && !song.audioUrl.includes("cdn1.suno.ai") && !song.audioUrl.includes("forbidden")) {
+      return song.audioUrl;
+    }
+    return song.id ? `https://d2lwuy8qc234o3.cloudfront.net/1/clip/${song.id}.m4a` : "";
+  };
+
   // Handle Play/Pause toggle
   const handleTogglePlay = (songToPlay?: RecentSongItem) => {
     const audio = audioRef.current;
@@ -128,10 +143,12 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
 
     if (!audio || !targetSong) return;
 
+    const targetUrl = resolveSongUrl(targetSong);
+
     // If switching song
     if (songToPlay && songToPlay.id !== activeSong?.id) {
       setActiveSong(songToPlay);
-      audio.src = songToPlay.audioUrl;
+      audio.src = targetUrl;
       audio.currentTime = 0;
       audio.volume = isMuted ? 0 : volume;
       audio.play().then(() => {
@@ -148,8 +165,8 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
       audio.pause();
       setIsPlaying(false);
     } else {
-      if (!audio.src || audio.src === "" || !audio.src.includes(targetSong.audioUrl)) {
-        audio.src = targetSong.audioUrl;
+      if (!audio.src || audio.src === "" || !audio.src.includes(targetSong.id)) {
+        audio.src = targetUrl;
       }
       audio.volume = isMuted ? 0 : volume;
       audio.play().then(() => {

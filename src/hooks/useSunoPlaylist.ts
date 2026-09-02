@@ -51,6 +51,14 @@ export function getCachedPlaylist(playlistId: string): SunoPlaylistResponse {
       if (raw) {
         const parsed: CachedEntry = JSON.parse(raw);
         if (parsed?.data?.tracks && parsed.data.tracks.length > 0) {
+          // Sanitize any stale cdn1.suno.ai or forbidden URLs from legacy cache
+          parsed.data.tracks = parsed.data.tracks.map((t: SunoTrack) => {
+            if (!t.audioUrl || t.audioUrl.includes("cdn1.suno.ai") || t.audioUrl.includes("forbidden")) {
+              const fixedUrl = `https://d2lwuy8qc234o3.cloudfront.net/1/clip/${t.id}.m4a`;
+              return { ...t, audioUrl: fixedUrl, audio_url: fixedUrl };
+            }
+            return t;
+          });
           MEMORY_CACHE.set(normalizedId, parsed);
           return parsed.data;
         }
@@ -136,7 +144,10 @@ async function fetchViaClientProxies(targetId: string): Promise<SunoPlaylistResp
         const tracks: SunoTrack[] = clips.map((c: any) => {
           const clip = c.clip || c;
           const clipId = clip.id || `trk-${Math.random().toString(36).slice(2, 9)}`;
-          const audioUrl = clip.audio_url || `https://cdn1.suno.ai/${clipId}.mp3`;
+          const rawMedia = Array.isArray(clip.media_urls) && clip.media_urls.length > 0
+            ? (clip.media_urls.find((m: any) => m.url && !m.url.includes("forbidden") && !m.url.includes("cdn1.suno.ai"))?.url || clip.media_urls[0]?.url)
+            : null;
+          const audioUrl = rawMedia || (clip.audio_url && !clip.audio_url.includes("forbidden") && !clip.audio_url.includes("cdn1.suno.ai") ? clip.audio_url : `https://d2lwuy8qc234o3.cloudfront.net/1/clip/${clipId}.m4a`);
           const imageUrl = clip.image_large_url || clip.image_url || `https://cdn2.suno.ai/image_${clipId}.jpeg`;
           return {
             id: clipId,

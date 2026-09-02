@@ -135,8 +135,21 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
       handleNextTrack();
     };
     const handleError = () => {
-      setIsPlaying(false);
-      showToast("Audio playback stream error. Please check your connection.");
+      const currentSrc = audio.src || "";
+      if (currentTrack?.id && !currentSrc.includes("/api/suno-audio/")) {
+        // Automatically recover and failover to resilient server stream proxy
+        const proxyUrl = `/api/suno-audio/${currentTrack.id}`;
+        audio.src = proxyUrl;
+        audio.play().then(() => {
+          setIsPlaying(true);
+        }).catch(() => {
+          setIsPlaying(false);
+          showToast("Audio stream unavailable. Retrying with Suno live engine...");
+        });
+      } else {
+        setIsPlaying(false);
+        showToast("Audio stream temporarily offline. Please select another track.");
+      }
     };
 
     audio.addEventListener("timeupdate", handleTimeUpdate);
@@ -164,7 +177,12 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
     setCurrentTrackIndex(index >= 0 ? index : 0);
     setCurrentTrack(track);
 
-    audio.src = track.audioUrl || track.audio_url || "";
+    let resolvedUrl = track.id ? `/api/suno-audio/${track.id}` : (track.audioUrl || track.audio_url || "");
+    if (!resolvedUrl || resolvedUrl.includes("cdn1.suno.ai") || resolvedUrl.includes("forbidden")) {
+      resolvedUrl = track.id ? `https://d2lwuy8qc234o3.cloudfront.net/1/clip/${track.id}.m4a` : "";
+    }
+
+    audio.src = resolvedUrl;
     audio.currentTime = 0;
     audio.volume = isMuted ? 0 : volume;
     audio.play().then(() => {
