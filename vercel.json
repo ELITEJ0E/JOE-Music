@@ -6,6 +6,14 @@
   },
   "rewrites": [
     {
+      "source": "/api/suno-audio/:clipId",
+      "destination": "/api/suno-audio?clipId=:clipId"
+    },
+    {
+      "source": "/api/suno-rights/:clipId",
+      "destination": "/api/suno-rights?clipId=:clipId"
+    },
+    {
       "source": "/((?!api/).*)",
       "destination": "/index.html"
     }

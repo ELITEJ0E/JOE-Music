@@ -28,6 +28,7 @@ import {
 } from "../lib/suno-playlists";
 import { useSunoPlaylist } from "../hooks/useSunoPlaylist";
 import { recordRecentSongPlay } from "../utils/recentSongs";
+import { getSunoStreamUrl, resolveClientDecryptedAudioBlob } from "../utils/sunoAudioResolver";
 
 // Backward-compatible alias
 export type SunoSong = SunoTrack;
@@ -134,22 +135,23 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
     const handleEnded = () => {
       handleNextTrack();
     };
-    const handleError = () => {
-      const currentSrc = audio.src || "";
-      if (currentTrack?.id && !currentSrc.includes("/api/suno-audio/")) {
-        // Automatically recover and failover to resilient server stream proxy
-        const proxyUrl = `/api/suno-audio/${currentTrack.id}`;
-        audio.src = proxyUrl;
-        audio.play().then(() => {
-          setIsPlaying(true);
-        }).catch(() => {
-          setIsPlaying(false);
-          showToast("Audio stream unavailable. Retrying with Suno live engine...");
-        });
-      } else {
-        setIsPlaying(false);
-        showToast("Audio stream temporarily offline. Please select another track.");
+    const handleError = async () => {
+      if (currentTrack?.id) {
+        // Fast-failover to in-browser client decryption if serverless proxy failed
+        const blobUrl = await resolveClientDecryptedAudioBlob(currentTrack.id);
+        if (blobUrl) {
+          audio.src = blobUrl;
+          audio.play().then(() => {
+            setIsPlaying(true);
+          }).catch(() => {
+            setIsPlaying(false);
+            showToast("Audio stream unavailable. Retrying with Suno live engine...");
+          });
+          return;
+        }
       }
+      setIsPlaying(false);
+      showToast("Audio stream temporarily offline. Please select another track.");
     };
 
     audio.addEventListener("timeupdate", handleTimeUpdate);
@@ -177,9 +179,9 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
     setCurrentTrackIndex(index >= 0 ? index : 0);
     setCurrentTrack(track);
 
-    let resolvedUrl = track.id ? `/api/suno-audio/${track.id}` : (track.audioUrl || track.audio_url || "");
+    let resolvedUrl = track.id ? getSunoStreamUrl(track.id) : (track.audioUrl || track.audio_url || "");
     if (!resolvedUrl || resolvedUrl.includes("cdn1.suno.ai") || resolvedUrl.includes("forbidden")) {
-      resolvedUrl = track.id ? `https://d2lwuy8qc234o3.cloudfront.net/1/clip/${track.id}.m4a` : "";
+      resolvedUrl = track.id ? getSunoStreamUrl(track.id) : "";
     }
 
     audio.src = resolvedUrl;

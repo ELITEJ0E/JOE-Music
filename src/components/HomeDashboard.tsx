@@ -31,6 +31,7 @@ import {
 } from "../utils/recentSongs";
 import { loadRecordingsFromDB } from "../utils/storage";
 import { guitarSynth } from "../audio/guitarSynth";
+import { getSunoStreamUrl, resolveClientDecryptedAudioBlob } from "../utils/sunoAudioResolver";
 
 interface HomeDashboardProps {
   onSelectMode: (mode: WorkstationMode) => void;
@@ -103,15 +104,19 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
       setIsPlaying(false);
       setCurrentTime(0);
     };
-    const handleError = () => {
+    const handleError = async () => {
       console.warn("Audio stream error for:", activeSong?.title);
       const audio = audioRef.current;
-      if (audio && activeSong?.id && !audio.src.includes("/api/suno-audio/")) {
-        audio.src = `/api/suno-audio/${activeSong.id}`;
-        audio.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
-      } else {
-        setIsPlaying(false);
+      if (audio && activeSong?.id) {
+        // Fast-failover to in-browser client decryption if serverless proxy failed
+        const blobUrl = await resolveClientDecryptedAudioBlob(activeSong.id);
+        if (blobUrl) {
+          audio.src = blobUrl;
+          audio.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
+          return;
+        }
       }
+      setIsPlaying(false);
     };
 
     audio.addEventListener("timeupdate", handleTimeUpdate);
@@ -129,11 +134,11 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
 
   const resolveSongUrl = (song: RecentSongItem | null) => {
     if (!song) return "";
-    if (song.id) return `/api/suno-audio/${song.id}`;
+    if (song.id) return getSunoStreamUrl(song.id);
     if (song.audioUrl && !song.audioUrl.includes("cdn1.suno.ai") && !song.audioUrl.includes("forbidden")) {
-      return song.audioUrl;
+      return getSunoStreamUrl(song.audioUrl);
     }
-    return song.id ? `https://d2lwuy8qc234o3.cloudfront.net/1/clip/${song.id}.m4a` : "";
+    return song.id ? getSunoStreamUrl(song.id) : "";
   };
 
   // Handle Play/Pause toggle

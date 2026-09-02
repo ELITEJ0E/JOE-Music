@@ -752,6 +752,52 @@ Provide a concise, practical, high-value guitar instruction response. Mention sp
     }
   });
 
+  // Suno Rights Proxy Endpoint (Fast JSON metadata token)
+  app.get(["/api/suno-rights/:clipId", "/api/suno-rights"], async (req, res) => {
+    const clipId = ((req.params.clipId || req.query.id || req.query.clipId || "") as string).trim();
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Cache-Control", "public, max-age=3600");
+
+    if (!clipId) {
+      return res.status(400).json({ error: "Missing clipId" });
+    }
+
+    const hosts = [
+      "https://studio-api-prod.suno.com",
+      "https://studio-api.suno.ai",
+      "https://suno.com"
+    ];
+
+    for (const host of hosts) {
+      try {
+        const response = await fetch(`${host}/api/mango/rights`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Origin": "https://suno.com",
+            "Referer": `https://suno.com/song/${clipId}`
+          },
+          body: JSON.stringify({
+            content_params: {
+              content_id: clipId,
+              content_type: "clip"
+            }
+          })
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          if (data && data.key && data.iv && data.glt) {
+            return res.status(200).json(data);
+          }
+        }
+      } catch (e) {}
+    }
+
+    return res.status(502).json({ error: "Failed to acquire rights token", clipId });
+  });
+
   // Single Song Metadata Resolver endpoint
   app.get("/api/suno-song/:clipId", async (req, res) => {
     const clipId = req.params.clipId;
