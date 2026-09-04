@@ -41,6 +41,7 @@ import {
 } from "../utils/storage";
 
 import { SunoSong } from "./SongsLibraryView";
+import { fetchDecryptedAudioFile } from "../utils/sunoAudioResolver";
 
 interface ChordFinderStudioProps {
   initialSong?: SunoSong | null;
@@ -55,16 +56,21 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
 
   // Analyze initial song if provided
   useEffect(() => {
-    if (initialSong && initialSong.audio_url && !activeSong) {
+    const hasAudio = initialSong && (initialSong.id || initialSong.audio_url || initialSong.audioUrl);
+    if (hasAudio && !activeSong) {
       const analyzeSunoSong = async () => {
         try {
           abortControllerRef.current = new AbortController();
-          setAnalysisProgress({ message: "Fetching Suno audio...", pct: 10 });
-          const res = await fetch(initialSong.audio_url);
-          const blob = await res.blob();
-          const file = new File([blob], `${initialSong.title}.mp3`, { type: "audio/mpeg" });
+          setAnalysisProgress({ message: "Preparing Suno audio stream...", pct: 10 });
           
-          setAnalysisProgress({ message: "Reading audio file...", pct: 30 });
+          const audioTarget = initialSong.id || initialSong.audio_url || initialSong.audioUrl || "";
+          const file = await fetchDecryptedAudioFile(audioTarget, initialSong.title || "Suno Track");
+          
+          if (!file || file.size === 0) {
+            throw new Error("Unable to retrieve or decrypt Suno audio stream");
+          }
+          
+          setAnalysisProgress({ message: "Reading audio stream & computing harmonics...", pct: 30 });
           const result = await analyzeAudioFile(
             file,
             (msg, pct) => setAnalysisProgress({ message: msg, pct: 30 + (pct * 0.7) }),
@@ -72,8 +78,8 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
           );
           const songWithMeta: SavedSong = {
             ...result,
-            title: initialSong.title,
-            artist: initialSong.artist,
+            title: initialSong.title || "Suno Track",
+            artist: initialSong.artist || "Suno AI",
             lastPlayedAt: Date.now(),
             savedAt: Date.now(),
           };
@@ -89,6 +95,14 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
         } catch (err: any) {
           console.error("Failed to analyze Suno song:", err);
           setAnalysisProgress(null);
+          setDialog({
+            isOpen: true,
+            title: "Analysis Failed",
+            message: `Could not analyze song audio: ${err?.message || "Unable to decode audio data"}. Please select another track or retry.`,
+            confirmText: "OK",
+            type: "error",
+            onConfirm: () => setDialog((prev) => ({ ...prev, isOpen: false })),
+          });
         }
       };
       analyzeSunoSong();

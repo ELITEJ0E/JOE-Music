@@ -11,10 +11,21 @@ export async function analyzeAudioFile(
   abortSignal?: AbortSignal
 ): Promise<SongAnalysis> {
   const ctx = audioEngine.getContext();
+  if (ctx.state === "suspended") {
+    try {
+      await ctx.resume();
+    } catch {}
+  }
+
   const arrayBuffer = await file.arrayBuffer();
   
   if (onProgress) onProgress("Decoding audio data...", 2);
-  const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+  let audioBuffer: AudioBuffer;
+  try {
+    audioBuffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
+  } catch (decodeErr: any) {
+    throw new Error(`Unable to decode audio data: ${decodeErr?.message || "unsupported codec or corrupted audio stream"}`);
+  }
 
   const duration = audioBuffer.duration;
   const sampleRate = audioBuffer.sampleRate;

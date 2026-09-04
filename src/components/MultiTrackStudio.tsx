@@ -98,6 +98,7 @@ const DEFAULT_PROJECT_ID = "project-default-session";
 type StudioTab = "tracks" | "looper" | "drums" | "mixer" | "projects";
 
 import { SunoSong } from "./SongsLibraryView";
+import { fetchDecryptedAudioFile } from "../utils/sunoAudioResolver";
 
 interface MultiTrackStudioProps {
   initialSong?: SunoSong | null;
@@ -286,6 +287,64 @@ export const MultiTrackStudio: React.FC<MultiTrackStudioProps> = ({ initialSong 
       }
     });
   }, []);
+
+  // Handle initialSong import (from Songs Library or Dashboard)
+  useEffect(() => {
+    if (!initialSong) return;
+    const hasAudio = initialSong.id || initialSong.audio_url || initialSong.audioUrl;
+    if (!hasAudio) return;
+
+    let isMounted = true;
+    (async () => {
+      try {
+        const audioTarget = initialSong.id || initialSong.audio_url || initialSong.audioUrl || "";
+        const file = await fetchDecryptedAudioFile(audioTarget, initialSong.title || "Suno Song");
+        if (!file || !isMounted) return;
+
+        const ctx = audioEngine.getContext();
+        const arrayBuf = await file.arrayBuffer();
+        const decoded = await ctx.decodeAudioData(arrayBuf);
+        if (!isMounted) return;
+
+        const peaks = extractWaveformPeaks(decoded, 64);
+        const newClip: AudioClip = {
+          id: `clip-suno-${Date.now()}`,
+          name: initialSong.title || "Backing Track",
+          startTime: 0,
+          duration: decoded.duration,
+          trimStart: 0,
+          audioBuffer: decoded,
+          audioBlob: file,
+          waveformPeaks: peaks,
+          fadeInSec: 0.005,
+          fadeOutSec: 0.005,
+          gain: 0.9,
+          color: "#a3ff12",
+        };
+
+        setProject((prev) => {
+          const targetTrackId = prev.tracks[0]?.id || "trk-1";
+          const updatedTracks = prev.tracks.map((t, idx) =>
+            idx === 0
+              ? {
+                  ...t,
+                  name: `${initialSong.title || "Track"} (Suno)`,
+                  clips: [newClip],
+                }
+              : t
+          );
+          return { ...prev, tracks: updatedTracks, updatedAt: Date.now() };
+        });
+        showToast(`Loaded "${initialSong.title}" into Studio!`);
+      } catch (e) {
+        console.warn("Failed to load initialSong into MultiTrackStudio:", e);
+      }
+    })();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [initialSong]);
 
   // Transport & Audio Engine Subscriptions
   useEffect(() => {
