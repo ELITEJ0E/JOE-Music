@@ -13,6 +13,8 @@ import {
   SkipBack,
   SkipForward,
   Shuffle,
+  Repeat,
+  Repeat1,
   Check,
   Radio,
   ChevronRight,
@@ -96,8 +98,34 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
   const [volume, setVolume] = useState<number>(0.85);
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [isShuffling, setIsShuffling] = useState<boolean>(false);
+  const [loopMode, setLoopMode] = useState<"off" | "all" | "one">("off");
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Toggle Shuffle mode
+  const toggleShuffle = () => {
+    setIsShuffling((prev) => {
+      const next = !prev;
+      showToast(next ? "Shuffle: ON (Tracks will play in random order)" : "Shuffle: OFF (Sequential playback)");
+      return next;
+    });
+  };
+
+  // Toggle Loop mode: Off -> Loop All -> Loop One -> Off
+  const toggleLoopMode = () => {
+    setLoopMode((prev) => {
+      if (prev === "off") {
+        showToast("Loop All: ON (Playlist repeats continuously)");
+        return "all";
+      }
+      if (prev === "all") {
+        showToast("Loop One: ON (Current song repeats indefinitely)");
+        return "one";
+      }
+      showToast("Loop: OFF");
+      return "off";
+    });
+  };
 
   // Fetch playlist data using the server-side API proxy with background resync
   const {
@@ -131,10 +159,18 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
     const audio = audioRef.current;
     if (!audio) return;
 
+    // Direct loop property for seamless repeating
+    audio.loop = loopMode === "one";
+
     const handleTimeUpdate = () => setCurrentTime(audio.currentTime);
     const handleLoadedMetadata = () => setDuration(audio.duration || currentTrack?.duration || 0);
     const handleEnded = () => {
-      handleNextTrack();
+      if (loopMode === "one") {
+        audio.currentTime = 0;
+        audio.play().then(() => setIsPlaying(true)).catch(() => {});
+        return;
+      }
+      handleNextTrack(true);
     };
     const handleError = async () => {
       if (currentTrack?.id) {
@@ -166,7 +202,7 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
       audio.removeEventListener("ended", handleEnded);
       audio.removeEventListener("error", handleError);
     };
-  }, [currentTrack, queue, isShuffling, currentTrackIndex]);
+  }, [currentTrack, queue, isShuffling, loopMode, currentTrackIndex]);
 
   // Audio Playback Actions
   const playTrackInQueue = (track: SunoTrack, newQueue?: SunoTrack[]) => {
@@ -187,6 +223,7 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
 
     audio.src = resolvedUrl;
     audio.currentTime = 0;
+    audio.loop = loopMode === "one";
     audio.volume = isMuted ? 0 : volume;
     audio.play().then(() => {
       setIsPlaying(true);
@@ -223,23 +260,48 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
     playTrackInQueue(track, currentList);
   };
 
-  const handleNextTrack = () => {
+  const handleNextTrack = (isAutoAdvance = false) => {
     const activeQueue = queue.length > 0 ? queue : tracks;
     if (!activeQueue.length) return;
 
-    let nextIndex = 0;
     if (isShuffling) {
-      nextIndex = Math.floor(Math.random() * activeQueue.length);
-    } else if (currentTrackIndex >= 0 && currentTrackIndex < activeQueue.length - 1) {
-      nextIndex = currentTrackIndex + 1;
+      let nextIndex = Math.floor(Math.random() * activeQueue.length);
+      if (activeQueue.length > 1 && nextIndex === currentTrackIndex) {
+        nextIndex = (nextIndex + 1) % activeQueue.length;
+      }
+      playTrackInQueue(activeQueue[nextIndex], activeQueue);
+      return;
     }
 
-    playTrackInQueue(activeQueue[nextIndex], activeQueue);
+    if (currentTrackIndex >= 0 && currentTrackIndex < activeQueue.length - 1) {
+      playTrackInQueue(activeQueue[currentTrackIndex + 1], activeQueue);
+    } else {
+      // Reached the end of the queue
+      if (loopMode === "all" || !isAutoAdvance) {
+        playTrackInQueue(activeQueue[0], activeQueue);
+      } else {
+        setIsPlaying(false);
+      }
+    }
   };
 
   const handlePrevTrack = () => {
     const activeQueue = queue.length > 0 ? queue : tracks;
     if (!activeQueue.length) return;
+
+    if (currentTime > 3 && audioRef.current) {
+      audioRef.current.currentTime = 0;
+      return;
+    }
+
+    if (isShuffling) {
+      let prevIndex = Math.floor(Math.random() * activeQueue.length);
+      if (activeQueue.length > 1 && prevIndex === currentTrackIndex) {
+        prevIndex = (prevIndex - 1 + activeQueue.length) % activeQueue.length;
+      }
+      playTrackInQueue(activeQueue[prevIndex], activeQueue);
+      return;
+    }
 
     let prevIndex = activeQueue.length - 1;
     if (currentTrackIndex > 0) {
@@ -411,12 +473,6 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
 
           {/* Action Bar */}
           <div className="flex items-center gap-2.5 self-start md:self-auto">
-            {isSyncing && (
-              <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#a3ff12]/10 border border-[#a3ff12]/30 text-[11px] font-mono text-[#a3ff12] animate-in fade-in duration-200">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#a3ff12] animate-ping" />
-                <span>Syncing songs...</span>
-              </div>
-            )}
             <button
               onClick={refresh}
               disabled={isLoading || isSyncing}
@@ -424,7 +480,7 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
               title="Force Sync / Refresh Songs"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${(isLoading || isSyncing) ? "animate-spin text-[#a3ff12]" : ""}`} />
-              <span>{isSyncing ? "Syncing..." : "Sync"}</span>
+              <span>{isSyncing ? "Syncing" : "Sync"}</span>
             </button>
           </div>
         </div>
@@ -606,44 +662,68 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
                 <Clock className="w-3.5 h-3.5 text-sky-400" />
                 <span>{formatDuration(tracks.reduce((acc, t) => acc + (t.duration || 180), 0))} Total</span>
               </span>
-              <span>•</span>
-              {isSyncing ? (
-                <span className="inline-flex items-center gap-1.5 text-[11px] font-mono text-[#a3ff12] bg-[#a3ff12]/10 px-2.5 py-0.5 rounded-full border border-[#a3ff12]/30">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#a3ff12] animate-ping" />
-                  Updating in background...
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1.5 text-[11px] font-mono text-zinc-400 bg-white/5 px-2.5 py-0.5 rounded-full border border-white/10">
-                  <Check className="w-3 h-3 text-[#a3ff12]" />
-                  Cached & Synced
-                </span>
-              )}
             </div>
 
             {/* Action Buttons */}
             <div className="flex flex-wrap items-center gap-2 pt-2">
               {/* Play All Button */}
               <button
+                id="btn-playlist-play-all"
                 onClick={handlePlayAll}
-                className="px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl bg-[#a3ff12] hover:bg-[#8ee60b] text-black font-mono font-black text-xs flex items-center gap-2 transition-all shadow-[0_0_15px_rgba(163,255,18,0.3)] cursor-pointer"
+                className="px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl bg-[#a3ff12] hover:bg-[#8ee60b] text-black font-mono font-black text-xs flex items-center gap-2 transition-all shadow-[0_0_15px_rgba(163,255,18,0.3)] cursor-pointer active:scale-95"
               >
                 <Play className="w-4 h-4 fill-current" />
                 <span>PLAY ALL</span>
               </button>
 
+              {/* Shuffle Toggle */}
               <button
-                onClick={() => setIsShuffling(!isShuffling)}
+                id="btn-playlist-shuffle"
+                onClick={toggleShuffle}
                 className={`px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl border text-xs font-mono font-bold flex items-center gap-2 transition-all cursor-pointer ${
                   isShuffling
-                    ? "bg-purple-500/20 border-purple-500 text-purple-300"
+                    ? "bg-[#a3ff12]/15 border-[#a3ff12] text-[#a3ff12] shadow-[0_0_12px_rgba(163,255,18,0.2)]"
                     : "bg-white/5 border-white/10 hover:bg-white/10 text-zinc-300"
                 }`}
+                title={isShuffling ? "Shuffle: ON (Click to turn off)" : "Shuffle: OFF (Click to turn on)"}
               >
                 <Shuffle className="w-3.5 h-3.5" />
                 <span>{isShuffling ? "SHUFFLE ON" : "SHUFFLE"}</span>
               </button>
 
+              {/* Loop Toggle */}
               <button
+                id="btn-playlist-loop"
+                onClick={toggleLoopMode}
+                className={`px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl border text-xs font-mono font-bold flex items-center gap-2 transition-all cursor-pointer ${
+                  loopMode !== "off"
+                    ? "bg-[#a3ff12]/15 border-[#a3ff12] text-[#a3ff12] shadow-[0_0_12px_rgba(163,255,18,0.2)]"
+                    : "bg-white/5 border-white/10 hover:bg-white/10 text-zinc-300"
+                }`}
+                title={
+                  loopMode === "one"
+                    ? "Loop Current Track (Click to turn off)"
+                    : loopMode === "all"
+                    ? "Loop Playlist (Click to loop single track)"
+                    : "Loop: OFF (Click to loop playlist)"
+                }
+              >
+                {loopMode === "one" ? (
+                  <Repeat1 className="w-3.5 h-3.5 text-[#a3ff12]" />
+                ) : (
+                  <Repeat className="w-3.5 h-3.5" />
+                )}
+                <span>
+                  {loopMode === "one"
+                    ? "LOOP ONE"
+                    : loopMode === "all"
+                    ? "LOOP ALL"
+                    : "LOOP"}
+                </span>
+              </button>
+
+              <button
+                id="btn-playlist-share"
                 onClick={handleShareSong}
                 className="px-3 sm:px-3.5 py-2 sm:py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-mono text-zinc-300 hover:text-white flex items-center gap-2 transition-all cursor-pointer"
                 title="Share Info"
@@ -908,26 +988,78 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
 
             {/* Playback Controls & Progress Scrubber */}
             <div className="flex flex-col items-center gap-1 w-full sm:w-2/4">
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 sm:gap-4">
+                {/* Shuffle Button */}
                 <button
+                  id="btn-player-shuffle"
+                  onClick={toggleShuffle}
+                  className={`p-1.5 rounded-lg transition-all cursor-pointer relative ${
+                    isShuffling
+                      ? "text-[#a3ff12] bg-[#a3ff12]/15 shadow-[0_0_8px_rgba(163,255,18,0.3)]"
+                      : "text-zinc-400 hover:text-white hover:bg-white/5"
+                  }`}
+                  title={isShuffling ? "Shuffle: ON (Click to turn off)" : "Shuffle: OFF (Click to turn on)"}
+                >
+                  <Shuffle className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                  {isShuffling && (
+                    <span className="absolute -bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-[#a3ff12]" />
+                  )}
+                </button>
+
+                {/* Previous Track Button */}
+                <button
+                  id="btn-player-prev"
                   onClick={handlePrevTrack}
-                  className="p-1 text-zinc-400 hover:text-white transition-colors cursor-pointer"
+                  className="p-1 text-zinc-400 hover:text-white transition-colors cursor-pointer active:scale-95"
                   title="Previous Song"
                 >
                   <SkipBack className="w-4 h-4" />
                 </button>
+
+                {/* Main Play / Pause */}
                 <button
+                  id="btn-player-play-pause"
                   onClick={() => handleTrackClick(currentTrack)}
-                  className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-[#a3ff12] hover:bg-[#8ee60b] text-black flex items-center justify-center transition-all shadow-[0_0_12px_rgba(163,255,18,0.4)] cursor-pointer"
+                  className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-[#a3ff12] hover:bg-[#8ee60b] text-black flex items-center justify-center transition-all shadow-[0_0_12px_rgba(163,255,18,0.4)] cursor-pointer active:scale-95"
                 >
                   {isPlaying ? <Pause className="w-3.5 h-3.5 fill-current" /> : <Play className="w-3.5 h-3.5 fill-current ml-0.5" />}
                 </button>
+
+                {/* Next Track Button */}
                 <button
-                  onClick={handleNextTrack}
-                  className="p-1 text-zinc-400 hover:text-white transition-colors cursor-pointer"
+                  id="btn-player-next"
+                  onClick={() => handleNextTrack(false)}
+                  className="p-1 text-zinc-400 hover:text-white transition-colors cursor-pointer active:scale-95"
                   title="Next Song"
                 >
                   <SkipForward className="w-4 h-4" />
+                </button>
+
+                {/* Loop / Repeat Button */}
+                <button
+                  id="btn-player-loop"
+                  onClick={toggleLoopMode}
+                  className={`p-1.5 rounded-lg transition-all cursor-pointer relative ${
+                    loopMode !== "off"
+                      ? "text-[#a3ff12] bg-[#a3ff12]/15 shadow-[0_0_8px_rgba(163,255,18,0.3)]"
+                      : "text-zinc-400 hover:text-white hover:bg-white/5"
+                  }`}
+                  title={
+                    loopMode === "one"
+                      ? "Repeat Current Track (Click to turn off)"
+                      : loopMode === "all"
+                      ? "Repeat Playlist (Click for Repeat One)"
+                      : "Repeat: OFF (Click to repeat playlist)"
+                  }
+                >
+                  {loopMode === "one" ? (
+                    <Repeat1 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                  ) : (
+                    <Repeat className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                  )}
+                  {loopMode !== "off" && (
+                    <span className="absolute -bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-[#a3ff12]" />
+                  )}
                 </button>
               </div>
 

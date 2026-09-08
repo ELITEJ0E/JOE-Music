@@ -6,6 +6,10 @@ import {
   Pause,
   Circle,
   Repeat,
+  Repeat1,
+  Shuffle,
+  SkipBack,
+  SkipForward,
   Music,
   Mic,
   ChevronRight,
@@ -59,11 +63,25 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   const [duration, setDuration] = useState<number>(() => activeSong?.duration || 185);
   const [volume, setVolume] = useState<number>(0.85);
   const [isMuted, setIsMuted] = useState<boolean>(false);
+  const [isShuffling, setIsShuffling] = useState<boolean>(false);
+  const [loopMode, setLoopMode] = useState<"off" | "all" | "one">("off");
   const [playingRecordingId, setPlayingRecordingId] = useState<string | null>(null);
   const [playingToneId, setPlayingToneId] = useState<string | null>(null);
   const [savedRecordings, setSavedRecordings] = useState<SavedRecording[]>([]);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  const toggleShuffle = () => {
+    setIsShuffling((prev) => !prev);
+  };
+
+  const toggleLoopMode = () => {
+    setLoopMode((prev) => {
+      if (prev === "off") return "all";
+      if (prev === "all") return "one";
+      return "off";
+    });
+  };
 
   // Sync recent songs on storage/custom events
   useEffect(() => {
@@ -96,13 +114,24 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
     const audio = audioRef.current;
     if (!audio) return;
 
+    audio.loop = loopMode === "one";
+
     const handleTimeUpdate = () => setCurrentTime(audio.currentTime);
     const handleLoadedMetadata = () => {
       setDuration(audio.duration || activeSong?.duration || 180);
     };
     const handleEnded = () => {
-      setIsPlaying(false);
-      setCurrentTime(0);
+      if (loopMode === "one") {
+        audio.currentTime = 0;
+        audio.play().then(() => setIsPlaying(true)).catch(() => {});
+        return;
+      }
+      if (loopMode === "all" || isShuffling) {
+        handleNextSongInHome(true);
+      } else {
+        setIsPlaying(false);
+        setCurrentTime(0);
+      }
     };
     const handleError = async () => {
       console.warn("Audio stream error for:", activeSong?.title);
@@ -130,7 +159,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
       audio.removeEventListener("ended", handleEnded);
       audio.removeEventListener("error", handleError);
     };
-  }, [activeSong]);
+  }, [activeSong, loopMode, isShuffling, recentSongs]);
 
   const resolveSongUrl = (song: RecentSongItem | null) => {
     if (!song) return "";
@@ -183,15 +212,45 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
     }
   };
 
-  const handleNextSongInHome = () => {
+  const handleNextSongInHome = (isAutoAdvance = false) => {
     if (!recentSongs || recentSongs.length === 0) return;
+    if (isShuffling) {
+      let nextIdx = Math.floor(Math.random() * recentSongs.length);
+      const currIdx = recentSongs.findIndex((s) => s.id === activeSong?.id);
+      if (recentSongs.length > 1 && nextIdx === currIdx) {
+        nextIdx = (nextIdx + 1) % recentSongs.length;
+      }
+      handleTogglePlay(recentSongs[nextIdx]);
+      return;
+    }
     const currIdx = recentSongs.findIndex((s) => s.id === activeSong?.id);
-    const nextIdx = currIdx >= 0 && currIdx < recentSongs.length - 1 ? currIdx + 1 : 0;
-    handleTogglePlay(recentSongs[nextIdx]);
+    if (currIdx >= 0 && currIdx < recentSongs.length - 1) {
+      handleTogglePlay(recentSongs[currIdx + 1]);
+    } else {
+      if (loopMode === "all" || !isAutoAdvance) {
+        handleTogglePlay(recentSongs[0]);
+      } else {
+        setIsPlaying(false);
+        setCurrentTime(0);
+      }
+    }
   };
 
   const handlePrevSongInHome = () => {
     if (!recentSongs || recentSongs.length === 0) return;
+    if (currentTime > 3 && audioRef.current) {
+      audioRef.current.currentTime = 0;
+      return;
+    }
+    if (isShuffling) {
+      let prevIdx = Math.floor(Math.random() * recentSongs.length);
+      const currIdx = recentSongs.findIndex((s) => s.id === activeSong?.id);
+      if (recentSongs.length > 1 && prevIdx === currIdx) {
+        prevIdx = (prevIdx - 1 + recentSongs.length) % recentSongs.length;
+      }
+      handleTogglePlay(recentSongs[prevIdx]);
+      return;
+    }
     const currIdx = recentSongs.findIndex((s) => s.id === activeSong?.id);
     const prevIdx = currIdx > 0 ? currIdx - 1 : recentSongs.length - 1;
     handleTogglePlay(recentSongs[prevIdx]);
@@ -461,13 +520,73 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                 </span>
               </div>
 
-              <div className="flex items-center space-x-1.5">
+              <div className="flex items-center space-x-1 sm:space-x-1.5">
+                {/* Shuffle Button */}
                 <button
+                  id="btn-home-shuffle"
+                  onClick={toggleShuffle}
+                  className={`p-1.5 rounded-lg transition-all cursor-pointer relative ${
+                    isShuffling
+                      ? "text-[#a3ff12] bg-[#a3ff12]/15 shadow-[0_0_8px_rgba(163,255,18,0.3)]"
+                      : "text-zinc-400 hover:text-white hover:bg-white/5"
+                  }`}
+                  title={isShuffling ? "Shuffle: ON (Randomized order)" : "Shuffle: OFF (Sequential playback)"}
+                >
+                  <Shuffle className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                </button>
+
+                {/* Loop Mode Button */}
+                <button
+                  id="btn-home-loop"
+                  onClick={toggleLoopMode}
+                  className={`p-1.5 rounded-lg transition-all cursor-pointer relative ${
+                    loopMode !== "off"
+                      ? "text-[#a3ff12] bg-[#a3ff12]/15 shadow-[0_0_8px_rgba(163,255,18,0.3)]"
+                      : "text-zinc-400 hover:text-white hover:bg-white/5"
+                  }`}
+                  title={
+                    loopMode === "one"
+                      ? "Loop Current Track (Click to turn off)"
+                      : loopMode === "all"
+                      ? "Loop All (Click to loop single song)"
+                      : "Loop: OFF (Click to loop all)"
+                  }
+                >
+                  {loopMode === "one" ? (
+                    <Repeat1 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#a3ff12]" />
+                  ) : (
+                    <Repeat className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                  )}
+                </button>
+
+                {/* Prev Track */}
+                <button
+                  id="btn-home-prev"
+                  onClick={handlePrevSongInHome}
+                  className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer active:scale-95"
+                  title="Previous Song (F7)"
+                >
+                  <SkipBack className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                </button>
+
+                {/* Next Track */}
+                <button
+                  id="btn-home-next"
+                  onClick={() => handleNextSongInHome(false)}
+                  className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer active:scale-95"
+                  title="Next Song (F9)"
+                >
+                  <SkipForward className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                </button>
+
+                {/* Mute Button */}
+                <button
+                  id="btn-home-mute"
                   onClick={() => setIsMuted(!isMuted)}
-                  className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-white/5 transition-colors"
+                  className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
                   title={isMuted ? "Unmute" : "Mute"}
                 >
-                  {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+                  {isMuted ? <VolumeX className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> : <Volume2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />}
                 </button>
               </div>
             </div>
