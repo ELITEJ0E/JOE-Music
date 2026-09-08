@@ -15,6 +15,7 @@ export interface BeatAnalysisResult {
     numFrames: number;
     bestLag: number;
     topPeaks: Array<{ lag: number; score: number }>;
+    windowTempos?: Array<{ startSec: number; bpm: number }>;
   };
 }
 
@@ -186,11 +187,17 @@ export function trackBeatsFromOnsetEnvelope(
   // Continuous onset energy scoring function for candidate (period T, phase offset phi)
   const windowSigmaFrames = Math.max(1.0, (0.035 * sampleRate) / hopSize); // 35ms Gaussian window
 
-  function scoreGrid(periodSec: number, phaseSec: number): number {
+  function scoreGrid(
+    periodSec: number,
+    phaseSec: number,
+    winStartSec = 0,
+    winEndSec = duration
+  ): number {
     let score = 0;
     let count = 0;
-    let beatTime = phaseSec;
-    while (beatTime < duration) {
+    let k = Math.ceil((winStartSec - phaseSec) / periodSec);
+    let beatTime = phaseSec + k * periodSec;
+    while (beatTime < winEndSec) {
       const centerFrame = (beatTime * sampleRate - onsetFluxSampleOffset) / hopSize;
       if (centerFrame >= 0 && centerFrame < numFrames) {
         const minF = Math.max(0, Math.floor(centerFrame - 3));
@@ -305,26 +312,183 @@ export function trackBeatsFromOnsetEnvelope(
     bestPhaseOffset = 0;
   }
 
-  // Generate beat grid starting from the earliest downbeat in the file
-  const beats: number[] = [];
-  let currentBeatTime = bestPhaseOffset;
-  // Back-propagate if phase offset leaves an initial beat near t = 0
-  while (currentBeatTime - beatIntervalSec >= -0.04) {
-    currentBeatTime -= beatIntervalSec;
-  }
+  // Generate adaptive beat grid using overlapping analysis windows
+  const windowDuration = 10.0;
+  const windowHop = 5.0;
 
-  while (currentBeatTime < duration) {
-    if (currentBeatTime >= -0.04) {
-      const normalizedTime = Math.max(0, currentBeatTime);
-      beats.push(Number(normalizedTime.toFixed(3)));
+  const windows: Array<{ start: number; end: number }> = [];
+  if (duration <= windowDuration) {
+    windows.push({ start: 0, end: duration });
+  } else {
+    for (let start = 0; start < duration; start += windowHop) {
+      const end = Math.min(duration, start + windowDuration);
+      windows.push({ start, end });
+      if (end >= duration) break;
     }
-    currentBeatTime += beatIntervalSec;
   }
 
+  interface WindowResult {
+    start: number;
+    end: number;
+    period: number;
+    phase: number;
+    score: number;
+  }
+  const windowResults: WindowResult[] = [];
+  const windowTempos: Array<{ startSec: number; bpm: number }> = [];
+
+  let runningInterval = beatIntervalSec;
+  let prevPeriod = beatIntervalSec;
+  let prevPhase = bestPhaseOffset;
+
+  for (let winIdx = 0; winIdx < windows.length; winIdx++) {
+    const win = windows[winIdx];
+
+    // Predict where the previous window's beat grid predicts the next beat in this window
+    let anchorBeat: number;
+    if (winIdx === 0) {
+      let initialBeat = bestPhaseOffset;
+      while (initialBeat - beatIntervalSec >= -0.04) {
+        initialBeat -= beatIntervalSec;
+      }
+      if (initialBeat < 0) initialBeat += beatIntervalSec;
+      anchorBeat = initialBeat;
+    } else {
+      const k = Math.ceil((win.start - prevPhase) / prevPeriod);
+      anchorBeat = prevPhase + k * prevPeriod;
+    }
+
+    // Restrict period search to +/- 6% around running tempo estimate
+    const periodRange = 0.06 * runningInterval;
+    const numSteps = 30;
+    const periodStep = (2 * periodRange) / numSteps;
+
+    let winBestPeriod = runningInterval;
+    let winBestPhase = anchorBeat;
+    let winBestScore = -Infinity;
+
+    for (let s = 0; s <= numSteps; s++) {
+      const candPeriod = runningInterval - periodRange + s * periodStep;
+      if (candPeriod < 0.25 || candPeriod > 1.25) continue;
+
+      // Local phase search centered on anchorBeat within +/- 0.5 * candPeriod
+      const numLocalPhaseSteps = 24;
+      for (let p = 0; p < numLocalPhaseSteps; p++) {
+        const candPhase = anchorBeat + (p / numLocalPhaseSteps - 0.5) * candPeriod;
+        const score = scoreGrid(candPeriod, candPhase, win.start, win.end);
+        if (score > winBestScore) {
+          winBestScore = score;
+          winBestPeriod = candPeriod;
+          winBestPhase = candPhase;
+        }
+      }
+    }
+
+    // Ultra-fine phase refinement around winBestPhase (+/- 15ms in 1ms steps)
+    let refinedWinPhase = winBestPhase;
+    let bestLocalPhaseScore = winBestScore;
+    for (let deltaSec = -0.015; deltaSec <= 0.015; deltaSec += 0.001) {
+      const candPhase = winBestPhase + deltaSec;
+      const score = scoreGrid(winBestPeriod, candPhase, win.start, win.end);
+      if (score > bestLocalPhaseScore) {
+        bestLocalPhaseScore = score;
+        refinedWinPhase = candPhase;
+      }
+    }
+    winBestPhase = refinedWinPhase;
+    winBestScore = bestLocalPhaseScore;
+
+    const winBpm = Math.round(60 / winBestPeriod);
+    windowTempos.push({
+      startSec: Number(win.start.toFixed(2)),
+      bpm: Math.max(60, Math.min(200, winBpm)),
+    });
+
+    windowResults.push({
+      start: win.start,
+      end: win.end,
+      period: winBestPeriod,
+      phase: winBestPhase,
+      score: winBestScore,
+    });
+
+    // Update running tempo estimate smoothly
+    runningInterval = 0.5 * runningInterval + 0.5 * winBestPeriod;
+    prevPeriod = winBestPeriod;
+    prevPhase = winBestPhase;
+  }
+
+  // Stitch per-window results into one continuous beats[] array
+  // At window boundaries, prefer the more confident (higher scoreGrid score) window
+  const splitTimes: number[] = [];
+  for (let i = 0; i < windowResults.length - 1; i++) {
+    const wCurr = windowResults[i];
+    const wNext = windowResults[i + 1];
+    const split = wCurr.score >= wNext.score ? wCurr.end : wNext.start;
+    splitTimes.push(split);
+  }
+
+  const rawBeats: Array<{ time: number; score: number }> = [];
+
+  for (let i = 0; i < windowResults.length; i++) {
+    const w = windowResults[i];
+    const segStart = i === 0 ? 0 : splitTimes[i - 1];
+    const segEnd = i === windowResults.length - 1 ? duration : splitTimes[i];
+
+    // Generate beats within this window's assigned segment [segStart, segEnd)
+    const kStart = Math.ceil((segStart - w.phase) / w.period);
+    let t = w.phase + kStart * w.period;
+    while (t < segEnd + 0.001) {
+      if (t >= -0.04 && t <= duration + 0.04) {
+        rawBeats.push({
+          time: Math.max(0, t),
+          score: w.score,
+        });
+      }
+      t += w.period;
+    }
+  }
+
+  // Ensure initial downbeat near t=0 is captured if phase offset left room
+  if (rawBeats.length > 0 && rawBeats[0].time > 0.04) {
+    const firstPeriod = windowResults[0]?.period || beatIntervalSec;
+    const firstPhase = windowResults[0]?.phase || bestPhaseOffset;
+    let preBeat = firstPhase;
+    while (preBeat - firstPeriod >= -0.04) {
+      preBeat -= firstPeriod;
+    }
+    if (preBeat >= -0.04 && preBeat < rawBeats[0].time - 0.04) {
+      rawBeats.unshift({
+        time: Math.max(0, preBeat),
+        score: windowResults[0]?.score || 0,
+      });
+    }
+  }
+
+  // Re-sort and dedupe beats within 40ms of each other, preferring higher score
+  rawBeats.sort((a, b) => a.time - b.time);
+
+  const dedupedBeats: Array<{ time: number; score: number }> = [];
+  for (const b of rawBeats) {
+    if (dedupedBeats.length === 0) {
+      dedupedBeats.push(b);
+    } else {
+      const prev = dedupedBeats[dedupedBeats.length - 1];
+      if (b.time - prev.time <= 0.040) {
+        // Within 40ms: prefer the more confident (higher scoreGrid score) beat
+        if (b.score > prev.score) {
+          dedupedBeats[dedupedBeats.length - 1] = b;
+        }
+      } else {
+        dedupedBeats.push(b);
+      }
+    }
+  }
+
+  const beats = dedupedBeats.map((b) => Number(b.time.toFixed(3)));
   if (beats.length === 0) {
     beats.push(0);
   }
-  beats.sort((a, b) => a - b);
 
   return {
     estimatedBpm,
@@ -339,8 +503,9 @@ export function trackBeatsFromOnsetEnvelope(
     diagnostics: {
       numFrames,
       bestLag,
-      topPeaks
-    }
+      topPeaks,
+      windowTempos,
+    },
   };
 }
 

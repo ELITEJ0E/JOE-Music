@@ -135,6 +135,9 @@ export function stabilizeChordSegments(
   const minSlashDuration = options.minSlashDuration ?? Math.max(0.65, beatIntervalSec * 0.9);
   const totalDuration = options.duration || (rawSegments[rawSegments.length - 1].endTime ?? 0);
   const changeMargin = options.changeMargin ?? 0.08;
+  const minChordDurationBeats = options.minChordDurationBeats ?? 1.0;
+  const minGlitchDuration = options.minGlitchDuration ?? 0.45;
+  const minGlitchDurationBeats = minGlitchDuration / beatIntervalSec;
 
   let mergedSegmentsCount = 0;
   let rejectedTransientSlashCount = 0;
@@ -199,6 +202,7 @@ export function stabilizeChordSegments(
     for (let i = 0; i < current.length; i++) {
       const seg = current[i];
       const dur = seg.endTime - seg.startTime;
+      const durationBeats = dur / beatIntervalSec;
       
       const diag = seg.diagnostics;
       const scoreMargin = diag?.scoreMargin ?? 0.1;
@@ -214,14 +218,31 @@ export function stabilizeChordSegments(
       viability += scoreMargin * 1.5;
       viability += thirdEvidence * 1.0;
       
+      // Hysteresis score margin bonus: if scoreMargin >= changeMargin, add a viability bonus proportional to the margin above threshold
+      if (scoreMargin >= changeMargin) {
+        viability += (scoreMargin - changeMargin) * 2.0;
+      }
+
       if (isOnBeat) viability += 0.5; // Changes on subdivisions are more viable
-      if (isSandwiched) viability -= 0.6; // Sandwiched A-B-A often indicates a momentary passing artifact
-      if (dur < 0.25) viability -= 1.0; // Very short micro-chords are heavily penalized
+
+      // Sandwiched A-B-A pattern: only penalize if the segment is both short (< 0.6 beats) and low-confidence (< changeMargin);
+      // confident alternating progressions (e.g. C-G-C-G) are preserved.
+      if (isSandwiched && durationBeats < 0.6 && scoreMargin < changeMargin) {
+        viability -= 0.6;
+      }
+
+      // Very short micro-chords / glitches below minGlitchDurationBeats are heavily penalized
+      if (durationBeats < minGlitchDurationBeats) {
+        viability -= 1.0;
+      }
       
-      // If the segment is long enough (e.g. > 0.75s), it's virtually immune to absorption
-      if (dur > 0.75) viability += 10;
-      // If it's at least a beat long and on a beat, immune
-      if (dur > beatIntervalSec * 0.8 && isOnBeat) viability += 5;
+      // If the segment meets or exceeds minChordDurationBeats, it's virtually immune to absorption
+      if (durationBeats >= minChordDurationBeats) {
+        viability += 10;
+      } else if (dur > beatIntervalSec * 0.8 && isOnBeat) {
+        // If it's at least ~0.8 beats long and lands on a beat, grant a strong viability bonus
+        viability += 5;
+      }
 
       const VIABILITY_THRESHOLD = 1.0; // Segments below this are considered for absorption
 
@@ -236,14 +257,23 @@ export function stabilizeChordSegments(
 
     if (weakestIdx !== -1) {
       const seg = current[weakestIdx];
+      const segMargin = seg.diagnostics?.scoreMargin ?? 0.1;
       let left = weakestIdx > 0 ? current[weakestIdx - 1] : null;
       let right = weakestIdx < current.length - 1 ? current[weakestIdx + 1] : null;
       
       let mergeIntoLeft = false;
+      let neighborWins = false;
       
       if (left && right) {
-        if (left.chord === right.chord) {
+        if (left.chord === seg.chord) {
            mergeIntoLeft = true;
+           neighborWins = true;
+        } else if (right.chord === seg.chord) {
+           mergeIntoLeft = false;
+           neighborWins = true;
+        } else if (left.chord === right.chord) {
+           mergeIntoLeft = true;
+           neighborWins = true;
         } else {
            // Merge into the stronger adjacent chord
            const leftDur = left.endTime - left.startTime;
@@ -255,11 +285,26 @@ export function stabilizeChordSegments(
            const rightStrength = rightDur * rightMargin;
            
            mergeIntoLeft = leftStrength >= rightStrength;
+           const targetStrength = Math.max(leftStrength, rightStrength);
+           const segStrength = (seg.endTime - seg.startTime) * segMargin;
+           neighborWins = targetStrength > segStrength;
         }
       } else if (left) {
         mergeIntoLeft = true;
+        const leftDur = left.endTime - left.startTime;
+        const leftMargin = left.diagnostics?.scoreMargin ?? 0.1;
+        neighborWins = (leftDur * leftMargin) >= ((seg.endTime - seg.startTime) * segMargin);
       } else if (right) {
         mergeIntoLeft = false;
+        const rightDur = right.endTime - right.startTime;
+        const rightMargin = right.diagnostics?.scoreMargin ?? 0.1;
+        neighborWins = (rightDur * rightMargin) >= ((seg.endTime - seg.startTime) * segMargin);
+      }
+
+      // Hysteresis gate: only absorb if the segment's own confidence margin is weak (< changeMargin)
+      // OR the neighbor it would merge into clearly wins that comparison
+      if (segMargin >= changeMargin && !neighborWins) {
+        break;
       }
       
       if (mergeIntoLeft && left) {

@@ -336,4 +336,24 @@ describe("Post-MIR Harmonic Stabilizer & Musical Segmentation Engine", () => {
     // C/B should be absorbed into C (slash rejection), and the short Am7 into Am (transition glitch)
     expect(result.diagnostics.finalProgression).toEqual(["C", "Am"]);
   });
+
+  // Test 12: Alternating A-B-A chord progression with confident detection must survive
+  it("12. Alternating A-B-A chord progression (C -> G -> C -> G) with confident evidence must NOT be absorbed", () => {
+    const rawSegments: ChordSegment[] = [
+      { id: "s0", chord: "C", root: "C", bass: "C", quality: "maj", extensions: [], startTime: 0.0, endTime: 0.5, confidence: 94, stability: 92, diagnostics: { scoreMargin: 0.25, thirdEvidence: 0.8 } },
+      { id: "s1", chord: "G", root: "G", bass: "G", quality: "maj", extensions: [], startTime: 0.5, endTime: 1.0, confidence: 92, stability: 90, diagnostics: { scoreMargin: 0.25, thirdEvidence: 0.8 } },
+      { id: "s2", chord: "C", root: "C", bass: "C", quality: "maj", extensions: [], startTime: 1.0, endTime: 1.5, confidence: 93, stability: 91, diagnostics: { scoreMargin: 0.25, thirdEvidence: 0.8 } },
+      { id: "s3", chord: "G", root: "G", bass: "G", quality: "maj", extensions: [], startTime: 1.5, endTime: 2.0, confidence: 94, stability: 92, diagnostics: { scoreMargin: 0.25, thirdEvidence: 0.8 } },
+    ];
+
+    const result = stabilizeChordSegments(rawSegments, {
+      tempo: 120,
+      beats: [0.0, 0.5, 1.0, 1.5, 2.0],
+      duration: 2.0,
+      minChordDurationBeats: 1.0,
+      changeMargin: 0.08,
+    });
+
+    expect(result.diagnostics.finalProgression).toEqual(["C", "G", "C", "G"]);
+  });
 });
