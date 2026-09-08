@@ -66,7 +66,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
       `}</style>
 
       {/* Primary Fixed Bottom Nav Bar */}
-      <nav className="md:hidden fixed bottom-0 inset-x-0 bg-[#0d0f12]/95 backdrop-blur-lg border-t border-white/10 px-3 py-2.5 flex items-center justify-between z-40">
+      <nav className="md:hidden fixed bottom-0 inset-x-0 h-16 bg-[#0d0f12]/95 backdrop-blur-lg border-t border-white/10 px-3 flex items-center justify-between z-40 pb-[env(safe-area-inset-bottom,0px)]">
         {/* Scrollable Left Track containing primary modules */}
         <div className="flex-1 flex items-center gap-1.5 overflow-x-auto scrollbar-none py-0.5 pr-2 mr-2 border-r border-white/10">
           {ALL_NAV_ITEMS.map((tab) => {

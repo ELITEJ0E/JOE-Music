@@ -23,7 +23,8 @@ import {
   Clock,
   Share2,
   Lock,
-  Unlock
+  Unlock,
+  X
 } from "lucide-react";
 import {
   MY_SUNO_PLAYLISTS,
@@ -385,6 +386,15 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
     }
   };
 
+  const handleClosePlayer = () => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.src = "";
+    }
+    setIsPlaying(false);
+    setCurrentTrack(null);
+  };
+
   // Track sorting mode: default "latest" (most recent songs on top)
   const [songSortMode, setSongSortMode] = useState<"latest" | "oldest" | "title">("latest");
 
@@ -443,7 +453,9 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
   };
 
   return (
-    <div className="w-full max-w-7xl mx-auto space-y-6 pb-32 px-1 sm:px-2 md:px-4 animate-in fade-in duration-200 overflow-hidden">
+    <div className={`w-full max-w-7xl mx-auto space-y-6 px-1 sm:px-2 md:px-4 animate-in fade-in duration-200 overflow-hidden ${
+      currentTrack ? "pb-60 sm:pb-44 md:pb-28" : "pb-28 sm:pb-20 md:pb-16"
+    }`}>
       {/* Hidden Native Audio Player Engine */}
       <audio ref={audioRef} preload="metadata" />
 
@@ -969,20 +981,50 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
 
       {/* Persistent Global Player Bar */}
       {currentTrack && (
-        <div className="fixed bottom-0 left-0 right-0 z-40 bg-[#0c0f14]/95 backdrop-blur-xl border-t border-white/10 px-3 sm:px-8 py-2.5 sm:py-3 shadow-[0_-10px_30px_rgba(0,0,0,0.8)] animate-in slide-in-from-bottom duration-300">
+        <div className="fixed bottom-[calc(4rem+env(safe-area-inset-bottom,0px))] md:bottom-0 left-0 right-0 z-40 bg-[#0c0f14]/95 backdrop-blur-xl border-t border-white/10 px-3 sm:px-8 py-2 sm:py-3 shadow-[0_-10px_30px_rgba(0,0,0,0.8)] animate-in slide-in-from-bottom duration-300">
           <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2 sm:gap-3">
-            {/* Current Song Details */}
-            <div className="flex items-center gap-2.5 w-full sm:w-1/4 min-w-0">
-              <div className="relative w-9 h-9 sm:w-11 sm:h-11 rounded-lg overflow-hidden shrink-0 bg-black border border-white/10 shadow-md">
-                <img
-                  src={currentTrack.imageUrl || currentTrack.image_url || "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&q=80"}
-                  alt={currentTrack.title}
-                  className="w-full h-full object-cover"
-                />
+            {/* Current Song Details & Mobile Quick Actions */}
+            <div className="flex items-center justify-between w-full sm:w-1/4 min-w-0">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="relative w-9 h-9 sm:w-11 sm:h-11 rounded-lg overflow-hidden shrink-0 bg-black border border-white/10 shadow-md">
+                  <img
+                    src={currentTrack.imageUrl || currentTrack.image_url || "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&q=80"}
+                    alt={currentTrack.title}
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs font-bold text-white truncate font-mono">{currentTrack.title}</div>
+                  <div className="text-[10px] font-mono text-[#a3ff12] truncate">{currentTrack.artist}</div>
+                </div>
               </div>
-              <div className="min-w-0 flex-1">
-                <div className="text-xs font-bold text-white truncate font-mono">{currentTrack.title}</div>
-                <div className="text-[10px] font-mono text-[#a3ff12] truncate">{currentTrack.artist}</div>
+
+              {/* Mobile Quick Action Buttons (Chords, DAW, Close) */}
+              <div className="flex sm:hidden items-center gap-1 shrink-0 ml-2">
+                <button
+                  id="btn-player-chords-mobile"
+                  onClick={() => onAnalyzeSong(currentTrack)}
+                  className="px-2 py-1 rounded-lg bg-[#a3ff12]/15 text-[#a3ff12] hover:bg-[#a3ff12]/25 border border-[#a3ff12]/30 text-[10px] font-mono font-bold transition-colors cursor-pointer"
+                  title="Extract Chords"
+                >
+                  Chords
+                </button>
+                <button
+                  id="btn-player-daw-mobile"
+                  onClick={() => onOpenInStudio(currentTrack)}
+                  className="px-2 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white text-[10px] font-mono font-bold transition-colors cursor-pointer"
+                  title="Open in Studio DAW"
+                >
+                  DAW
+                </button>
+                <button
+                  id="btn-player-close-mobile"
+                  onClick={handleClosePlayer}
+                  className="p-1 text-zinc-400 hover:text-white rounded-lg hover:bg-white/5 cursor-pointer ml-0.5"
+                  title="Close Player"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
             </div>
 
@@ -1079,10 +1121,10 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
               </div>
             </div>
 
-            {/* Volume & Quick Routing */}
-            <div className="flex items-center justify-between sm:justify-end gap-2 sm:gap-3 w-full sm:w-1/4">
+            {/* Volume & Quick Routing (Desktop) */}
+            <div className="hidden sm:flex items-center justify-end gap-2 sm:gap-3 sm:w-1/4">
               <div className="flex items-center gap-1.5">
-                <button onClick={toggleMute} className="text-zinc-400 hover:text-white p-1">
+                <button onClick={toggleMute} className="text-zinc-400 hover:text-white p-1" title={isMuted ? "Unmute" : "Mute"}>
                   {isMuted ? <VolumeX className="w-4 h-4 text-rose-400" /> : <Volume2 className="w-4 h-4" />}
                 </button>
                 <input
@@ -1098,16 +1140,28 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
 
               <div className="flex items-center gap-1.5">
                 <button
+                  id="btn-player-chords-desktop"
                   onClick={() => onAnalyzeSong(currentTrack)}
                   className="px-2.5 py-1 rounded-lg bg-[#a3ff12]/15 text-[#a3ff12] hover:bg-[#a3ff12]/25 border border-[#a3ff12]/30 text-[10px] font-mono font-bold transition-colors cursor-pointer"
+                  title="Extract Chords"
                 >
                   Chords
                 </button>
                 <button
+                  id="btn-player-daw-desktop"
                   onClick={() => onOpenInStudio(currentTrack)}
                   className="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white text-[10px] font-mono font-bold transition-colors cursor-pointer"
+                  title="Open in Studio DAW"
                 >
                   DAW
+                </button>
+                <button
+                  id="btn-player-close-desktop"
+                  onClick={handleClosePlayer}
+                  className="p-1 text-zinc-400 hover:text-white rounded-lg hover:bg-white/5 cursor-pointer"
+                  title="Close Player"
+                >
+                  <X className="w-4 h-4" />
                 </button>
               </div>
             </div>
