@@ -150,6 +150,7 @@ export interface SavedSong extends SongAnalysis {
   audioBlob?: Blob;
   lastPlayedAt?: number;
   savedAt?: number;
+  sunoId?: string;
 }
 
 export type PedalType =

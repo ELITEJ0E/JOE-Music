@@ -27,13 +27,29 @@ const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes fresh window
 const SYNCED_PLAYLISTS = new Set<string>();
 
 /**
+ * Sort tracks with the most recent songs on top (newest createdAt first)
+ */
+export function sortTracksLatestFirst(tracks: SunoTrack[]): SunoTrack[] {
+  return [...tracks].sort((a, b) => {
+    const rawA = a.createdAt || a.created_at;
+    const rawB = b.createdAt || b.created_at;
+    const timeA = rawA ? new Date(rawA).getTime() : 0;
+    const timeB = rawB ? new Date(rawB).getTime() : 0;
+    return (isNaN(timeB) ? 0 : timeB) - (isNaN(timeA) ? 0 : timeA);
+  });
+}
+
+/**
  * Synchronously retrieves cached playlist from Memory Map, LocalStorage, or Master Catalog.
  * Guarantees instantaneous song display with zero empty state flicker.
  */
 export function getCachedPlaylist(playlistId: string): SunoPlaylistResponse {
   if (!playlistId) {
     const defaultMaster = SUNO_CATALOG_MASTER["ff247038-e0ae-4778-989d-0529e575027b"];
-    return defaultMaster;
+    return {
+      ...defaultMaster,
+      tracks: sortTracksLatestFirst(defaultMaster.tracks),
+    };
   }
 
   const normalizedId = SUNO_PLAYLIST_ALIASES[playlistId.trim()] || playlistId.trim();
@@ -41,7 +57,10 @@ export function getCachedPlaylist(playlistId: string): SunoPlaylistResponse {
   // 1. Check in-memory map
   const mem = MEMORY_CACHE.get(normalizedId);
   if (mem?.data?.tracks && mem.data.tracks.length > 0) {
-    return mem.data;
+    return {
+      ...mem.data,
+      tracks: sortTracksLatestFirst(mem.data.tracks),
+    };
   }
 
   // 2. Check persistent browser LocalStorage
@@ -52,13 +71,13 @@ export function getCachedPlaylist(playlistId: string): SunoPlaylistResponse {
         const parsed: CachedEntry = JSON.parse(raw);
         if (parsed?.data?.tracks && parsed.data.tracks.length > 0) {
           // Sanitize any stale cdn1.suno.ai or forbidden URLs from legacy cache
-          parsed.data.tracks = parsed.data.tracks.map((t: SunoTrack) => {
+          parsed.data.tracks = sortTracksLatestFirst(parsed.data.tracks.map((t: SunoTrack) => {
             if (!t.audioUrl || t.audioUrl.includes("cdn1.suno.ai") || t.audioUrl.includes("forbidden")) {
               const fixedUrl = `https://d2lwuy8qc234o3.cloudfront.net/1/clip/${t.id}.m4a`;
               return { ...t, audioUrl: fixedUrl, audio_url: fixedUrl };
             }
             return t;
-          });
+          }));
           MEMORY_CACHE.set(normalizedId, parsed);
           return parsed.data;
         }
@@ -71,15 +90,19 @@ export function getCachedPlaylist(playlistId: string): SunoPlaylistResponse {
   // 3. Fallback to pre-bundled Master Catalog (contains all 92+ songs)
   const master = SUNO_CATALOG_MASTER[normalizedId] || SUNO_CATALOG_MASTER["ff247038-e0ae-4778-989d-0529e575027b"];
   if (master?.tracks && master.tracks.length > 0) {
-    MEMORY_CACHE.set(normalizedId, { data: master, timestamp: Date.now() });
+    const sortedMaster = {
+      ...master,
+      tracks: sortTracksLatestFirst(master.tracks),
+    };
+    MEMORY_CACHE.set(normalizedId, { data: sortedMaster, timestamp: Date.now() });
     if (typeof window !== "undefined") {
       try {
-        localStorage.setItem(`${LOCAL_STORAGE_PREFIX}${normalizedId}`, JSON.stringify({ data: master, timestamp: Date.now() }));
+        localStorage.setItem(`${LOCAL_STORAGE_PREFIX}${normalizedId}`, JSON.stringify({ data: sortedMaster, timestamp: Date.now() }));
       } catch {
         // Ignore quota errors
       }
     }
-    return master;
+    return sortedMaster;
   }
 
   return {
@@ -245,13 +268,16 @@ export function useSunoPlaylist(playlistId: string): UseSunoPlaylistResult {
 
           setPlaylist((prev) => {
             if (!prev || !append) {
-              return data;
+              return {
+                ...data,
+                tracks: sortTracksLatestFirst(data.tracks),
+              };
             }
             const existingIds = new Set(prev.tracks.map((t) => t.id));
             const newUniqueTracks = data.tracks.filter((t) => !existingIds.has(t.id));
             return {
               ...data,
-              tracks: [...prev.tracks, ...newUniqueTracks],
+              tracks: sortTracksLatestFirst([...prev.tracks, ...newUniqueTracks]),
             };
           });
 
@@ -341,7 +367,7 @@ export function useSunoPlaylist(playlistId: string): UseSunoPlaylistResult {
 
   return {
     playlist,
-    tracks: playlist?.tracks || [],
+    tracks: playlist?.tracks ? sortTracksLatestFirst(playlist.tracks) : [],
     isLoading,
     isSyncing,
     isLoadingMore,

@@ -161,7 +161,12 @@ export default function App() {
                 />
               )}
               {activeMode === "songs" && <SongsLibraryView onAnalyzeSong={handleAnalyzeSong} onOpenInStudio={handleOpenInStudio} onUseAsPractice={handleUseAsPractice} />}
-              {activeMode === "chords-ai" && <ChordFinderStudio initialSong={importedSong} />}
+              {activeMode === "chords-ai" && (
+                <ChordFinderStudio
+                  initialSong={importedSong}
+                  onClearInitialSong={() => setImportedSong(null)}
+                />
+              )}
               {activeMode === "tuner" && <TunerPanel />}
               {activeMode === "chord-dictionary" && <ChordDictionary />}
               {activeMode === "fretboard" && <FretboardViewer mode="fretboard" />}

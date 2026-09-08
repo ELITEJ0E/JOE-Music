@@ -21,6 +21,9 @@ export interface SunoTrack {
   audio_url?: string;
   image_url?: string;
   created_at?: string;
+  createdAt?: string;
+  playCount?: number;
+  upvoteCount?: number;
 }
 
 export interface SunoPlaylistResponse {
@@ -42,6 +45,9 @@ export const SUNO_PLAYLIST_ALIASES: Record<string, string> = {
   "e3d7a82b-4567-4a89-9b12-8812cfa89012": "34ac065b-e68e-4dfa-9780-00c49bae047a",
 };
 
+/**
+ * Playlists sorted with the most recent updates on top first
+ */
 export const MY_SUNO_PLAYLISTS: SunoPlaylistMeta[] = [
   {
     id: "ff247038-e0ae-4778-989d-0529e575027b",

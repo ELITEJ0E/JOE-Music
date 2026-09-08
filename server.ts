@@ -475,6 +475,13 @@ Provide a concise, practical, high-value guitar instruction response. Mention sp
       });
 
       if (tracks.length > 0) {
+        // Sort tracks latest first
+        tracks.sort((a: any, b: any) => {
+          const timeA = new Date(a.createdAt || a.created_at || 0).getTime();
+          const timeB = new Date(b.createdAt || b.created_at || 0).getTime();
+          return (isNaN(timeB) ? 0 : timeB) - (isNaN(timeA) ? 0 : timeA);
+        });
+
         return res.json({
           id: rawId,
           title: playlistTitle,
@@ -491,6 +498,12 @@ Provide a concise, practical, high-value guitar instruction response. Mention sp
 
     // Guaranteed Resilient Fallback containing ALL 93+ songs from SUNO_CATALOG_MASTER
     const fallback = SUNO_CATALOG_MASTER[targetId] || SUNO_CATALOG_MASTER["ff247038-e0ae-4778-989d-0529e575027b"];
+    const sortedFallbackTracks = [...fallback.tracks].sort((a: any, b: any) => {
+      const timeA = new Date(a.createdAt || a.created_at || 0).getTime();
+      const timeB = new Date(b.createdAt || b.created_at || 0).getTime();
+      return (isNaN(timeB) ? 0 : timeB) - (isNaN(timeA) ? 0 : timeA);
+    });
+
     res.json({
       id: rawId,
       title: fallback.title,
@@ -498,8 +511,8 @@ Provide a concise, practical, high-value guitar instruction response. Mention sp
       description: fallback.description,
       imageUrl: fallback.imageUrl,
       userDisplayName: fallback.userDisplayName || "ELITEJOE",
-      tracks: fallback.tracks,
-      totalTracks: fallback.tracks.length,
+      tracks: sortedFallbackTracks,
+      totalTracks: sortedFallbackTracks.length,
       hasMore: false
     });
   });

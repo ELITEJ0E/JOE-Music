@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
   Music,
   Search,
@@ -17,6 +17,7 @@ import {
   Radio,
   ChevronRight,
   ArrowRight,
+  ArrowDownWideNarrow,
   Clock,
   Share2,
   Lock,
@@ -322,21 +323,55 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
     }
   };
 
-  // Filter playlists by category
-  const filteredPlaylists = playlists.filter((p) => {
-    if (selectedCategory === "All") return true;
-    return p.category === selectedCategory;
-  });
+  // Track sorting mode: default "latest" (most recent songs on top)
+  const [songSortMode, setSongSortMode] = useState<"latest" | "oldest" | "title">("latest");
+
+  const getTrackTimestamp = (t: SunoTrack): number => {
+    const raw = t.createdAt || t.created_at;
+    if (!raw) return 0;
+    const time = new Date(raw).getTime();
+    return isNaN(time) ? 0 : time;
+  };
+
+  const formatSongDate = (t: SunoTrack): string => {
+    const raw = t.createdAt || t.created_at;
+    if (!raw) return "";
+    const date = new Date(raw);
+    if (isNaN(date.getTime())) return "";
+    return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  };
+
+  // Filter playlists by category (playlists array is already ordered with latest on top)
+  const filteredPlaylists = useMemo(() => {
+    return playlists.filter((p) => {
+      if (selectedCategory === "All") return true;
+      return p.category === selectedCategory;
+    });
+  }, [playlists, selectedCategory]);
+
+  // Sort tracks: most recent songs of the playlist on top first
+  const sortedTracks = useMemo(() => {
+    const list = [...tracks];
+    if (songSortMode === "latest") {
+      list.sort((a, b) => getTrackTimestamp(b) - getTrackTimestamp(a));
+    } else if (songSortMode === "oldest") {
+      list.sort((a, b) => getTrackTimestamp(a) - getTrackTimestamp(b));
+    } else if (songSortMode === "title") {
+      list.sort((a, b) => a.title.localeCompare(b.title));
+    }
+    return list;
+  }, [tracks, songSortMode]);
 
   // Filter tracks by search query
-  const filteredTracks = tracks.filter((t) => {
-    const q = searchQuery.toLowerCase();
-    return (
+  const filteredTracks = useMemo(() => {
+    const q = searchQuery.toLowerCase().trim();
+    if (!q) return sortedTracks;
+    return sortedTracks.filter((t) =>
       t.title.toLowerCase().includes(q) ||
       t.artist.toLowerCase().includes(q) ||
       t.tags?.some((tag) => tag.toLowerCase().includes(q))
     );
-  });
+  }, [sortedTracks, searchQuery]);
 
   const formatDuration = (seconds: number) => {
     if (!seconds || isNaN(seconds)) return "0:00";
@@ -358,18 +393,19 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
         </div>
       )}
 
-      {/* Top Banner & Header */}
-      <div className="frosted-card rounded-2xl sm:rounded-3xl p-4 sm:p-6 border border-white/10 space-y-4">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      {/* Unified Joel's Songs & Playlists Section */}
+      <div className="frosted-card rounded-2xl sm:rounded-3xl p-4 sm:p-5 border border-white/10 space-y-4">
+        {/* Top Header Row */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div>
             <div className="flex items-center gap-2.5">
-              <ListMusic className="w-6 h-6 text-[#a3ff12] shrink-0" />
-              <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight font-mono">
-                JOEL'S <span className="text-[#a3ff12]">SONGS</span>
+              <ListMusic className="w-5 h-5 text-[#a3ff12] shrink-0" />
+              <h2 className="text-lg sm:text-xl font-black text-white tracking-tight font-mono">
+                JOEL'S <span className="text-[#a3ff12]">SONGS & PLAYLISTS</span>
               </h2>
             </div>
-            <p className="text-xs sm:text-sm font-mono text-zinc-400 mt-1">
-              Listen to original tracks, worship melodies, and upcoming releases. Stream high-fidelity audio or extract chords.
+            <p className="text-xs font-mono text-zinc-400 mt-1">
+              Select a playlist to stream original tracks, worship melodies, and upcoming releases, or extract chords.
             </p>
           </div>
 
@@ -377,24 +413,25 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
           <div className="flex items-center gap-2.5 self-start md:self-auto">
             {isSyncing && (
               <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#a3ff12]/10 border border-[#a3ff12]/30 text-[11px] font-mono text-[#a3ff12] animate-in fade-in duration-200">
-                <span className="w-2 h-2 rounded-full bg-[#a3ff12] animate-ping" />
-                <span>Syncing latest songs...</span>
+                <span className="w-1.5 h-1.5 rounded-full bg-[#a3ff12] animate-ping" />
+                <span>Syncing songs...</span>
               </div>
             )}
             <button
               onClick={refresh}
               disabled={isLoading || isSyncing}
-              className="px-3.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-300 hover:text-white font-mono text-xs flex items-center gap-2 transition-colors cursor-pointer disabled:opacity-50"
+              className="px-3.5 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-300 hover:text-white font-mono text-xs flex items-center gap-2 transition-colors cursor-pointer disabled:opacity-50"
               title="Force Sync / Refresh Songs"
             >
-              <RefreshCw className={`w-4 h-4 ${(isLoading || isSyncing) ? "animate-spin text-[#a3ff12]" : ""}`} />
+              <RefreshCw className={`w-3.5 h-3.5 ${(isLoading || isSyncing) ? "animate-spin text-[#a3ff12]" : ""}`} />
               <span>{isSyncing ? "Syncing..." : "Sync"}</span>
             </button>
           </div>
         </div>
 
-        {/* Category Pills */}
+        {/* Category Pills Filter */}
         <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-hide pt-1 border-t border-white/5">
+          <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-wider font-bold shrink-0">Filter:</span>
           {["All", ...Array.from(new Set(playlists.map((p) => p.category)))].map((cat) => (
             <button
               key={cat}
@@ -409,19 +446,9 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
             </button>
           ))}
         </div>
-      </div>
 
-      {/* Joel's Playlists Grid Selection */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between text-xs font-mono text-zinc-400 px-1">
-          <span className="flex items-center gap-1.5 uppercase font-bold tracking-wider">
-            <Radio className="w-3.5 h-3.5 text-[#a3ff12]" />
-            MY PLAYLISTS ({filteredPlaylists.length})
-          </span>
-          <span className="text-[11px] text-zinc-400 hidden sm:inline">Click any card to load tracks</span>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+        {/* Playlist Cards Grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-1">
           {filteredPlaylists.map((pl) => {
             const isSelected = selectedPlaylistId === pl.id;
             const isLocked = pl.category === "Upcoming" && !isUpcomingUnlocked;
@@ -436,14 +463,14 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
                     setSelectedPlaylistId(pl.id);
                   }
                 }}
-                className={`group relative rounded-2xl p-3.5 sm:p-4 border transition-all cursor-pointer flex flex-col justify-between overflow-hidden ${
+                className={`group relative rounded-2xl p-3 sm:p-3.5 border transition-all cursor-pointer flex flex-col justify-between overflow-hidden ${
                   isSelected
                     ? "bg-[#a3ff12]/10 border-[#a3ff12] shadow-[0_0_20px_rgba(163,255,18,0.15)]"
                     : "bg-[#0f1217]/90 border-white/10 hover:border-white/20 hover:bg-[#141820]"
                 }`}
               >
                 <div className="flex items-start gap-3">
-                  <div className="relative w-14 h-14 sm:w-16 sm:h-16 rounded-xl overflow-hidden bg-black shrink-0 border border-white/10 shadow-md">
+                  <div className="relative w-12 h-12 sm:w-14 sm:h-14 rounded-xl overflow-hidden bg-black shrink-0 border border-white/10 shadow-md">
                     <img
                       src={pl.coverImage || "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=400&q=80"}
                       alt={pl.title}
@@ -451,11 +478,11 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
                     />
                     {isLocked ? (
                       <div className="absolute inset-0 bg-black/70 flex items-center justify-center backdrop-blur-xs">
-                        <Lock className="w-5 h-5 text-amber-400" />
+                        <Lock className="w-4 h-4 text-amber-400" />
                       </div>
                     ) : isSelected ? (
                       <div className="absolute inset-0 bg-[#a3ff12]/30 flex items-center justify-center">
-                        <Check className="w-5 h-5 text-black bg-[#a3ff12] rounded-full p-0.5" />
+                        <Check className="w-4 h-4 text-black bg-[#a3ff12] rounded-full p-0.5" />
                       </div>
                     ) : null}
                   </div>
@@ -471,13 +498,13 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
                       {pl.title}
                       {isLocked && <Lock className="w-3.5 h-3.5 text-amber-400 shrink-0" />}
                     </h4>
-                    <p className="text-[11px] text-zinc-400 line-clamp-2 leading-relaxed font-mono">
+                    <p className="text-[11px] text-zinc-400 line-clamp-1 leading-relaxed font-mono">
                       {pl.description}
                     </p>
                   </div>
                 </div>
 
-                <div className="mt-3 pt-2 border-t border-white/5 flex items-center justify-between text-[10px] font-mono text-zinc-400">
+                <div className="mt-2.5 pt-2 border-t border-white/5 flex items-center justify-between text-[10px] font-mono text-zinc-400">
                   <span className="text-zinc-500">Curated by Joel</span>
                   <span className="text-[#a3ff12] flex items-center gap-1 font-bold">
                     {isLocked ? (
@@ -628,9 +655,9 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
           </div>
         </div>
 
-        {/* Tracks Search & Summary */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-          <div className="relative w-full sm:w-80">
+        {/* Tracks Search & Summary & Sorting */}
+        <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+          <div className="relative w-full md:w-80">
             <Search className="w-4 h-4 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
@@ -640,8 +667,51 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
               className="w-full bg-[#12151a] border border-white/10 rounded-xl py-2 pl-9 pr-4 text-xs text-white font-mono focus:outline-none focus:border-[#a3ff12]/50"
             />
           </div>
-          <div className="text-xs font-mono text-zinc-400 text-right">
-            {filteredTracks.length} song{filteredTracks.length === 1 ? "" : "s"} ready
+
+          <div className="flex items-center justify-between md:justify-end gap-2.5 flex-wrap">
+            {/* Sort Controls */}
+            <div className="flex items-center bg-white/5 p-1 rounded-xl border border-white/10 text-[11px] font-mono">
+              <span className="text-zinc-500 px-2 py-0.5 flex items-center gap-1 text-[10px] uppercase font-bold tracking-wider">
+                <ArrowDownWideNarrow className="w-3 h-3 text-[#a3ff12]" /> Sort:
+              </span>
+              <button
+                onClick={() => setSongSortMode("latest")}
+                className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer font-bold ${
+                  songSortMode === "latest"
+                    ? "bg-[#a3ff12] text-black shadow-[0_0_10px_rgba(163,255,18,0.3)]"
+                    : "text-zinc-400 hover:text-white"
+                }`}
+                title="Sort songs with latest releases on top"
+              >
+                Latest First
+              </button>
+              <button
+                onClick={() => setSongSortMode("oldest")}
+                className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                  songSortMode === "oldest"
+                    ? "bg-[#a3ff12] text-black font-bold shadow-[0_0_10px_rgba(163,255,18,0.3)]"
+                    : "text-zinc-400 hover:text-white"
+                }`}
+                title="Sort songs from oldest to newest"
+              >
+                Oldest First
+              </button>
+              <button
+                onClick={() => setSongSortMode("title")}
+                className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                  songSortMode === "title"
+                    ? "bg-[#a3ff12] text-black font-bold shadow-[0_0_10px_rgba(163,255,18,0.3)]"
+                    : "text-zinc-400 hover:text-white"
+                }`}
+                title="Sort alphabetically by title"
+              >
+                A-Z
+              </button>
+            </div>
+
+            <div className="text-xs font-mono text-zinc-400 shrink-0">
+              {filteredTracks.length} song{filteredTracks.length === 1 ? "" : "s"} ready
+            </div>
           </div>
         </div>
 
@@ -680,7 +750,8 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
                 <span className="w-8 text-center">#</span>
                 <span>SONG & ARTIST</span>
               </div>
-              <div className="flex items-center gap-6 shrink-0 pr-1">
+              <div className="flex items-center gap-4 sm:gap-6 shrink-0 pr-1">
+                <span className="hidden md:block w-24 text-right">RELEASED</span>
                 <span className="w-12 text-right">TIME</span>
                 <span className="w-36 text-right">ACTIONS</span>
               </div>
@@ -691,6 +762,7 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
               {filteredTracks.map((track, idx) => {
                 const isCurrent = currentTrack?.id === track.id;
                 const isThisPlaying = isCurrent && isPlaying;
+                const songDate = formatSongDate(track);
 
                 return (
                   <div
@@ -738,6 +810,9 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
                         </div>
                         <div className="text-[10px] font-mono text-zinc-400 truncate flex items-center gap-1.5 mt-0.5">
                           <span className="text-[#a3ff12]">{track.artist}</span>
+                          {songDate && (
+                            <span className="text-zinc-500">• {songDate}</span>
+                          )}
                           <span className="sm:hidden text-zinc-500">• {formatDuration(track.duration)}</span>
                         </div>
                       </div>
@@ -748,6 +823,11 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
                       className="flex items-center justify-between sm:justify-end gap-3 sm:gap-4 shrink-0 pt-1 sm:pt-0 border-t border-white/5 sm:border-t-0"
                       onClick={(e) => e.stopPropagation()}
                     >
+                      {/* Released Date - desktop */}
+                      <div className="hidden md:block font-mono text-[11px] text-zinc-400 w-24 text-right truncate">
+                        {songDate || "—"}
+                      </div>
+
                       <div className="hidden sm:block font-mono text-[11px] text-zinc-400 w-12 text-right">
                         {formatDuration(track.duration)}
                       </div>

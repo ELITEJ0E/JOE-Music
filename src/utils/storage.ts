@@ -214,6 +214,43 @@ export async function loadPracticeLogs(): Promise<PracticeLog[]> {
   }
 }
 
+export function deduplicateSongList(list: SavedSong[]): { unique: SavedSong[]; duplicateIds: string[] } {
+  const seenIds = new Set<string>();
+  const seenKeys = new Set<string>();
+  const seenSunoIds = new Set<string>();
+  const unique: SavedSong[] = [];
+  const duplicateIds: string[] = [];
+
+  for (const song of list) {
+    if (!song) continue;
+    const normTitle = (song.title || "").trim().toLowerCase();
+    const normArtist = (song.artist || "").trim().toLowerCase();
+    const titleArtistKey = normTitle ? `${normTitle}:::${normArtist}` : "";
+    const sunoIdKey = song.sunoId ? `suno:${song.sunoId}` : "";
+
+    let isDuplicate = false;
+
+    if (seenIds.has(song.id)) {
+      isDuplicate = true;
+    } else if (sunoIdKey && seenSunoIds.has(sunoIdKey)) {
+      isDuplicate = true;
+    } else if (titleArtistKey && seenKeys.has(titleArtistKey)) {
+      isDuplicate = true;
+    }
+
+    if (isDuplicate) {
+      duplicateIds.push(song.id);
+    } else {
+      seenIds.add(song.id);
+      if (sunoIdKey) seenSunoIds.add(sunoIdKey);
+      if (titleArtistKey) seenKeys.add(titleArtistKey);
+      unique.push(song);
+    }
+  }
+
+  return { unique, duplicateIds };
+}
+
 export async function saveSongToDB(song: SavedSong): Promise<void> {
   const songToSave: SavedSong = {
     ...song,
@@ -222,15 +259,51 @@ export async function saveSongToDB(song: SavedSong): Promise<void> {
   };
   try {
     const db = await openDB();
+    const normTitle = (songToSave.title || "").trim().toLowerCase();
+    const normArtist = (songToSave.artist || "").trim().toLowerCase();
+
     if (!db) {
-      const idx = memorySongs.findIndex((s) => s.id === songToSave.id);
-      if (idx >= 0) memorySongs[idx] = songToSave;
-      else memorySongs.push(songToSave);
+      // Remove any existing duplicate matching by id, sunoId, or title+artist
+      const filtered = memorySongs.filter((s) => {
+        if (s.id === songToSave.id) return false;
+        if (songToSave.sunoId && s.sunoId === songToSave.sunoId) return false;
+        if (normTitle && s.title?.trim().toLowerCase() === normTitle) {
+          if (!normArtist || !s.artist || s.artist.trim().toLowerCase() === normArtist) {
+            return false;
+          }
+        }
+        return true;
+      });
+      filtered.unshift(songToSave);
+      memorySongs.length = 0;
+      memorySongs.push(...filtered);
       return;
     }
     const tx = db.transaction(STORE_SONGS, "readwrite");
     const store = tx.objectStore(STORE_SONGS);
-    store.put(songToSave);
+
+    // Clean up existing duplicates in store before saving
+    const req = store.getAll();
+    req.onsuccess = () => {
+      const existing = (req.result as SavedSong[]) || [];
+      for (const item of existing) {
+        if (item.id === songToSave.id) continue;
+        let isMatch = false;
+        if (songToSave.sunoId && item.sunoId === songToSave.sunoId) isMatch = true;
+        if (normTitle && item.title?.trim().toLowerCase() === normTitle) {
+          if (!normArtist || !item.artist || item.artist.trim().toLowerCase() === normArtist) {
+            isMatch = true;
+          }
+        }
+        if (isMatch) {
+          store.delete(item.id);
+        }
+      }
+      store.put(songToSave);
+    };
+    req.onerror = () => {
+      store.put(songToSave);
+    };
   } catch (err) {
     console.warn("Failed to save song to DB:", err);
     memorySongs.push(songToSave);
@@ -241,7 +314,9 @@ export async function loadSongsFromDB(): Promise<SavedSong[]> {
   try {
     const db = await openDB();
     if (!db) {
-      return [...memorySongs].sort((a, b) => (b.savedAt || b.lastPlayedAt || 0) - (a.savedAt || a.lastPlayedAt || 0));
+      const sorted = [...memorySongs].sort((a, b) => (b.savedAt || b.lastPlayedAt || 0) - (a.savedAt || a.lastPlayedAt || 0));
+      const { unique } = deduplicateSongList(sorted);
+      return unique;
     }
     const tx = db.transaction(STORE_SONGS, "readonly");
     const store = tx.objectStore(STORE_SONGS);
@@ -251,7 +326,17 @@ export async function loadSongsFromDB(): Promise<SavedSong[]> {
         const list = (req.result as SavedSong[]) || [];
         // Sort strictly by uploaded/saved timestamp: newest uploaded first to oldest
         list.sort((a, b) => (b.savedAt || b.lastPlayedAt || 0) - (a.savedAt || a.lastPlayedAt || 0));
-        resolve(list);
+        const { unique, duplicateIds } = deduplicateSongList(list);
+        if (duplicateIds.length > 0 && db) {
+          try {
+            const delTx = db.transaction(STORE_SONGS, "readwrite");
+            const delStore = delTx.objectStore(STORE_SONGS);
+            duplicateIds.forEach((id) => delStore.delete(id));
+          } catch (delErr) {
+            console.warn("Error cleaning up duplicate songs from IndexedDB:", delErr);
+          }
+        }
+        resolve(unique);
       };
       req.onerror = () => resolve(memorySongs);
     });
