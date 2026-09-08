@@ -243,11 +243,13 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
 
   const duration = activeSong?.duration || (segments.length > 0 ? segments[segments.length - 1].endTime : 1);
 
-  // Playhead update interval (when playing audio or simulated playback)
+  // Playhead update loop (when playing audio or simulated playback)
   useEffect(() => {
-    let interval: number;
+    let animationFrameId: number;
+    let lastTime = performance.now();
+
     if (isPlaying && !isDraggingTimeline) {
-      interval = window.setInterval(() => {
+      const tick = (now: number) => {
         if (audioRef.current && audioRef.current.src) {
           setCurrentTime(audioRef.current.currentTime);
           if (audioRef.current.ended) {
@@ -260,8 +262,9 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
           }
         } else {
           // Playhead progression for tracks without audio blob
+          const deltaSeconds = Math.max(0, (now - lastTime) / 1000);
+          const step = deltaSeconds * (slowDown ? 0.75 : 1.0);
           setCurrentTime((prev) => {
-            const step = 0.05 * (slowDown ? 0.75 : 1.0);
             const next = prev + step;
             if (next >= duration) {
               if (isRepeating) {
@@ -274,9 +277,18 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
             return next;
           });
         }
-      }, 50);
+        lastTime = now;
+        animationFrameId = requestAnimationFrame(tick);
+      };
+
+      animationFrameId = requestAnimationFrame(tick);
     }
-    return () => clearInterval(interval);
+
+    return () => {
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+      }
+    };
   }, [isPlaying, duration, isRepeating, slowDown, isDraggingTimeline]);
 
   const barSeconds = Math.max(1.5, Math.min(4.0, (60 / (activeSong?.tempo || 120)) * 4));
