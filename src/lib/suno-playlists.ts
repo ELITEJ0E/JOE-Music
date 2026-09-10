@@ -17,6 +17,7 @@ export interface SunoTrack {
   duration: number; // in seconds
   lyrics?: string;
   tags?: string[];
+  streamUrl?: string;
   // Backwards-compatible aliases
   audio_url?: string;
   image_url?: string;

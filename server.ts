@@ -236,8 +236,13 @@ Provide a concise, practical, high-value guitar instruction response. Mention sp
     const targetId = PLAYLIST_ALIASES[rawId] || rawId;
 
     // Set CORS and Cache-Control headers
+    const isForceRefresh = Boolean(req.query._t || req.query.refresh || req.query.nocache);
     res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Cache-Control", "public, max-age=180, s-maxage=300");
+    if (isForceRefresh) {
+      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    } else {
+      res.setHeader("Cache-Control", "public, max-age=60, s-maxage=120");
+    }
 
     const browserHeaders = {
       "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -249,7 +254,7 @@ Provide a concise, practical, high-value guitar instruction response. Mention sp
 
     let foundData: any = null;
 
-    // Step 1: Direct Suno Studio Prod API (Proven Joelify Endpoint)
+    // Step 1: Direct Suno Studio Prod API with resilient timeout, auto-retry, and full multi-page support
     try {
       let currentPage = page;
       let allClips: any[] = [];
@@ -259,22 +264,25 @@ Provide a concise, practical, high-value guitar instruction response. Mention sp
       const maxPages = page === 1 ? 5 : page;
       while (currentPage <= maxPages) {
         const prodApiUrl = `https://studio-api.prod.suno.com/api/playlist/${encodeURIComponent(targetId)}/?page=${currentPage}`;
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 2500); // fast timeout
-        let response;
-        try {
-          response = await fetch(prodApiUrl, { headers: browserHeaders, signal: controller.signal });
-        } catch (e: any) {
-          clearTimeout(timeout);
-          console.warn(`studio-api.prod.suno.com timeout or network error on page ${currentPage}`);
-          break; // Fail fast, don't keep looping
-        }
-        
-        clearTimeout(timeout);
+        let response: any = null;
 
-        if (!response.ok) {
-           console.warn(`studio-api.prod.suno.com returned status ${response.status}`);
-           break; // Fail fast on 403, 500, etc.
+        for (let attempt = 1; attempt <= 2; attempt++) {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 7000);
+          try {
+            response = await fetch(prodApiUrl, { headers: browserHeaders, signal: controller.signal });
+            clearTimeout(timeout);
+            if (response && response.ok) break;
+          } catch (e: any) {
+            clearTimeout(timeout);
+            if (attempt === 1) {
+              await new Promise((r) => setTimeout(r, 400));
+            }
+          }
+        }
+
+        if (!response || !response.ok) {
+          break;
         }
 
         const json = await response.json();
@@ -284,7 +292,9 @@ Provide a concise, practical, high-value guitar instruction response. Mention sp
           allClips = allClips.concat(clips);
         }
 
-        if (clips.length < 20 || !json.has_more || page !== 1) {
+        const totalExpected = json.num_total_results || 0;
+        // Stop if page returned 0 clips or if we accumulated all expected clips, or if specific page was requested
+        if (clips.length === 0 || (totalExpected > 0 && allClips.length >= totalExpected) || page !== 1) {
           break;
         }
         currentPage++;
@@ -294,11 +304,11 @@ Provide a concise, practical, high-value guitar instruction response. Mention sp
         foundData = {
           ...meta,
           playlist_clips: allClips,
-          num_total_results: allClips.length
+          num_total_results: Math.max(allClips.length, meta.num_total_results || 0)
         };
       }
     } catch (e: any) {
-      console.warn(`studio-api.prod.suno.com attempt failed for ${targetId}:`, e?.message);
+      // Step 1 failed, will attempt fallback steps
     }
 
     // Step 2: Direct Suno Studio AI API
@@ -306,7 +316,7 @@ Provide a concise, practical, high-value guitar instruction response. Mention sp
       try {
         const studioAiUrl = `https://studio-api.suno.ai/api/playlist/${encodeURIComponent(targetId)}/?page=${page}`;
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 2000);
+        const timeout = setTimeout(() => controller.abort(), 4000);
         const response = await fetch(studioAiUrl, { headers: browserHeaders, signal: controller.signal });
         clearTimeout(timeout);
 
@@ -318,7 +328,7 @@ Provide a concise, practical, high-value guitar instruction response. Mention sp
           }
         }
       } catch (e: any) {
-        console.warn(`studio-api.suno.ai attempt failed for ${targetId}:`, e?.message);
+        // Continue to fallback
       }
     }
 
@@ -327,7 +337,7 @@ Provide a concise, practical, high-value guitar instruction response. Mention sp
       try {
         const pageUrl = `https://suno.com/playlist/${targetId}`;
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 2000);
+        const timeout = setTimeout(() => controller.abort(), 6000);
         const response = await fetch(pageUrl, {
           headers: {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
@@ -350,7 +360,7 @@ Provide a concise, practical, high-value guitar instruction response. Mention sp
           }
         }
       } catch (e: any) {
-        console.warn(`Direct scraper failed for ${targetId}:`, e?.message);
+        // Scraper unavailable or timed out, gracefully proceed to proxies
       }
     }
 
@@ -377,7 +387,7 @@ Provide a concise, practical, high-value guitar instruction response. Mention sp
       try {
         const proxyPromises = proxies.map(async (proxy) => {
           const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 3000); // 3s max for proxies
+          const timeout = setTimeout(() => controller.abort(), 4000);
           try {
             const resProxy = await fetch(proxy.url(targetId), { signal: controller.signal });
             clearTimeout(timeout);
@@ -412,7 +422,7 @@ Provide a concise, practical, high-value guitar instruction response. Mention sp
 
         foundData = await Promise.any(proxyPromises);
       } catch (err: any) {
-        console.warn(`[Express API] All proxies failed.`);
+        // Proxies failed, proceed to guaranteed catalog fallback
       }
     }
 
@@ -464,13 +474,13 @@ Provide a concise, practical, high-value guitar instruction response. Mention sp
           imageUrl: imageUrl,
           lyrics: clip.metadata?.prompt || clip.metadata?.text || clip.prompt || clip.lyrics || "[Instrumental Audio Track]",
           tags: tags,
-          createdAt: clip.created_at || clip.createdAt || new Date().toISOString(),
+          createdAt: item.created_at || clip.created_at || clip.createdAt || new Date().toISOString(),
           playCount: clip.play_count ?? clip.playCount ?? 1250,
           upvoteCount: clip.upvote_count ?? clip.upvoteCount ?? 88,
           // Compatibility aliases
           audio_url: audioUrl,
           image_url: imageUrl,
-          created_at: clip.created_at || clip.createdAt || new Date().toISOString(),
+          created_at: item.created_at || clip.created_at || clip.createdAt || new Date().toISOString(),
         };
       });
 

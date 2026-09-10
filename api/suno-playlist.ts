@@ -60,7 +60,12 @@ export default async function handler(req: any, res: any) {
     "Access-Control-Allow-Headers",
     "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version"
   );
-  res.setHeader("Cache-Control", "public, s-maxage=300, stale-while-revalidate=600");
+  const isForceRefresh = Boolean(req.query?._t || req.query?.refresh || req.query?.nocache);
+  if (isForceRefresh) {
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  } else {
+    res.setHeader("Cache-Control", "public, s-maxage=60, stale-while-revalidate=120");
+  }
 
   if (req.method === "OPTIONS") {
     return res.status(200).end();
@@ -87,23 +92,25 @@ export default async function handler(req: any, res: any) {
 
     while (page <= 5) {
       const prodApiUrl = `https://studio-api.prod.suno.com/api/playlist/${encodeURIComponent(targetId)}/?page=${page}`;
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 2500); // reduced timeout
-      
-      let response;
-      try {
-        response = await fetch(prodApiUrl, { headers: browserHeaders, signal: controller.signal });
-      } catch (err: any) {
-        clearTimeout(timeout);
-        console.warn(`[Vercel API] studio-api.prod.suno.com failed on page ${page}:`, err?.message);
-        break; // Fail fast on timeout or network error, do not try next pages
-      }
-      
-      clearTimeout(timeout);
+      let response: any = null;
 
-      if (!response.ok) {
-        console.warn(`[Vercel API] studio-api.prod.suno.com returned status ${response.status}`);
-        break; // Fail fast on 403, 500, etc.
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 7000);
+        try {
+          response = await fetch(prodApiUrl, { headers: browserHeaders, signal: controller.signal });
+          clearTimeout(timeout);
+          if (response && response.ok) break;
+        } catch (err: any) {
+          clearTimeout(timeout);
+          if (attempt === 1) {
+            await new Promise((r) => setTimeout(r, 400));
+          }
+        }
+      }
+
+      if (!response || !response.ok) {
+        break;
       }
 
       const json = await response.json();
@@ -113,7 +120,8 @@ export default async function handler(req: any, res: any) {
         allClips = allClips.concat(clips);
       }
 
-      if (clips.length < 20 || !json.has_more) {
+      const totalExpected = json.num_total_results || 0;
+      if (clips.length === 0 || (totalExpected > 0 && allClips.length >= totalExpected)) {
         break;
       }
       page++;
@@ -123,11 +131,11 @@ export default async function handler(req: any, res: any) {
       foundData = {
         ...meta,
         playlist_clips: allClips,
-        num_total_results: allClips.length
+        num_total_results: Math.max(allClips.length, meta.num_total_results || 0)
       };
     }
   } catch (e: any) {
-    console.warn(`[Vercel API] studio-api.prod.suno.com failed for ${targetId}:`, e?.message);
+    // Proceed to fallbacks
   }
 
   // Step 2: Query Studio AI API
@@ -135,7 +143,7 @@ export default async function handler(req: any, res: any) {
     try {
       const studioAiUrl = `https://studio-api.suno.ai/api/playlist/${encodeURIComponent(targetId)}/?page=1`;
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 2000);
+      const timeout = setTimeout(() => controller.abort(), 4000);
       const response = await fetch(studioAiUrl, { headers: browserHeaders, signal: controller.signal });
       clearTimeout(timeout);
 
@@ -147,7 +155,7 @@ export default async function handler(req: any, res: any) {
         }
       }
     } catch (e: any) {
-      console.warn(`[Vercel API] studio-api.suno.ai failed:`, e?.message);
+      // Ignore
     }
   }
 
@@ -156,7 +164,7 @@ export default async function handler(req: any, res: any) {
     try {
       const pageUrl = `https://suno.com/playlist/${targetId}`;
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 2000);
+      const timeout = setTimeout(() => controller.abort(), 6000);
       const response = await fetch(pageUrl, {
         headers: {
           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
@@ -178,7 +186,7 @@ export default async function handler(req: any, res: any) {
         }
       }
     } catch (e: any) {
-      console.warn(`[Vercel API] RSC scrape failed:`, e?.message);
+      // Gracefully continue to proxies
     }
   }
 
@@ -205,7 +213,7 @@ export default async function handler(req: any, res: any) {
     try {
       const proxyPromises = proxies.map(async (proxy) => {
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 3000); // 3s max for proxies
+        const timeout = setTimeout(() => controller.abort(), 4000);
         try {
           const resProxy = await fetch(proxy.url(targetId), { signal: controller.signal });
           clearTimeout(timeout);
@@ -241,7 +249,7 @@ export default async function handler(req: any, res: any) {
       // Use Promise.any to take the first successful proxy
       foundData = await Promise.any(proxyPromises);
     } catch (err: any) {
-      console.warn(`[Vercel API] All proxies failed.`);
+      // Fallback cleanly to catalog
     }
   }
 
@@ -283,12 +291,12 @@ export default async function handler(req: any, res: any) {
         imageUrl: imageUrl,
         lyrics: clip.metadata?.prompt || clip.metadata?.text || clip.prompt || clip.lyrics || "[Instrumental Audio Track]",
         tags: tags,
-        createdAt: clip.created_at || clip.createdAt || new Date().toISOString(),
+        createdAt: item.created_at || clip.created_at || clip.createdAt || new Date().toISOString(),
         playCount: clip.play_count ?? clip.playCount ?? 1250,
         upvoteCount: clip.upvote_count ?? clip.upvoteCount ?? 88,
         audio_url: audioUrl,
         image_url: imageUrl,
-        created_at: clip.created_at || clip.createdAt || new Date().toISOString()
+        created_at: item.created_at || clip.created_at || clip.createdAt || new Date().toISOString()
       };
     });
 
