@@ -40,6 +40,7 @@ import {
 
 import { SunoSong } from "./SongsLibraryView";
 import { fetchDecryptedAudioFile } from "../utils/sunoAudioResolver";
+import { SUNO_CATALOG_MASTER } from "../lib/suno-catalog-data";
 
 interface ChordFinderStudioProps {
   initialSong?: SunoSong | null;
@@ -557,7 +558,217 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
     const sName = songName.trim();
     const query = sName || ytUrl;
     if (!query) return;
-    
+
+    // Detect if input is a Suno URL
+    const isSunoUrl = (val: string) =>
+      val.includes("suno.com/") ||
+      val.includes("suno.ai/") ||
+      /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i.test(val);
+
+    let targetSunoUrl = "";
+    if (isSunoUrl(ytUrl)) {
+      targetSunoUrl = ytUrl;
+    } else if (isSunoUrl(sName)) {
+      targetSunoUrl = sName;
+    }
+
+    if (targetSunoUrl) {
+      const clipMatch = targetSunoUrl.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
+      const clipId = clipMatch ? clipMatch[1] : null;
+
+      if (clipId) {
+        const deterministicId = `suno-${clipId}`;
+        let title = "Suno Track";
+        let artist = "ELITEJOE";
+        let imageUrl = `https://cdn2.suno.ai/image_large_${clipId}.jpeg`;
+        let audioUrl = `https://d2lwuy8qc234o3.cloudfront.net/1/clip/${clipId}.m4a`;
+        let lyrics = "";
+        let tags: string[] = [];
+
+        try {
+          setAnalysisProgress({ message: "Checking song library...", pct: 5 });
+
+          // 1. Check if song was already analyzed and saved in DB
+          const existingSongs = await loadSongsFromDB();
+          const match = existingSongs.find(
+            (s) => s.id === deterministicId || (clipId && (s.id === clipId || s.sunoId === clipId))
+          );
+
+          if (match) {
+            const updated: SavedSong = {
+              ...match,
+              id: deterministicId,
+              sunoId: clipId,
+              sunoUrl: targetSunoUrl,
+              lastPlayedAt: Date.now(),
+            };
+            await saveSongToDB(updated);
+            saveLastPlayedSongId(updated.id);
+            setActiveSong(updated);
+            const freshList = await loadSongsFromDB();
+            setSavedSongs(freshList);
+            setAnalysisProgress(null);
+            setYoutubeUrl("");
+            setSongName("");
+            return;
+          }
+
+          // 2. Resolve metadata from catalog or remote resolver
+          abortControllerRef.current = new AbortController();
+          setAnalysisProgress({ message: "Connecting to Suno audio stream...", pct: 15 });
+
+          for (const playlist of Object.values(SUNO_CATALOG_MASTER)) {
+            const t = playlist.tracks?.find((tr) => tr.id === clipId);
+            if (t) {
+              title = t.title || title;
+              artist = t.artist || artist;
+              imageUrl = t.imageUrl || (t as any).image_url || imageUrl;
+              audioUrl = t.audioUrl || (t as any).audio_url || audioUrl;
+              lyrics = t.lyrics || "";
+              tags = t.tags || [];
+              break;
+            }
+          }
+
+          if (title === "Suno Track") {
+            try {
+              const metaRes = await fetch(`/api/suno-song/${clipId}`);
+              if (metaRes.ok) {
+                const meta = await metaRes.json();
+                if (meta.title && meta.title !== "Suno Track") title = meta.title;
+                if (meta.artist) artist = meta.artist;
+                if (meta.imageUrl) imageUrl = meta.imageUrl;
+                if (meta.audioUrl) audioUrl = meta.audioUrl;
+                if (meta.lyrics) lyrics = meta.lyrics;
+                if (meta.tags) tags = meta.tags;
+              }
+            } catch (metaErr) {
+              console.warn("Could not query /api/suno-song:", metaErr);
+            }
+          }
+
+          // 3. Download & decrypt audio
+          setAnalysisProgress({ message: "Downloading & preparing audio...", pct: 30 });
+          const file = await fetchDecryptedAudioFile(clipId, title);
+
+          if (!file || file.size === 0) {
+            throw new Error("Unable to retrieve or decrypt Suno audio stream");
+          }
+
+          // 4. Run chord & harmonic analyzer
+          setAnalysisProgress({ message: "Reading audio stream & computing harmonics...", pct: 45 });
+          const result = await analyzeAudioFile(
+            file,
+            (msg, pct) => setAnalysisProgress({ message: msg, pct: 45 + pct * 0.5 }),
+            abortControllerRef.current.signal
+          );
+
+          const songWithMeta: SavedSong = {
+            ...result,
+            id: deterministicId,
+            sunoId: clipId,
+            sunoUrl: targetSunoUrl,
+            youtubeUrl: targetSunoUrl,
+            title,
+            artist,
+            imageUrl,
+            lyrics: lyrics || result.lyrics,
+            tags: tags.length ? tags : result.tags,
+            lastPlayedAt: Date.now(),
+            savedAt: Date.now(),
+          };
+
+          await saveSongToDB(songWithMeta);
+          saveLastPlayedSongId(songWithMeta.id);
+
+          const freshList = await loadSongsFromDB();
+          setSavedSongs(freshList);
+          setActiveSong(songWithMeta);
+          setCurrentTime(0);
+          setIsPlaying(false);
+          setAnalysisProgress(null);
+          abortControllerRef.current = null;
+          setYoutubeUrl("");
+          setSongName("");
+          return;
+        } catch (err: any) {
+          console.error("Failed to analyze Suno song:", err);
+          if (err.name === "AbortError" || err.message === "Analysis cancelled by user.") {
+            setAnalysisProgress(null);
+            abortControllerRef.current = null;
+            return;
+          }
+
+          // Fallback: analyze using AI / text harmonic analysis if audio decoding failed
+          try {
+            setAnalysisProgress({ message: "Analyzing harmonic progression and chords...", pct: 70 });
+            const response = await fetch("/api/analyze-song", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                songQuery: title !== "Suno Track" ? title : targetSunoUrl,
+                artist,
+                genre: tags.join(", ") || "Original Composition",
+              }),
+            });
+
+            if (response.ok) {
+              const data = await response.json();
+              const songResult: SavedSong = {
+                id: deterministicId,
+                sunoId: clipId,
+                sunoUrl: targetSunoUrl,
+                youtubeUrl: targetSunoUrl,
+                title: title !== "Suno Track" ? title : data.title || "Suno Track",
+                artist: artist || data.artist || "ELITEJOE",
+                imageUrl,
+                key: data.key || "C Maj",
+                tempo: data.tempo || 120,
+                timeSignature: data.timeSignature || "4/4",
+                suggestedCapo: data.suggestedCapo || 0,
+                difficulty: data.difficulty || "Intermediate",
+                chords: data.chords || [],
+                tuning: data.tuning || "E A D G B E (Standard)",
+                sections: data.sections || [],
+                tips: data.tips || "Extracted from Suno track",
+                lyrics: lyrics || data.lyrics,
+                tags: tags.length ? tags : data.tags,
+                lastPlayedAt: Date.now(),
+                savedAt: Date.now(),
+              };
+
+              await saveSongToDB(songResult);
+              saveLastPlayedSongId(songResult.id);
+              const freshList = await loadSongsFromDB();
+              setSavedSongs(freshList);
+              setActiveSong(songResult);
+              setCurrentTime(0);
+              setIsPlaying(false);
+              setAnalysisProgress(null);
+              abortControllerRef.current = null;
+              setYoutubeUrl("");
+              setSongName("");
+              return;
+            }
+          } catch (fallbackErr) {
+            console.warn("Fallback AI analysis failed:", fallbackErr);
+          }
+
+          setAnalysisProgress(null);
+          abortControllerRef.current = null;
+          setDialog({
+            isOpen: true,
+            title: "Analysis Failed",
+            message: `Could not analyze Suno audio: ${err?.message || "Unable to decode audio data"}. Please check the link or retry.`,
+            confirmText: "OK",
+            type: "error",
+            onConfirm: () => setDialog((prev) => ({ ...prev, isOpen: false })),
+          });
+          return;
+        }
+      }
+    }
+
     const isYtUrl = (val: string) => val.includes("youtube.com") || val.includes("youtu.be");
     
     let targetUrl = "";
@@ -1014,6 +1225,9 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
               placeholder="Song Name & Artist..."
               value={songName}
               onChange={(e) => setSongName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleAnalyzeYoutube();
+              }}
               className="flex-1 bg-white/5 text-xs font-mono text-white rounded-xl px-3 py-2 border border-white/10 focus:border-[#a3ff12]/50 focus:outline-none placeholder:text-zinc-500"
             />
             <div className="flex items-center gap-2">
@@ -1022,6 +1236,9 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                 placeholder="Or paste YouTube URL..."
                 value={youtubeUrl}
                 onChange={(e) => setYoutubeUrl(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleAnalyzeYoutube();
+                }}
                 className="flex-1 bg-white/5 text-xs font-mono text-white rounded-xl px-3 py-2 border border-white/10 focus:border-[#a3ff12]/50 focus:outline-none placeholder:text-zinc-500"
               />
               <button
@@ -1101,12 +1318,42 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
       {activeSong ? (
         <div className="frosted-card rounded-3xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center space-x-3.5">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#122204] to-[#070b02] flex items-center justify-center text-[#a3ff12] border border-[#a3ff12]/30 shadow-[0_0_12px_rgba(163,255,18,0.2)] shrink-0">
-              <Music className="w-6 h-6" />
+            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#122204] to-[#070b02] flex items-center justify-center text-[#a3ff12] border border-[#a3ff12]/30 shadow-[0_0_12px_rgba(163,255,18,0.2)] shrink-0 overflow-hidden">
+              {activeSong.imageUrl ? (
+                <img
+                  src={activeSong.imageUrl}
+                  alt={activeSong.title}
+                  className="w-full h-full object-cover"
+                  referrerPolicy="no-referrer"
+                />
+              ) : (
+                <Music className="w-6 h-6" />
+              )}
             </div>
             <div>
-              <h2 className="text-base font-bold text-white tracking-tight">
-                {activeSong.title}
+              <h2 className="text-base font-bold text-white tracking-tight flex items-center gap-2">
+                <span>{activeSong.title}</span>
+                {activeSong.sunoUrl ? (
+                  <a
+                    href={activeSong.sunoUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 px-2 py-0.5 bg-[#a3ff12]/10 hover:bg-[#a3ff12]/20 border border-[#a3ff12]/30 rounded-full text-[10px] font-mono text-[#a3ff12] transition-colors"
+                  >
+                    <LinkIcon className="w-2.5 h-2.5" />
+                    <span>Suno</span>
+                  </a>
+                ) : activeSong.youtubeUrl && !activeSong.youtubeUrl.includes("suno.") ? (
+                  <a
+                    href={activeSong.youtubeUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 px-2 py-0.5 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 rounded-full text-[10px] font-mono text-red-400 transition-colors"
+                  >
+                    <LinkIcon className="w-2.5 h-2.5" />
+                    <span>YouTube</span>
+                  </a>
+                ) : null}
               </h2>
               <p className="text-xs font-mono text-zinc-400">
                 {activeSong.artist || "Unknown Artist"} • {activeSong.tempo || 120} BPM

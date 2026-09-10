@@ -198,6 +198,21 @@ export async function fetchDecryptedAudioBlob(
     } catch (clientErr) {
       console.warn("[Suno Resolver] Client-side decryption fallback error:", clientErr);
     }
+
+    // Case 3.5: Direct CloudFront CDN stream (CORS open)
+    try {
+      const directRes = await fetch(`https://d2lwuy8qc234o3.cloudfront.net/1/clip/${clipId}.m4a`);
+      if (directRes.ok) {
+        const ct = directRes.headers.get("content-type") || "audio/mp4";
+        const buf = await directRes.arrayBuffer();
+        if (buf.byteLength > 1000) {
+          const blob = new Blob([buf], { type: ct });
+          return { blob, mimeType: ct };
+        }
+      }
+    } catch (cdnErr) {
+      console.warn("[Suno Resolver] Direct CDN fetch fallback error:", cdnErr);
+    }
   }
 
   // Case 4: Generic URL fetch

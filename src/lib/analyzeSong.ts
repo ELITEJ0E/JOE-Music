@@ -49,6 +49,67 @@ export async function analyzeSong(songQuery: string, artist?: string, genre?: st
     }
   }
 
+  let resolvedSunoTitle = "";
+  let resolvedSunoAuthor = "";
+  const isSunoUrl = typeof songQuery === "string" && (
+    songQuery.includes("suno.com") || 
+    songQuery.includes("suno.ai")
+  );
+
+  if (isSunoUrl) {
+    const sunoMatch = songQuery.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
+    const clipId = sunoMatch ? sunoMatch[1] : null;
+    if (clipId) {
+      try {
+        const oembedUrl = `https://studio-api-prod.suno.com/api/oembed?url=${encodeURIComponent(`https://suno.com/song/${clipId}`)}`;
+        const oembedRes = await fetch(oembedUrl);
+        if (oembedRes.ok) {
+          const oembedData = await oembedRes.json();
+          if (oembedData?.title) {
+            resolvedSunoTitle = oembedData.title;
+          }
+          if (oembedData?.author_name) {
+            resolvedSunoAuthor = oembedData.author_name;
+          }
+        }
+      } catch (err: any) {
+        console.warn("Suno oEmbed metadata extraction error:", err?.message);
+      }
+
+      try {
+        const songPage = await fetch(`https://suno.com/song/${clipId}`, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+            "Accept": "text/html"
+          }
+        });
+        if (songPage.ok) {
+          const html = await songPage.text();
+          const titleMatch = html.match(/<title>([^<]+)<\/title>/i);
+          const rawTitle = titleMatch ? titleMatch[1].replace(/ \| Suno/i, "").replace(/ - Suno/i, "").trim() : "";
+          if (rawTitle) {
+            if (rawTitle.includes(" by ")) {
+              const parts = rawTitle.split(" by ");
+              resolvedSunoTitle = resolvedSunoTitle || parts[0].trim();
+              resolvedSunoAuthor = resolvedSunoAuthor || parts.slice(1).join(" by ").trim();
+            } else if (!resolvedSunoTitle) {
+              resolvedSunoTitle = rawTitle;
+            }
+          }
+        }
+      } catch (err: any) {
+        console.warn("Suno page scrape error:", err?.message);
+      }
+
+      if (resolvedSunoTitle) {
+        songQuery = resolvedSunoTitle;
+      }
+      if (resolvedSunoAuthor && !artist) {
+        artist = resolvedSunoAuthor;
+      }
+    }
+  }
+
   const ai = getAIClient();
   if (!ai) {
     // Fallback realistic response if no API key

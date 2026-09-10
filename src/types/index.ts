@@ -103,6 +103,11 @@ export interface SongAnalysis {
   beats?: number[]; // Timestamps of detected beats
   tips?: string;
   youtubeUrl?: string;
+  sunoUrl?: string;
+  sunoId?: string;
+  imageUrl?: string;
+  lyrics?: string;
+  tags?: string[];
   confidence?: number;
   audioBlob?: Blob;
   duration?: number;
