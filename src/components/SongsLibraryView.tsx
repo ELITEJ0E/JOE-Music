@@ -395,23 +395,8 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
     setCurrentTrack(null);
   };
 
-  // Track sorting mode: default "latest" (most recent songs on top)
+  // Track sorting mode: default "latest" (most recently added to playlist on top)
   const [songSortMode, setSongSortMode] = useState<"latest" | "oldest" | "title">("latest");
-
-  const getTrackTimestamp = (t: SunoTrack): number => {
-    const raw = t.createdAt || t.created_at;
-    if (!raw) return 0;
-    const time = new Date(raw).getTime();
-    return isNaN(time) ? 0 : time;
-  };
-
-  const formatSongDate = (t: SunoTrack): string => {
-    const raw = t.createdAt || t.created_at;
-    if (!raw) return "";
-    const date = new Date(raw);
-    if (isNaN(date.getTime())) return "";
-    return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-  };
 
   // Filter playlists by category (playlists array is already ordered with latest on top)
   const filteredPlaylists = useMemo(() => {
@@ -421,15 +406,18 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
     });
   }, [playlists, selectedCategory]);
 
-  // Sort tracks: most recent songs of the playlist on top first
+  // Sort tracks based on playlist addition order:
+  // "latest": Most recently added to playlist on top (playlist addition order reversed)
+  // "oldest": Earliest added to playlist on top (original first-added playlist order)
+  // "title": Alphabetical A-Z
   const sortedTracks = useMemo(() => {
     const list = [...tracks];
     if (songSortMode === "latest") {
-      list.sort((a, b) => getTrackTimestamp(b) - getTrackTimestamp(a));
+      return list.reverse();
     } else if (songSortMode === "oldest") {
-      list.sort((a, b) => getTrackTimestamp(a) - getTrackTimestamp(b));
+      return list;
     } else if (songSortMode === "title") {
-      list.sort((a, b) => a.title.localeCompare(b.title));
+      return list.sort((a, b) => a.title.localeCompare(b.title));
     }
     return list;
   }, [tracks, songSortMode]);
@@ -773,9 +761,9 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
                     ? "bg-[#a3ff12] text-black shadow-[0_0_10px_rgba(163,255,18,0.3)]"
                     : "text-zinc-400 hover:text-white"
                 }`}
-                title="Sort songs with latest releases on top"
+                title="Recently added to playlist first"
               >
-                Latest First
+                Recently Added
               </button>
               <button
                 onClick={() => setSongSortMode("oldest")}
@@ -784,9 +772,9 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
                     ? "bg-[#a3ff12] text-black font-bold shadow-[0_0_10px_rgba(163,255,18,0.3)]"
                     : "text-zinc-400 hover:text-white"
                 }`}
-                title="Sort songs from oldest to newest"
+                title="First added to playlist on top"
               >
-                Oldest First
+                Oldest Added
               </button>
               <button
                 onClick={() => setSongSortMode("title")}
@@ -843,7 +831,6 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
                 <span>SONG & ARTIST</span>
               </div>
               <div className="flex items-center gap-4 sm:gap-6 shrink-0 pr-1">
-                <span className="hidden md:block w-24 text-right">RELEASED</span>
                 <span className="w-12 text-right">TIME</span>
                 <span className="w-36 text-right">ACTIONS</span>
               </div>
@@ -854,7 +841,6 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
               {filteredTracks.map((track, idx) => {
                 const isCurrent = currentTrack?.id === track.id;
                 const isThisPlaying = isCurrent && isPlaying;
-                const songDate = formatSongDate(track);
 
                 return (
                   <div
@@ -902,10 +888,8 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
                         </div>
                         <div className="text-[10px] font-mono text-zinc-400 truncate flex items-center gap-1.5 mt-0.5">
                           <span className="text-[#a3ff12]">{track.artist}</span>
-                          {songDate && (
-                            <span className="text-zinc-500">• {songDate}</span>
-                          )}
-                          <span className="sm:hidden text-zinc-500">• {formatDuration(track.duration)}</span>
+                          <span className="text-zinc-500">•</span>
+                          <span>{formatDuration(track.duration)}</span>
                         </div>
                       </div>
                     </div>
@@ -915,11 +899,6 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
                       className="flex items-center justify-between sm:justify-end gap-3 sm:gap-4 shrink-0 pt-1 sm:pt-0 border-t border-white/5 sm:border-t-0"
                       onClick={(e) => e.stopPropagation()}
                     >
-                      {/* Released Date - desktop */}
-                      <div className="hidden md:block font-mono text-[11px] text-zinc-400 w-24 text-right truncate">
-                        {songDate || "—"}
-                      </div>
-
                       <div className="hidden sm:block font-mono text-[11px] text-zinc-400 w-12 text-right">
                         {formatDuration(track.duration)}
                       </div>
