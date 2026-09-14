@@ -226,10 +226,12 @@ export function stabilizeChordSegments(
 
       if (isOnBeat) viability += 0.5; // Changes on subdivisions are more viable
 
-      // Sandwiched A-B-A pattern: only penalize if the segment is both short (< 0.6 beats) and low-confidence (< changeMargin);
-      // confident alternating progressions (e.g. C-G-C-G) are preserved.
-      if (isSandwiched && durationBeats < 0.6 && scoreMargin < changeMargin) {
-        viability -= 0.6;
+      // Sandwiched A-B-A pattern:
+      // If a short chord (<= 1.25 beats) is sandwiched between the SAME chord on both sides (e.g. A -> F#m -> A or A -> G -> A),
+      // it is an isolated flutter/artifact unless it possesses an unambiguous acoustic score margin.
+      const isSandwichedFlutter = isSandwiched && durationBeats <= 1.25 && scoreMargin < changeMargin * 1.5;
+      if (isSandwichedFlutter) {
+        viability -= 1.2;
       }
 
       // Very short micro-chords / glitches below minGlitchDurationBeats are heavily penalized
@@ -238,9 +240,10 @@ export function stabilizeChordSegments(
       }
       
       // If the segment meets or exceeds minChordDurationBeats, it's virtually immune to absorption
-      if (durationBeats >= minChordDurationBeats) {
+      // UNLESS it is an isolated sandwiched low-margin flutter (which should be absorbed into its parent chord)
+      if (durationBeats >= minChordDurationBeats && !isSandwichedFlutter) {
         viability += 10;
-      } else if (dur > beatIntervalSec * 0.8 && isOnBeat) {
+      } else if (dur > beatIntervalSec * 0.8 && isOnBeat && !isSandwichedFlutter) {
         // If it's at least ~0.8 beats long and lands on a beat, grant a strong viability bonus
         viability += 5;
       }
@@ -304,7 +307,9 @@ export function stabilizeChordSegments(
 
       // Hysteresis gate: only absorb if the segment's own confidence margin is weak (< changeMargin)
       // OR the neighbor it would merge into clearly wins that comparison
-      if (segMargin >= changeMargin && !neighborWins) {
+      // OR it is a sandwiched flutter between identical chords
+      const isIdenticalSandwich = left && right && left.chord === right.chord;
+      if (segMargin >= changeMargin && !neighborWins && !isIdenticalSandwich) {
         break;
       }
       
@@ -348,21 +353,26 @@ export function stabilizeChordSegments(
         const strength1 = dur1 * margin1 * (seg1.diagnostics?.thirdEvidence ?? 0.5);
         const strength2 = dur2 * margin2 * (seg2.diagnostics?.thirdEvidence ?? 0.5);
         
-        // If one is highly dominant over the other (> 2x strength), or one is very short (< 0.5s)
-        if (strength1 > strength2 * 2 || dur2 < 0.6) {
-          // Merge 2 into 1
-          seg1.endTime = seg2.endTime;
-          current.splice(i + 1, 1);
-          hasChanged = true;
-          mergedSegmentsCount++;
-          break; // restart loop
-        } else if (strength2 > strength1 * 2 || dur1 < 0.6) {
-          // Merge 1 into 2
-          seg2.startTime = seg1.startTime;
-          current.splice(i, 1);
-          hasChanged = true;
-          mergedSegmentsCount++;
-          break; // restart loop
+        // Only merge same-root quality differences if at least one segment is a short/transient fluctuation (< 0.75s).
+        // Sustained chords (e.g. 2.4s D followed by 1.4s Dm) are deliberate musical chord changes (e.g. IV -> iv)
+        const isTransientFluctuation = dur1 < 0.75 || dur2 < 0.75;
+
+        if (isTransientFluctuation) {
+          if (strength1 > strength2 * 2 || dur2 < 0.6) {
+            // Merge 2 into 1
+            seg1.endTime = seg2.endTime;
+            current.splice(i + 1, 1);
+            hasChanged = true;
+            mergedSegmentsCount++;
+            break; // restart loop
+          } else if (strength2 > strength1 * 2 || dur1 < 0.6) {
+            // Merge 1 into 2
+            seg2.startTime = seg1.startTime;
+            current.splice(i, 1);
+            hasChanged = true;
+            mergedSegmentsCount++;
+            break; // restart loop
+          }
         }
       }
     }

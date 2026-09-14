@@ -25,6 +25,7 @@ export interface ChordCandidate {
     fifthEvidence: number;
     definingEvidence: number;
     slashBassRatio: number;
+    scoreMargin?: number;
   };
 }
 
@@ -334,5 +335,11 @@ export function rankChordCandidatesForWindow(
   }
 
   results.sort((a, b) => b.score - a.score);
+  const topScore = results[0]?.score ?? 0;
+  const runnerUpScore = results[1]?.score ?? 0;
+  const margin = Number(Math.max(0, topScore - runnerUpScore).toFixed(3));
+  for (const res of results) {
+    res.diagnostics.scoreMargin = margin;
+  }
   return results;
 }
