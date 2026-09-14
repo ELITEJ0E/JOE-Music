@@ -195,10 +195,10 @@ export function evaluateQualityForRoot(
       diatonicBonus = 0.04;
     }
 
-    // Extensions require strong defining evidence (>= 0.35)
+    // Extensions require strong defining evidence (>= 0.40) and clear separation
     if (["7", "maj7", "min7", "add9"].includes(qDef.quality)) {
-      if (definingEv < 0.35) {
-        missingPenalty += (0.35 - definingEv) * 1.5;
+      if (definingEv < 0.40) {
+        missingPenalty += (0.40 - definingEv) * 2.0;
       }
     }
 
@@ -212,24 +212,44 @@ export function evaluateQualityForRoot(
     }
   }
 
-  // Major vs Minor tie-break sanity check
+  // Major vs Minor decision with Key Scale Awareness
   let finalQuality = bestQualityDef.quality;
   if (finalQuality === "maj" || finalQuality === "min") {
-    // If minor 3rd clearly beats major 3rd, select minor
-    if (min3Ev > maj3Ev + 0.08 && min3Ev >= 0.20) {
-      finalQuality = "min";
-      bestThirdEvidence = min3Ev;
-    } else if (maj3Ev > min3Ev + 0.08 && maj3Ev >= 0.20) {
-      finalQuality = "maj";
-      bestThirdEvidence = maj3Ev;
-    } else if (Math.abs(maj3Ev - min3Ev) <= 0.08) {
-      // Very close: prefer diatonic expectation
-      if (expectedQuality === "min") {
+    const maj3PitchClass = (rootIdx + 4) % 12;
+    const min3PitchClass = (rootIdx + 3) % 12;
+    const maj3InScale = keyProfile.diatonicRoots.includes(maj3PitchClass);
+    const min3InScale = keyProfile.diatonicRoots.includes(min3PitchClass);
+
+    // If one 3rd is in the key's diatonic scale and the other is not,
+    // require significant acoustic margin (>= 0.14) for the non-scale 3rd to win
+    if (maj3InScale && !min3InScale) {
+      if (min3Ev > maj3Ev + 0.14 && min3Ev >= 0.25) {
         finalQuality = "min";
         bestThirdEvidence = min3Ev;
       } else {
         finalQuality = "maj";
         bestThirdEvidence = maj3Ev;
+      }
+    } else if (min3InScale && !maj3InScale) {
+      if (maj3Ev > min3Ev + 0.14 && maj3Ev >= 0.25) {
+        finalQuality = "maj";
+        bestThirdEvidence = maj3Ev;
+      } else {
+        finalQuality = "min";
+        bestThirdEvidence = min3Ev;
+      }
+    } else {
+      // Both in scale or both outside: compare directly with threshold
+      if (min3Ev > maj3Ev + 0.08 && min3Ev >= 0.20) {
+        finalQuality = "min";
+        bestThirdEvidence = min3Ev;
+      } else if (maj3Ev > min3Ev + 0.08 && maj3Ev >= 0.20) {
+        finalQuality = "maj";
+        bestThirdEvidence = maj3Ev;
+      } else {
+        // Tie: prefer diatonic quality expectation for this root
+        finalQuality = expectedQuality === "min" ? "min" : "maj";
+        bestThirdEvidence = finalQuality === "min" ? min3Ev : maj3Ev;
       }
     }
   }

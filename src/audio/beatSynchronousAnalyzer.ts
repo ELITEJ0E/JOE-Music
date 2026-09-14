@@ -34,6 +34,7 @@ export interface BeatAnalysisConfig {
   beats: number[];
   estimatedKey: string;
   totalDuration: number;
+  highHarmonicResolution?: boolean;
 }
 
 /**
@@ -43,14 +44,15 @@ export interface BeatAnalysisConfig {
 export function buildMusicalGrid(
   beats: number[],
   tempo: number,
-  totalDuration: number
-): { units: BeatUnit[]; isFastMode: boolean; beatIntervalSec: number } {
+  totalDuration: number,
+  options: { forceHighResolution?: boolean } = {}
+): { units: BeatUnit[]; isFastMode: boolean; isHighResolutionMode: boolean; beatIntervalSec: number } {
   const beatIntervalSec = 60 / Math.max(40, tempo);
-  const isFastMode = tempo >= 115;
+  const isHighResolutionMode = options.forceHighResolution ?? (tempo >= 115);
 
   let effectiveBeats = [...beats];
   if (effectiveBeats.length === 0) {
-    // Generate synthetic regular grid if beats array was empty
+    // Generate regular grid if beats array was empty
     let t = 0;
     while (t < totalDuration) {
       effectiveBeats.push(Number(t.toFixed(3)));
@@ -58,7 +60,6 @@ export function buildMusicalGrid(
     }
   }
 
-  // Ensure first beat starts at 0 if close, or include intro
   if (effectiveBeats[0] > 0.3) {
     effectiveBeats.unshift(0);
   } else {
@@ -75,20 +76,21 @@ export function buildMusicalGrid(
       : Math.min(totalDuration, currentBeatTime + beatIntervalSec);
 
     const thisBeatDuration = nextBeatTime - currentBeatTime;
-    const beatNumberInBar = (b % 4) + 1; // 1, 2, 3, 4 in standard 4/4
+    const beatNumberInBar = (b % 4) + 1; // 1, 2, 3, 4
     const isDownbeat = beatNumberInBar === 1;
 
-    if (isFastMode && thisBeatDuration > 0.30) {
-      // Split into two half-beat subdivisions (e.g. 1 and 1&)
+    if (isHighResolutionMode && thisBeatDuration > 0.28) {
+      // Subdivide into candidate half-beat analysis points (8th notes)
+      // Note: This provides temporal resolution, but does NOT force a chord change.
+      // Identical consecutive units cleanly merge during sequence decoding.
       const halfTime = currentBeatTime + (thisBeatDuration * 0.5);
 
-      // Subdivision 1 (On the beat)
       units.push({
         index: unitIndex++,
         startTime: Number(currentBeatTime.toFixed(3)),
         endTime: Number(halfTime.toFixed(3)),
         duration: Number((halfTime - currentBeatTime).toFixed(3)),
-        isDownbeat: isDownbeat,
+        isDownbeat,
         isSubdivision: false,
         beatNumberInBar,
         localChroma: new Float32Array(12),
@@ -98,7 +100,6 @@ export function buildMusicalGrid(
         candidates: []
       });
 
-      // Subdivision 2 (Off-beat "&")
       units.push({
         index: unitIndex++,
         startTime: Number(halfTime.toFixed(3)),
@@ -114,7 +115,6 @@ export function buildMusicalGrid(
         candidates: []
       });
     } else {
-      // Single beat unit
       units.push({
         index: unitIndex++,
         startTime: Number(currentBeatTime.toFixed(3)),
@@ -132,13 +132,12 @@ export function buildMusicalGrid(
     }
   }
 
-  // Extend last unit to cover total duration
   if (units.length > 0 && totalDuration > units[units.length - 1].endTime) {
     units[units.length - 1].endTime = Number(totalDuration.toFixed(3));
     units[units.length - 1].duration = Number((units[units.length - 1].endTime - units[units.length - 1].startTime).toFixed(3));
   }
 
-  return { units, isFastMode, beatIntervalSec };
+  return { units, isFastMode: isHighResolutionMode, isHighResolutionMode, beatIntervalSec };
 }
 
 /**
@@ -234,25 +233,23 @@ function getHarmonicTransitionScore(
   chordB: ChordCandidate,
   keyProfile: DiatonicProfile,
   unitB: BeatUnit,
-  isFastMode: boolean
+  isHighResolutionMode: boolean
 ): number {
   if (chordA.chord === chordB.chord) {
-    // Self-transition persistence bonus
-    // Bonus is higher between beats 1-2, 2-3, 3-4, and lower on downbeat (beat 1)
-    return unitB.isDownbeat ? 0.35 : (isFastMode ? 0.50 : 0.65);
+    // Self-transition persistence bonus (encourages sustaining a chord across its duration)
+    return unitB.isDownbeat ? 0.20 : (isHighResolutionMode ? 0.30 : 0.35);
   }
 
-  // Chord change occurring
+  // Chord change occurring - soft priors
   let transitionBonus = 0;
 
-  // Transition timing: changing on Downbeat (beat 1) or Half-measure (beat 3) is musically standard
+  // Metric timing preference: slight encouragement on bar or half-bar boundaries
   if (unitB.isDownbeat) {
-    transitionBonus += 0.20;
+    transitionBonus += 0.08;
   } else if (unitB.beatNumberInBar === 3 && !unitB.isSubdivision) {
-    transitionBonus += 0.15;
+    transitionBonus += 0.05;
   } else if (unitB.isSubdivision) {
-    // Changing on off-beat subdivision requires strong evidence
-    transitionBonus -= 0.10;
+    transitionBonus -= 0.05;
   }
 
   const rootAIdx = NOTE_NAMES.indexOf(chordA.root);
@@ -260,33 +257,33 @@ function getHarmonicTransitionScore(
   if (rootAIdx !== -1 && rootBIdx !== -1) {
     const rootDiff = (rootBIdx - rootAIdx + 12) % 12;
 
-    // 1. Circle of Fifths transitions: Up a 4th (down a 5th, e.g. E -> A, G -> C, D -> G) = 5 semitones
+    // 1. Circle of Fifths: Up 4th / down 5th (5 or 7 semitones)
     if (rootDiff === 5 || rootDiff === 7) {
-      transitionBonus += 0.22;
+      transitionBonus += 0.08;
     }
-    // 2. Diatonic step transitions: Up or down a major 2nd (e.g. F -> G, C -> Dm) = 2 or 10 semitones
+    // 2. Diatonic step: Up or down a major 2nd (2 or 10 semitones)
     else if (rootDiff === 2 || rootDiff === 10) {
-      transitionBonus += 0.16;
+      transitionBonus += 0.06;
     }
-    // 3. Relative major/minor (e.g. C <-> Am, A <-> F#m) = 3 or 9 semitones
+    // 3. Relative major/minor (3 or 9 semitones)
     else if (rootDiff === 3 || rootDiff === 9) {
-      transitionBonus += 0.18;
+      transitionBonus += 0.06;
     }
-    // 4. Semitone jump (e.g. C -> C#): musically rare in pop, heavy penalty
+    // 4. Semitone jump: soft nudge only (allows chromatic, Neapolitan, and tritone substitutions)
     else if (rootDiff === 1 || rootDiff === 11) {
-      transitionBonus -= 0.25;
+      transitionBonus -= 0.05;
     }
-    // 5. Tritone jump (e.g. C -> F#): heavy penalty
+    // 5. Tritone jump: soft nudge only
     else if (rootDiff === 6) {
-      transitionBonus -= 0.30;
+      transitionBonus -= 0.08;
     }
   }
 
-  // If both chords are diatonic to the song's key, reward the progression
+  // If both chords are diatonic to the song's global key, gentle bonus
   const diatonicA = keyProfile.diatonicRoots.includes(rootAIdx);
   const diatonicB = keyProfile.diatonicRoots.includes(rootBIdx);
   if (diatonicA && diatonicB) {
-    transitionBonus += 0.15;
+    transitionBonus += 0.06;
   }
 
   return transitionBonus;
@@ -299,7 +296,7 @@ function getHarmonicTransitionScore(
 export function optimizeChordSequence(
   units: BeatUnit[],
   keyProfile: DiatonicProfile,
-  isFastMode: boolean
+  isHighResolutionMode: boolean
 ): ChordSegment[] {
   const K = units.length;
   if (K === 0) return [];
@@ -330,9 +327,10 @@ export function optimizeChordSequence(
 
       for (let p = 0; p < prevCandidates.length; p++) {
         const prevCand = prevCandidates[p];
-        const transScore = getHarmonicTransitionScore(prevCand, currCand, keyProfile, unit, isFastMode);
+        const transScore = getHarmonicTransitionScore(prevCand, currCand, keyProfile, unit, isHighResolutionMode);
 
-        const totalPathScore = trellisScores[u - 1][p] + (transScore * 2.5) + emissionScore;
+        // Gentle soft prior scaling (0.8x) ensures audio emission evidence dominates
+        const totalPathScore = trellisScores[u - 1][p] + (transScore * 0.8) + emissionScore;
         if (totalPathScore > bestPathScore) {
           bestPathScore = totalPathScore;
           bestPrevIdx = p;
@@ -375,7 +373,9 @@ export function optimizeChordSequence(
   } | null = null;
 
   for (let u = 0; u < K; u++) {
-    const sel = units[u].selectedCandidate!;
+    const sel = units[u].selectedCandidate;
+    if (!sel) continue;
+
     if (!currentSeg) {
       currentSeg = {
         candidate: sel,
@@ -439,17 +439,76 @@ export function optimizeChordSequence(
 }
 
 /**
+ * Measures the harmonic change density across beats by calculating the chroma flux
+ * between consecutive beat centers.
+ */
+export function estimateHarmonicChangeDensity(
+  chromagram: Float32Array[],
+  beats: number[],
+  sampleRate: number,
+  hopSize: number
+): number {
+  if (beats.length < 2 || chromagram.length === 0) return 0.2;
+  const frameDuration = hopSize / sampleRate;
+  let significantShifts = 0;
+  let evaluatedBeats = 0;
+
+  for (let b = 1; b < beats.length; b++) {
+    const fPrev = Math.min(chromagram.length - 1, Math.max(0, Math.floor(beats[b - 1] / frameDuration)));
+    const fCurr = Math.min(chromagram.length - 1, Math.max(0, Math.floor(beats[b] / frameDuration)));
+
+    const c1 = chromagram[fPrev];
+    const c2 = chromagram[fCurr];
+
+    let dot = 0, norm1 = 0, norm2 = 0;
+    for (let k = 0; k < 12; k++) {
+      dot += c1[k] * c2[k];
+      norm1 += c1[k] * c1[k];
+      norm2 += c2[k] * c2[k];
+    }
+    const denom = Math.sqrt(norm1) * Math.sqrt(norm2);
+    const cosineSim = denom > 1e-6 ? dot / denom : 1;
+    const cosineDist = 1 - cosineSim;
+
+    if (cosineDist > 0.22) {
+      significantShifts++;
+    }
+    evaluatedBeats++;
+  }
+
+  return evaluatedBeats > 0 ? (significantShifts / evaluatedBeats) : 0.2;
+}
+
+/**
  * Complete Beat-Synchronous Harmonic Analysis Pipeline
  */
 export function analyzeBeatSynchronousHarmonics(
   chromagram: Float32Array[],
   bassChromagram: Float32Array[],
   config: BeatAnalysisConfig
-): { segments: ChordSegment[]; isFastMode: boolean; beatUnits: BeatUnit[] } {
+): { segments: ChordSegment[]; isFastMode: boolean; isHighResolutionMode: boolean; beatUnits: BeatUnit[] } {
   const keyProfile = parseDiatonicProfile(config.estimatedKey);
 
-  // 1. Build adaptive musical time grid
-  const { units, isFastMode } = buildMusicalGrid(config.beats, config.tempo, config.totalDuration);
+  // Compute harmonic change density across beats
+  const harmonicDensity = estimateHarmonicChangeDensity(
+    chromagram,
+    config.beats,
+    config.sampleRate,
+    config.hopSize
+  );
+
+  // High Harmonic Resolution is activated based on harmonic change density, not purely BPM
+  const shouldEnableHighResolution = config.highHarmonicResolution ?? (
+    harmonicDensity >= 0.28 || (config.tempo >= 120 && harmonicDensity >= 0.15)
+  );
+
+  // 1. Build adaptive musical time grid (detects tempo and harmonic resolution needs)
+  const { units, isHighResolutionMode } = buildMusicalGrid(
+    config.beats,
+    config.tempo,
+    config.totalDuration,
+    { forceHighResolution: shouldEnableHighResolution }
+  );
 
   // 2. Multi-resolution chroma aggregation
   aggregateChromasForBeatUnits(
@@ -458,7 +517,7 @@ export function analyzeBeatSynchronousHarmonics(
     bassChromagram,
     config.sampleRate,
     config.hopSize,
-    isFastMode
+    isHighResolutionMode
   );
 
   // 3. Two-Stage Chord Candidate generation for each beat unit
@@ -471,12 +530,13 @@ export function analyzeBeatSynchronousHarmonics(
     );
   }
 
-  // 4. Sequence Optimization across beat units
-  const rawSegments = optimizeChordSequence(units, keyProfile, isFastMode);
+  // 4. Sequence Optimization across beat units with soft priors
+  const rawSegments = optimizeChordSequence(units, keyProfile, isHighResolutionMode);
 
   return {
     segments: rawSegments,
-    isFastMode,
+    isFastMode: isHighResolutionMode,
+    isHighResolutionMode,
     beatUnits: units
   };
 }

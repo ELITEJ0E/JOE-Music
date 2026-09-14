@@ -124,9 +124,9 @@ describe("Beat-Synchronous Analyzer for Fast Modern Songs", () => {
     const beats = [0.0, 0.484, 0.968, 1.452, 1.935, 2.419, 2.903, 3.387];
     const totalDuration = 4.0;
 
-    const { units, isFastMode } = buildMusicalGrid(beats, tempo, totalDuration);
+    const { units, isHighResolutionMode } = buildMusicalGrid(beats, tempo, totalDuration);
 
-    expect(isFastMode).toBe(true);
+    expect(isHighResolutionMode).toBe(true);
     // In fast mode, each beat is subdivided into two half-beat units (8th notes)
     expect(units.length).toBeGreaterThanOrEqual(14);
     expect(units[0].isSubdivision).toBe(false);

@@ -66,10 +66,22 @@ self.onmessage = function (e: MessageEvent) {
     } = beatTrackingResult;
 
     // 3. Beat-Synchronous & Multi-Resolution Harmonic Analysis
-    // Builds musical time grid (adaptive 8th-note subdivisions for >= 115 BPM),
+    // Builds musical time grid (adaptive 8th-note subdivisions for >= 115 BPM or high harmonic flux),
     // aggregates local and contextual chroma, runs Two-Stage Root/Quality decision,
     // and performs Dynamic Programming sequence optimization.
     reportProgress("Running Beat-Synchronous Harmonic Analysis...", 70);
+
+    let totalChromaFlux = 0;
+    for (let f = 1; f < chromagram.length; f++) {
+      let frameDiff = 0;
+      for (let k = 0; k < 12; k++) {
+        const d = chromagram[f][k] - chromagram[f - 1][k];
+        if (d > 0) frameDiff += d;
+      }
+      totalChromaFlux += frameDiff;
+    }
+    const avgChromaFlux = totalChromaFlux / Math.max(1, chromagram.length - 1);
+    const highHarmonicResolution = (estimatedBpm >= 115) || (avgChromaFlux > 0.45);
 
     const beatHarmonicsResult = analyzeBeatSynchronousHarmonics(
       chromagram,
@@ -80,7 +92,8 @@ self.onmessage = function (e: MessageEvent) {
         tempo: estimatedBpm,
         beats,
         estimatedKey,
-        totalDuration: duration
+        totalDuration: duration,
+        highHarmonicResolution
       }
     );
 
