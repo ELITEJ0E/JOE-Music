@@ -132,11 +132,12 @@ export function stabilizeChordSegments(
 
   const tempo = options.tempo || 120;
   const beatIntervalSec = 60 / tempo;
+  const isFastTempo = tempo >= 115;
   const minSlashDuration = options.minSlashDuration ?? Math.max(0.65, beatIntervalSec * 0.9);
   const totalDuration = options.duration || (rawSegments[rawSegments.length - 1].endTime ?? 0);
   const changeMargin = options.changeMargin ?? 0.08;
-  const minChordDurationBeats = options.minChordDurationBeats ?? 1.0;
-  const minGlitchDuration = options.minGlitchDuration ?? 0.45;
+  const minChordDurationBeats = options.minChordDurationBeats ?? (isFastTempo ? 0.75 : 1.0);
+  const minGlitchDuration = options.minGlitchDuration ?? (isFastTempo ? Math.min(0.28, beatIntervalSec * 0.42) : 0.45);
   const minGlitchDurationBeats = minGlitchDuration / beatIntervalSec;
 
   let mergedSegmentsCount = 0;
