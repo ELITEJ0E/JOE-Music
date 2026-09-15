@@ -148,14 +148,16 @@ export async function resolveClientDecryptedAudioBlob(clipId: string): Promise<s
  * Handles server proxy fallback to client-side Web Crypto decryption.
  */
 export async function fetchDecryptedAudioBlob(
-  clipIdOrUrl: string
+  clipIdOrUrl: string,
+  directAudioUrl?: string
 ): Promise<{ blob: Blob; mimeType: string } | null> {
-  if (!clipIdOrUrl) return null;
+  if (!clipIdOrUrl && !directAudioUrl) return null;
 
   // Case 1: If it is already a blob: URL
-  if (clipIdOrUrl.startsWith("blob:")) {
+  const candidate = clipIdOrUrl || directAudioUrl || "";
+  if (candidate.startsWith("blob:")) {
     try {
-      const res = await fetch(clipIdOrUrl);
+      const res = await fetch(candidate);
       if (res.ok) {
         const blob = await res.blob();
         return { blob, mimeType: blob.type || "audio/mp4" };
@@ -166,13 +168,15 @@ export async function fetchDecryptedAudioBlob(
   }
 
   // Extract UUID if present
-  const uuidMatch = clipIdOrUrl.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
+  const uuidMatch = candidate.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i) ||
+    (directAudioUrl ? directAudioUrl.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i) : null);
   const clipId = uuidMatch ? uuidMatch[1] : null;
 
   // Case 2: Try server-side proxy endpoint first if clipId is present
   if (clipId) {
     try {
-      const proxyRes = await fetch(`/api/suno-audio/${clipId}`);
+      const queryParam = directAudioUrl ? `?url=${encodeURIComponent(directAudioUrl)}` : "";
+      const proxyRes = await fetch(`/api/suno-audio/${clipId}${queryParam}`);
       if (proxyRes.ok) {
         const ct = proxyRes.headers.get("content-type") || "audio/mp4";
         const buf = await proxyRes.arrayBuffer();
@@ -216,15 +220,18 @@ export async function fetchDecryptedAudioBlob(
   }
 
   // Case 4: Generic URL fetch
-  try {
-    const res = await fetch(clipIdOrUrl);
-    if (res.ok) {
-      const ct = res.headers.get("content-type") || "audio/mpeg";
-      const blob = await res.blob();
-      return { blob, mimeType: ct };
+  const fallbackUrl = directAudioUrl || (clipIdOrUrl.startsWith("http") ? clipIdOrUrl : null);
+  if (fallbackUrl) {
+    try {
+      const res = await fetch(fallbackUrl);
+      if (res.ok) {
+        const ct = res.headers.get("content-type") || "audio/mpeg";
+        const blob = await res.blob();
+        return { blob, mimeType: ct };
+      }
+    } catch (err) {
+      console.error("[Suno Resolver] Failed to fetch audio stream:", err);
     }
-  } catch (err) {
-    console.error("[Suno Resolver] Failed to fetch audio stream:", err);
   }
 
   return null;
@@ -235,9 +242,10 @@ export async function fetchDecryptedAudioBlob(
  */
 export async function fetchDecryptedAudioFile(
   clipIdOrUrl: string,
-  title: string = "Suno Track"
+  title: string = "Suno Track",
+  directAudioUrl?: string
 ): Promise<File | null> {
-  const result = await fetchDecryptedAudioBlob(clipIdOrUrl);
+  const result = await fetchDecryptedAudioBlob(clipIdOrUrl, directAudioUrl);
   if (!result || !result.blob || result.blob.size === 0) return null;
 
   const sanitizedTitle = (title || "Track").replace(/[^\w\s-]/gi, "_").trim() || "Track";

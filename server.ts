@@ -562,7 +562,7 @@ Provide a concise, practical, high-value guitar instruction response. Mention sp
         // Step A: Fetch rights key and IV from Suno Studio API
         const rightsHosts = [
           "https://studio-api-prod.suno.com",
-          "https://studio-api.suno.ai",
+          "https://studio-api-prod.suno.ai",
           "https://suno.com"
         ];
 
@@ -571,8 +571,11 @@ Provide a concise, practical, high-value guitar instruction response. Mention sp
         if (clipId) {
           for (const host of rightsHosts) {
             try {
+              const controller = new AbortController();
+              const timeoutId = setTimeout(() => controller.abort(), 6000);
               const rightsRes = await fetch(`${host}/api/mango/rights`, {
                 method: "POST",
+                signal: controller.signal,
                 headers: {
                   "Content-Type": "application/json",
                   "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -586,6 +589,7 @@ Provide a concise, practical, high-value guitar instruction response. Mention sp
                   }
                 })
               });
+              clearTimeout(timeoutId);
 
               if (rightsRes.ok) {
                 const json = await rightsRes.json();
@@ -777,14 +781,17 @@ Provide a concise, practical, high-value guitar instruction response. Mention sp
 
     const hosts = [
       "https://studio-api-prod.suno.com",
-      "https://studio-api.suno.ai",
+      "https://studio-api-prod.suno.ai",
       "https://suno.com"
     ];
 
     for (const host of hosts) {
       try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 6000);
         const response = await fetch(`${host}/api/mango/rights`, {
           method: "POST",
+          signal: controller.signal,
           headers: {
             "Content-Type": "application/json",
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -798,6 +805,7 @@ Provide a concise, practical, high-value guitar instruction response. Mention sp
             }
           })
         });
+        clearTimeout(timeoutId);
 
         if (response.ok) {
           const data = await response.json();

@@ -105,6 +105,7 @@ export interface SongAnalysis {
   youtubeUrl?: string;
   sunoUrl?: string;
   sunoId?: string;
+  audioUrl?: string;
   imageUrl?: string;
   lyrics?: string;
   tags?: string[];

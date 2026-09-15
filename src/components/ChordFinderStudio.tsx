@@ -58,32 +58,19 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
   const processedInitialSongIdRef = useRef<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  // Analyze or load initial song if provided without duplicate imports
-  useEffect(() => {
-    const hasAudio = initialSong && (initialSong.id || initialSong.audio_url || initialSong.audioUrl);
-    if (!hasAudio || !initialSong) return;
-
-    const sunoId = initialSong.id || "";
+  const handleTranscribeSong = async (targetSong: SunoSong | SavedSong, forceFresh = false) => {
+    const sunoId = (targetSong as any).sunoId || targetSong.id || "";
     const deterministicId = sunoId
       ? (sunoId.startsWith("suno-") ? sunoId : `suno-${sunoId}`)
-      : `suno-${(initialSong.title || "track").toLowerCase().replace(/[^a-z0-9]/g, "-")}`;
-    const songUniqueKey = sunoId || `${initialSong.title}:::${initialSong.artist || ""}`;
+      : `suno-${(targetSong.title || "track").toLowerCase().replace(/[^a-z0-9]/g, "-")}`;
+    const directAudioUrl = targetSong.audioUrl || (targetSong as any).audio_url || "";
 
-    // Prevent duplicate triggers if already handled or currently analyzing
-    if (processedInitialSongIdRef.current === songUniqueKey) return;
-    if (inFlightSongIdRef.current === songUniqueKey) return;
-
-    processedInitialSongIdRef.current = songUniqueKey;
-    inFlightSongIdRef.current = songUniqueKey;
-
-    const processSunoSong = async () => {
-      try {
+    try {
+      if (!forceFresh) {
         setAnalysisProgress({ message: "Checking song library...", pct: 5 });
-
-        // 1. Check if song was already analyzed and saved in DB
         const existingSongs = await loadSongsFromDB();
-        const normTitle = (initialSong.title || "").trim().toLowerCase();
-        const normArtist = (initialSong.artist || "").trim().toLowerCase();
+        const normTitle = (targetSong.title || "").trim().toLowerCase();
+        const normArtist = (targetSong.artist || "").trim().toLowerCase();
 
         const match = existingSongs.find((s) => {
           if (s.id === deterministicId || (sunoId && (s.id === sunoId || s.sunoId === sunoId))) return true;
@@ -95,8 +82,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
           return false;
         });
 
-        if (match) {
-          // Song already analyzed! Directly load without duplicate entry or re-analysis
+        if (match && match.chordSegments && match.chordSegments.length > 4) {
           const updated: SavedSong = {
             ...match,
             id: deterministicId,
@@ -113,62 +99,83 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
           onClearInitialSong?.();
           return;
         }
-
-        // 2. Not yet analyzed: perform audio extraction & harmonic analysis
-        abortControllerRef.current = new AbortController();
-        setAnalysisProgress({ message: "Preparing Suno audio stream...", pct: 15 });
-
-        const audioTarget = initialSong.id || initialSong.audio_url || initialSong.audioUrl || "";
-        const file = await fetchDecryptedAudioFile(audioTarget, initialSong.title || "Suno Track");
-
-        if (!file || file.size === 0) {
-          throw new Error("Unable to retrieve or decrypt Suno audio stream");
-        }
-
-        setAnalysisProgress({ message: "Reading audio stream & computing harmonics...", pct: 30 });
-        const result = await analyzeAudioFile(
-          file,
-          (msg, pct) => setAnalysisProgress({ message: msg, pct: 30 + (pct * 0.7) }),
-          abortControllerRef.current.signal
-        );
-
-        const songWithMeta: SavedSong = {
-          ...result,
-          id: deterministicId,
-          sunoId: sunoId,
-          title: initialSong.title || "Suno Track",
-          artist: initialSong.artist || "ELITEJOE",
-          lastPlayedAt: Date.now(),
-          savedAt: Date.now(),
-        };
-
-        await saveSongToDB(songWithMeta);
-        saveLastPlayedSongId(songWithMeta.id);
-
-        const freshList = await loadSongsFromDB();
-        setSavedSongs(freshList);
-        setActiveSong(songWithMeta);
-        setAnalysisProgress(null);
-        inFlightSongIdRef.current = null;
-        onClearInitialSong?.();
-      } catch (err: any) {
-        console.error("Failed to analyze Suno song:", err);
-        setAnalysisProgress(null);
-        inFlightSongIdRef.current = null;
-        if (err.name !== "AbortError" && err.message !== "Analysis cancelled by user.") {
-          setDialog({
-            isOpen: true,
-            title: "Analysis Failed",
-            message: `Could not analyze song audio: ${err?.message || "Unable to decode audio data"}. Please select another track or retry.`,
-            confirmText: "OK",
-            type: "error",
-            onConfirm: () => setDialog((prev) => ({ ...prev, isOpen: false })),
-          });
-        }
       }
-    };
 
-    processSunoSong();
+      // Audio retrieval and harmonic extraction
+      abortControllerRef.current = new AbortController();
+      setAnalysisProgress({ message: "Connecting to Suno audio stream...", pct: 15 });
+
+      const audioTarget = sunoId || directAudioUrl || targetSong.title || "";
+      const file = await fetchDecryptedAudioFile(audioTarget, targetSong.title || "Suno Track", directAudioUrl);
+
+      if (!file || file.size === 0) {
+        throw new Error("Unable to retrieve or decrypt Suno audio stream. Please check connection.");
+      }
+
+      setAnalysisProgress({ message: "Analyzing beat harmonics & detecting chords...", pct: 30 });
+      const result = await analyzeAudioFile(
+        file,
+        (msg, pct) => setAnalysisProgress({ message: msg, pct: 30 + (pct * 0.7) }),
+        abortControllerRef.current.signal
+      );
+
+      const songWithMeta: SavedSong = {
+        ...result,
+        id: deterministicId,
+        sunoId: sunoId,
+        sunoUrl: (targetSong as any).sunoUrl || (sunoId ? `https://suno.com/song/${sunoId.replace(/^suno-/, "")}` : undefined),
+        title: targetSong.title || "Suno Track",
+        artist: targetSong.artist || "ELITEJOE",
+        imageUrl: (targetSong as any).imageUrl || (targetSong as any).image_url,
+        audioUrl: directAudioUrl || (sunoId ? `/api/suno-audio/${sunoId.replace(/^suno-/, "")}` : undefined),
+        lyrics: (targetSong as any).lyrics || result.lyrics,
+        tags: (targetSong as any).tags || result.tags,
+        lastPlayedAt: Date.now(),
+        savedAt: Date.now(),
+      };
+
+      await saveSongToDB(songWithMeta);
+      saveLastPlayedSongId(songWithMeta.id);
+
+      const freshList = await loadSongsFromDB();
+      setSavedSongs(freshList);
+      setActiveSong(songWithMeta);
+      setAnalysisProgress(null);
+      inFlightSongIdRef.current = null;
+      onClearInitialSong?.();
+    } catch (err: any) {
+      console.error("Failed to analyze Suno song:", err);
+      setAnalysisProgress(null);
+      inFlightSongIdRef.current = null;
+      if (err.name !== "AbortError" && err.message !== "Analysis cancelled by user.") {
+        setDialog({
+          isOpen: true,
+          title: "Transcription Failed",
+          message: `Could not analyze song audio: ${err?.message || "Unable to decode audio data"}. Please retry.`,
+          confirmText: "OK",
+          type: "error",
+          onConfirm: () => setDialog((prev) => ({ ...prev, isOpen: false })),
+        });
+      }
+    }
+  };
+
+  // Analyze or load initial song if provided without duplicate imports
+  useEffect(() => {
+    const hasAudio = initialSong && (initialSong.id || initialSong.audio_url || initialSong.audioUrl);
+    if (!hasAudio || !initialSong) return;
+
+    const sunoId = initialSong.id || "";
+    const songUniqueKey = sunoId || `${initialSong.title}:::${initialSong.artist || ""}`;
+
+    // Prevent duplicate triggers if already handled or currently analyzing
+    if (processedInitialSongIdRef.current === songUniqueKey) return;
+    if (inFlightSongIdRef.current === songUniqueKey) return;
+
+    processedInitialSongIdRef.current = songUniqueKey;
+    inFlightSongIdRef.current = songUniqueKey;
+
+    handleTranscribeSong(initialSong, false);
   }, [initialSong, onClearInitialSong]);
 
   const [isLiveMic, setIsLiveMic] = useState(false);
@@ -239,10 +246,21 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
       audioRef.current.src = url;
       audioRef.current.load();
       return () => URL.revokeObjectURL(url);
+    } else if (activeSong && audioRef.current) {
+      const clipId = activeSong.sunoId || (activeSong.id?.startsWith("suno-") ? activeSong.id.replace(/^suno-/, "") : null);
+      if (clipId) {
+        audioRef.current.src = `/api/suno-audio/${clipId}`;
+        audioRef.current.load();
+      } else if (activeSong.audioUrl) {
+        audioRef.current.src = activeSong.audioUrl;
+        audioRef.current.load();
+      } else {
+        audioRef.current.src = "";
+      }
     } else if (audioRef.current) {
       audioRef.current.src = "";
     }
-  }, [activeSong?.audioBlob]);
+  }, [activeSong?.audioBlob, activeSong?.id, activeSong?.sunoId, activeSong?.audioUrl]);
 
   useEffect(() => {
     if (audioRef.current) {
@@ -1368,6 +1386,17 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
             <span className="px-3 py-1 bg-white/5 border border-white/5 rounded-full">
               {activeSong.tuning || "E Standard"}
             </span>
+            {(activeSong.sunoId || activeSong.id?.startsWith("suno-") || activeSong.audioUrl) && (
+              <button
+                onClick={() => handleTranscribeSong(activeSong, true)}
+                disabled={!!analysisProgress}
+                title="Re-run audio harmonic extraction from Suno"
+                className="px-3 py-1 bg-[#a3ff12]/10 hover:bg-[#a3ff12]/20 border border-[#a3ff12]/30 text-[#a3ff12] hover:text-white rounded-full font-bold transition-colors cursor-pointer flex items-center gap-1.5"
+              >
+                <Sparkles className="w-3 h-3" />
+                <span>Re-Extract</span>
+              </button>
+            )}
           </div>
         </div>
       ) : null}
