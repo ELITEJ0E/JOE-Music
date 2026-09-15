@@ -168,7 +168,7 @@ export const CustomConfirmDialog: React.FC<CustomConfirmDialogProps> = ({
                 <button
                   type="button"
                   onClick={onCancel}
-                  className="px-4 py-2 rounded-xl border border-white/10 text-xs font-mono font-semibold text-zinc-400 hover:bg-white/5 hover:text-white transition-colors cursor-pointer"
+                  className="min-h-[44px] px-4 py-2.5 rounded-xl border border-white/10 text-xs font-mono font-semibold text-zinc-400 hover:bg-white/5 hover:text-white active:bg-white/10 active:scale-95 transition-all cursor-pointer touch-manipulation flex items-center justify-center select-none"
                 >
                   {cancelText}
                 </button>
@@ -176,7 +176,7 @@ export const CustomConfirmDialog: React.FC<CustomConfirmDialogProps> = ({
               <button
                 type="button"
                 onClick={handleConfirmClick}
-                className={`px-4 py-2 rounded-xl text-xs font-mono font-semibold transition-all shadow-md cursor-pointer ${
+                className={`min-h-[44px] px-5 py-2.5 rounded-xl text-xs font-mono font-semibold transition-all shadow-md active:scale-95 cursor-pointer touch-manipulation flex items-center justify-center select-none ${
                   type === "error"
                     ? "bg-rose-600 hover:bg-rose-700 text-white"
                     : type === "alert"

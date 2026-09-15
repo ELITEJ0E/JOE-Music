@@ -149,20 +149,23 @@ export async function resolveClientDecryptedAudioBlob(clipId: string): Promise<s
  */
 export async function fetchDecryptedAudioBlob(
   clipIdOrUrl: string,
-  directAudioUrl?: string
+  directAudioUrl?: string,
+  signal?: AbortSignal
 ): Promise<{ blob: Blob; mimeType: string } | null> {
   if (!clipIdOrUrl && !directAudioUrl) return null;
+  if (signal?.aborted) return null;
 
   // Case 1: If it is already a blob: URL
   const candidate = clipIdOrUrl || directAudioUrl || "";
   if (candidate.startsWith("blob:")) {
     try {
-      const res = await fetch(candidate);
+      const res = await fetch(candidate, { signal });
       if (res.ok) {
         const blob = await res.blob();
         return { blob, mimeType: blob.type || "audio/mp4" };
       }
-    } catch (e) {
+    } catch (e: any) {
+      if (e.name === "AbortError" || signal?.aborted) return null;
       console.warn("[Suno Resolver] Failed to fetch blob url directly:", e);
     }
   }
@@ -176,7 +179,7 @@ export async function fetchDecryptedAudioBlob(
   if (clipId) {
     try {
       const queryParam = directAudioUrl ? `?url=${encodeURIComponent(directAudioUrl)}` : "";
-      const proxyRes = await fetch(`/api/suno-audio/${clipId}${queryParam}`);
+      const proxyRes = await fetch(`/api/suno-audio/${clipId}${queryParam}`, { signal });
       if (proxyRes.ok) {
         const ct = proxyRes.headers.get("content-type") || "audio/mp4";
         const buf = await proxyRes.arrayBuffer();
@@ -185,27 +188,33 @@ export async function fetchDecryptedAudioBlob(
           return { blob, mimeType: ct };
         }
       }
-    } catch (proxyErr) {
+    } catch (proxyErr: any) {
+      if (proxyErr.name === "AbortError" || signal?.aborted) return null;
       console.warn("[Suno Resolver] Server proxy fetch error, falling back to client decryption:", proxyErr);
     }
+
+    if (signal?.aborted) return null;
 
     // Case 3: Fallback to client-side Web Crypto decryption
     try {
       const blobUrl = await resolveClientDecryptedAudioBlob(clipId);
       if (blobUrl) {
-        const blobRes = await fetch(blobUrl);
+        const blobRes = await fetch(blobUrl, { signal });
         if (blobRes.ok) {
           const blob = await blobRes.blob();
           return { blob, mimeType: blob.type || "audio/mp4" };
         }
       }
-    } catch (clientErr) {
+    } catch (clientErr: any) {
+      if (clientErr.name === "AbortError" || signal?.aborted) return null;
       console.warn("[Suno Resolver] Client-side decryption fallback error:", clientErr);
     }
 
+    if (signal?.aborted) return null;
+
     // Case 3.5: Direct CloudFront CDN stream (CORS open)
     try {
-      const directRes = await fetch(`https://d2lwuy8qc234o3.cloudfront.net/1/clip/${clipId}.m4a`);
+      const directRes = await fetch(`https://d2lwuy8qc234o3.cloudfront.net/1/clip/${clipId}.m4a`, { signal });
       if (directRes.ok) {
         const ct = directRes.headers.get("content-type") || "audio/mp4";
         const buf = await directRes.arrayBuffer();
@@ -214,22 +223,26 @@ export async function fetchDecryptedAudioBlob(
           return { blob, mimeType: ct };
         }
       }
-    } catch (cdnErr) {
+    } catch (cdnErr: any) {
+      if (cdnErr.name === "AbortError" || signal?.aborted) return null;
       console.warn("[Suno Resolver] Direct CDN fetch fallback error:", cdnErr);
     }
   }
+
+  if (signal?.aborted) return null;
 
   // Case 4: Generic URL fetch
   const fallbackUrl = directAudioUrl || (clipIdOrUrl.startsWith("http") ? clipIdOrUrl : null);
   if (fallbackUrl) {
     try {
-      const res = await fetch(fallbackUrl);
+      const res = await fetch(fallbackUrl, { signal });
       if (res.ok) {
         const ct = res.headers.get("content-type") || "audio/mpeg";
         const blob = await res.blob();
         return { blob, mimeType: ct };
       }
-    } catch (err) {
+    } catch (err: any) {
+      if (err.name === "AbortError" || signal?.aborted) return null;
       console.error("[Suno Resolver] Failed to fetch audio stream:", err);
     }
   }
@@ -243,14 +256,14 @@ export async function fetchDecryptedAudioBlob(
 export async function fetchDecryptedAudioFile(
   clipIdOrUrl: string,
   title: string = "Suno Track",
-  directAudioUrl?: string
+  directAudioUrl?: string,
+  signal?: AbortSignal
 ): Promise<File | null> {
-  const result = await fetchDecryptedAudioBlob(clipIdOrUrl, directAudioUrl);
+  const result = await fetchDecryptedAudioBlob(clipIdOrUrl, directAudioUrl, signal);
   if (!result || !result.blob || result.blob.size === 0) return null;
 
   const sanitizedTitle = (title || "Track").replace(/[^\w\s-]/gi, "_").trim() || "Track";
   const ext = result.mimeType.includes("mp4") || result.mimeType.includes("m4a") ? "m4a" : (result.mimeType.includes("webm") ? "webm" : "mp3");
-
   return new File([result.blob], `${sanitizedTitle}.${ext}`, {
     type: result.mimeType,
     lastModified: Date.now(),

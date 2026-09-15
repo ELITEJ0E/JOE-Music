@@ -1201,19 +1201,21 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
 
               <div className="flex gap-2.5 pt-1">
                 <button
+                  type="button"
                   onClick={() => {
                     setShowPasswordModal(false);
                     setPendingPlaylistId(null);
                     setPasswordError("");
                     setPasswordInput("");
                   }}
-                  className="flex-1 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-mono text-zinc-300 font-bold cursor-pointer transition-colors"
+                  className="flex-1 min-h-[44px] py-2.5 rounded-xl bg-white/5 hover:bg-white/10 active:bg-white/15 active:scale-95 border border-white/10 text-xs font-mono text-zinc-300 font-bold cursor-pointer transition-all touch-manipulation flex items-center justify-center select-none"
                 >
                   CANCEL
                 </button>
                 <button
+                  type="button"
                   onClick={() => handleUnlock(passwordInput)}
-                  className="flex-1 py-2.5 rounded-xl bg-[#a3ff12] hover:bg-[#8ee60b] text-black font-mono font-black text-xs transition-all shadow-[0_0_15px_rgba(163,255,18,0.2)] cursor-pointer"
+                  className="flex-1 min-h-[44px] py-2.5 rounded-xl bg-[#a3ff12] hover:bg-[#8ee60b] active:bg-[#7dd008] active:scale-95 text-black font-mono font-black text-xs transition-all shadow-[0_0_15px_rgba(163,255,18,0.2)] cursor-pointer touch-manipulation flex items-center justify-center select-none"
                 >
                   UNLOCK
                 </button>

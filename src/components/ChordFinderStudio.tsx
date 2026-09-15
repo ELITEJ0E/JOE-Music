@@ -15,6 +15,7 @@ import {
   Trash2,
   Repeat,
   GripVertical,
+  X,
 } from "lucide-react";
 import { findChordByName } from "../data/chordDatabase";
 import { resolveGuitarChord, GuitarVoicingResult } from "../audio/guitarChordResolver";
@@ -57,6 +58,21 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
   const inFlightSongIdRef = useRef<string | null>(null);
   const processedInitialSongIdRef = useRef<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  const handleCancelAnalysis = () => {
+    if (abortControllerRef.current) {
+      try {
+        abortControllerRef.current.abort();
+      } catch (e) {
+        console.warn("Error aborting analysis controller:", e);
+      }
+      abortControllerRef.current = null;
+    }
+    inFlightSongIdRef.current = null;
+    processedInitialSongIdRef.current = null;
+    setAnalysisProgress(null);
+    onClearInitialSong?.();
+  };
 
   const handleTranscribeSong = async (targetSong: SunoSong | SavedSong, forceFresh = false) => {
     const sunoId = (targetSong as any).sunoId || targetSong.id || "";
@@ -106,7 +122,12 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
       setAnalysisProgress({ message: "Connecting to Suno audio stream...", pct: 15 });
 
       const audioTarget = sunoId || directAudioUrl || targetSong.title || "";
-      const file = await fetchDecryptedAudioFile(audioTarget, targetSong.title || "Suno Track", directAudioUrl);
+      const file = await fetchDecryptedAudioFile(
+        audioTarget,
+        targetSong.title || "Suno Track",
+        directAudioUrl,
+        abortControllerRef.current.signal
+      );
 
       if (!file || file.size === 0) {
         throw new Error("Unable to retrieve or decrypt Suno audio stream. Please check connection.");
@@ -667,7 +688,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
 
           // 3. Download & decrypt audio
           setAnalysisProgress({ message: "Downloading & preparing audio...", pct: 30 });
-          const file = await fetchDecryptedAudioFile(clipId, title);
+          const file = await fetchDecryptedAudioFile(clipId, title, undefined, abortControllerRef.current?.signal);
 
           if (!file || file.size === 0) {
             throw new Error("Unable to retrieve or decrypt Suno audio stream");
@@ -1301,32 +1322,38 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
 
       {/* Analysis Progress Bar */}
       {analysisProgress && (
-        <div className="frosted-card rounded-2xl p-4 flex flex-col space-y-3">
-          <div className="flex justify-between items-center">
-            <span className="text-xs font-mono font-bold text-[#a3ff12] tracking-wider animate-pulse">
+        <div className="frosted-card rounded-2xl p-4 sm:p-5 flex flex-col space-y-3 border border-[#a3ff12]/30 shadow-[0_0_20px_rgba(163,255,18,0.12)]">
+          <div className="flex justify-between items-center gap-3">
+            <span className="text-xs font-mono font-bold text-[#a3ff12] tracking-wider animate-pulse flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-[#a3ff12] inline-block animate-ping" />
               ANALYSIS IN PROGRESS
             </span>
-            <div className="flex items-center gap-3">
-              <span className="text-xs font-mono text-zinc-400">
+            <div className="flex items-center gap-2.5 sm:gap-3">
+              <span className="text-xs font-mono text-zinc-300 font-bold">
                 {Math.round(analysisProgress.pct)}%
               </span>
-              {abortControllerRef.current && (
-                <button
-                  onClick={() => abortControllerRef.current?.abort()}
-                  className="px-2 py-1 bg-red-500/20 hover:bg-red-500/40 text-red-400 rounded text-[10px] font-bold font-mono transition-colors"
-                >
-                  CANCEL
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={handleCancelAnalysis}
+                onTouchEnd={(e) => {
+                  e.preventDefault();
+                  handleCancelAnalysis();
+                }}
+                className="min-h-[44px] px-3.5 py-2 bg-red-500/20 hover:bg-red-500/30 active:bg-red-500/50 active:scale-95 text-red-400 hover:text-red-300 border border-red-500/40 rounded-xl text-xs font-bold font-mono transition-all cursor-pointer flex items-center justify-center gap-1.5 touch-manipulation shadow-sm select-none"
+                aria-label="Cancel analysis"
+              >
+                <X className="w-3.5 h-3.5 shrink-0" />
+                <span>CANCEL</span>
+              </button>
             </div>
           </div>
-          <div className="w-full h-2 bg-white/5 rounded-full overflow-hidden">
+          <div className="w-full h-2.5 bg-white/5 rounded-full overflow-hidden border border-white/5">
             <div
-              className="h-full bg-gradient-to-r from-green-500 to-[#a3ff12] transition-all duration-300"
+              className="h-full bg-gradient-to-r from-green-500 to-[#a3ff12] transition-all duration-300 rounded-full"
               style={{ width: `${analysisProgress.pct}%` }}
             />
           </div>
-          <span className="text-[11px] font-mono text-zinc-500 text-center">
+          <span className="text-xs font-mono text-zinc-400 text-center truncate px-1">
             {analysisProgress.message}
           </span>
         </div>
