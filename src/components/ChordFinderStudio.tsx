@@ -1152,17 +1152,17 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
     setIsPlaying(false);
   };
 
-  const handleRewindInChordFinder = () => {
-    const rewindAmount = barSeconds > 0 ? barSeconds : 5;
+  const handleRewindInChordFinder = (stepAmount?: number) => {
+    const rewindAmount = typeof stepAmount === "number" ? stepAmount : (barSeconds > 0 ? barSeconds : 5);
     seekToTime(Math.max(0, currentTime - rewindAmount));
   };
 
-  const handleFastForwardInChordFinder = () => {
-    const ffAmount = barSeconds > 0 ? barSeconds : 5;
+  const handleFastForwardInChordFinder = (stepAmount?: number) => {
+    const ffAmount = typeof stepAmount === "number" ? stepAmount : (barSeconds > 0 ? barSeconds : 5);
     seekToTime(Math.min(duration, currentTime + ffAmount));
   };
 
-  // Keyboard shortcut listener for Space / F8 (Play/Pause), F7 (Rewind), F9 (Fast-Forward)
+  // Keyboard shortcut listener for Arrow keys (← / → / ↑ / ↓), Space / F8 (Play/Pause), F7 (Rewind), F9 (Fast-Forward)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
@@ -1179,12 +1179,40 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
       if (e.code === "Space" || e.key === " " || e.key === "F8") {
         e.preventDefault();
         setIsPlaying((prev) => !prev);
-      } else if (e.key === "F7") {
+      } else if (e.key === "ArrowLeft" || e.code === "ArrowLeft" || e.key === "F7" || e.key === "j" || e.key === "J") {
         e.preventDefault();
-        handleRewindInChordFinder();
-      } else if (e.key === "F9") {
+        if (e.shiftKey && activeIdx > 0 && segments[activeIdx - 1]) {
+          // Shift + ArrowLeft: Jump to previous chord boundary
+          seekToTime(segments[activeIdx - 1].startTime);
+        } else {
+          // ArrowLeft: Rewind by 1 measure or 5 seconds
+          handleRewindInChordFinder();
+        }
+      } else if (e.key === "ArrowRight" || e.code === "ArrowRight" || e.key === "F9" || e.key === "l" || e.key === "L") {
         e.preventDefault();
-        handleFastForwardInChordFinder();
+        if (e.shiftKey && activeIdx + 1 < segments.length && segments[activeIdx + 1]) {
+          // Shift + ArrowRight: Jump to next chord boundary
+          seekToTime(segments[activeIdx + 1].startTime);
+        } else {
+          // ArrowRight: Fast-forward by 1 measure or 5 seconds
+          handleFastForwardInChordFinder();
+        }
+      } else if (e.key === "ArrowUp" || e.code === "ArrowUp") {
+        // ArrowUp: Fine seek forward (2s) or next chord
+        e.preventDefault();
+        if (activeIdx + 1 < segments.length && segments[activeIdx + 1]) {
+          seekToTime(segments[activeIdx + 1].startTime);
+        } else {
+          handleFastForwardInChordFinder(2);
+        }
+      } else if (e.key === "ArrowDown" || e.code === "ArrowDown") {
+        // ArrowDown: Fine seek back (2s) or previous chord
+        e.preventDefault();
+        if (activeIdx > 0 && segments[activeIdx - 1]) {
+          seekToTime(segments[activeIdx - 1].startTime);
+        } else {
+          handleRewindInChordFinder(2);
+        }
       }
     };
 
@@ -1192,7 +1220,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [currentTime, duration, barSeconds]);
+  }, [currentTime, duration, barSeconds, activeIdx, segments]);
 
   // Progression Arranger: optimize fingerstyle voicings across entire progression
   const arrangedProgression: ProgressionArrangementResult | null = React.useMemo(() => {
@@ -1780,9 +1808,9 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                     </button>
 
                     <button
-                      onClick={handleRewindInChordFinder}
+                      onClick={() => handleRewindInChordFinder()}
                       className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 flex items-center justify-center text-zinc-300 hover:text-white transition-colors cursor-pointer"
-                      title="Rewind (F7)"
+                      title="Rewind (← / F7 / Shift+← for prev chord)"
                     >
                       <SkipBack className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                     </button>
@@ -1800,9 +1828,9 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                     </button>
 
                     <button
-                      onClick={handleFastForwardInChordFinder}
+                      onClick={() => handleFastForwardInChordFinder()}
                       className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 flex items-center justify-center text-zinc-300 hover:text-white transition-colors cursor-pointer"
-                      title="Fast-Forward (F9)"
+                      title="Fast-Forward (→ / F9 / Shift+→ for next chord)"
                     >
                       <SkipForward className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                     </button>
