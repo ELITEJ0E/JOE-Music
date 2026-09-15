@@ -1640,18 +1640,20 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                   </div>
 
                   {activeVoicingResult.voicing ? (
-                    <ChordDiagram
-                      frets={activeVoicingResult.voicing.frets}
-                      fingers={activeVoicingResult.voicing.fingers}
-                      barre={activeVoicingResult.voicing.barre}
-                      position={activeVoicingResult.voicing.baseFret}
-                      cagedShape={activeVoicingResult.voicing.cagedShape}
-                      title={capo > 0 ? `${activeChord.shapeChord} (Capo ${capo})` : activeChord.transposedChord}
-                      capo={capo}
-                      size="md"
-                    />
+                    <div className="w-[240px] h-[270px] flex items-center justify-center">
+                      <ChordDiagram
+                        frets={activeVoicingResult.voicing.frets}
+                        fingers={activeVoicingResult.voicing.fingers}
+                        barre={activeVoicingResult.voicing.barre}
+                        position={activeVoicingResult.voicing.baseFret}
+                        cagedShape={activeVoicingResult.voicing.cagedShape}
+                        title={capo > 0 ? `${activeChord.shapeChord} (Capo ${capo})` : activeChord.transposedChord}
+                        capo={capo}
+                        size="md"
+                      />
+                    </div>
                   ) : (
-                    <div className="h-44 flex flex-col items-center justify-center text-center space-y-1">
+                    <div className="w-[240px] h-[270px] flex flex-col items-center justify-center text-center space-y-1">
                       <span className="text-xs font-mono font-bold text-zinc-300">No guitar voicing</span>
                       <span className="text-[10px] font-mono text-zinc-500 max-w-[200px]">
                         {activeVoicingResult.simplificationReason || `No safe diagram for ${activeChord.shapeChord}`}
