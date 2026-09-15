@@ -402,9 +402,46 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
-  const activeSegmentIdx = segments.findIndex(
-    (s) => currentTime >= s.startTime && currentTime <= s.endTime
-  );
+  const lastActiveIdxRef = useRef<number>(0);
+  const activeSegmentIdx = useMemo(() => {
+    if (!segments || segments.length === 0) return 0;
+    // Fast path: check current cached index
+    const cachedIdx = lastActiveIdxRef.current;
+    if (cachedIdx >= 0 && cachedIdx < segments.length) {
+      const seg = segments[cachedIdx];
+      if (currentTime >= seg.startTime && currentTime <= seg.endTime) {
+        return cachedIdx;
+      }
+      // Fast path: check next sequential segment
+      if (cachedIdx + 1 < segments.length) {
+        const nextSeg = segments[cachedIdx + 1];
+        if (currentTime >= nextSeg.startTime && currentTime <= nextSeg.endTime) {
+          lastActiveIdxRef.current = cachedIdx + 1;
+          return cachedIdx + 1;
+        }
+      }
+    }
+
+    // Binary search for random seeks or fast jumps
+    let low = 0;
+    let high = segments.length - 1;
+    let found = 0;
+    while (low <= high) {
+      const mid = (low + high) >> 1;
+      const seg = segments[mid];
+      if (currentTime < seg.startTime) {
+        high = mid - 1;
+      } else if (currentTime > seg.endTime) {
+        low = mid + 1;
+      } else {
+        found = mid;
+        break;
+      }
+    }
+    lastActiveIdxRef.current = found;
+    return found;
+  }, [currentTime, segments]);
+
   const activeIdx = activeSegmentIdx !== -1 ? activeSegmentIdx : 0;
 
   const getDisplayChord = (idx: number) => {
@@ -427,7 +464,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
     };
   };
 
-  const activeChord = getDisplayChord(activeIdx);
+  const activeChord = useMemo(() => getDisplayChord(activeIdx), [activeIdx, segments, transpose, capo, activeSong?.key]);
 
   const LOOKBEHIND_COUNT = 1;
   const LOOKAHEAD_COUNT = 5; // tune-able: how many upcoming chords to show ahead of the active one
@@ -440,16 +477,6 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
     }
     return items;
   }, [activeIdx, segments, transpose, capo, activeSong]);
-
-  const activeChordRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    activeChordRef.current?.scrollIntoView({
-      behavior: "smooth",
-      inline: "center",
-      block: "nearest",
-    });
-  }, [activeIdx]);
 
   // Active chord timing calculations
   const currentSegment = segments[activeIdx];
@@ -1183,19 +1210,11 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
 
   const effectiveVoicingIndex = activeArrangedStep ? activeArrangedStep.voicingIndex : voicingIndex;
 
-  // Resolve active guitar voicing based strictly on shapeChord and verified capo sounding
+  // Resolve active guitar voicing based strictly on shapeChord and verified capo sounding with useMemo caching
   const activeSegment = segments[activeIdx];
-  const activeVoicingResult: GuitarVoicingResult = activeSong && activeChord.isValid
-    ? resolveGuitarChord(activeChord.shapeChord, {
-        keyContext: activeSong.key,
-        detectionConfidence: activeChord.confidence,
-        voicingIndex: effectiveVoicingIndex,
-        playabilityMode,
-        simplifyIfUnavailable: playabilityMode === "easy",
-        capo,
-        detectedChord: activeChord.detectedChord,
-      })
-    : {
+  const activeVoicingResult: GuitarVoicingResult = React.useMemo(() => {
+    if (!activeSong || !activeChord.isValid) {
+      return {
         detectedChord: "-",
         displayChord: "-",
         voicing: null,
@@ -1209,6 +1228,26 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
         playabilityMode: "standard",
         capo: 0,
       };
+    }
+    return resolveGuitarChord(activeChord.shapeChord, {
+      keyContext: activeSong.key,
+      detectionConfidence: activeChord.confidence,
+      voicingIndex: effectiveVoicingIndex,
+      playabilityMode,
+      simplifyIfUnavailable: playabilityMode === "easy",
+      capo,
+      detectedChord: activeChord.detectedChord,
+    });
+  }, [
+    activeSong,
+    activeChord.isValid,
+    activeChord.shapeChord,
+    activeChord.confidence,
+    activeChord.detectedChord,
+    effectiveVoicingIndex,
+    playabilityMode,
+    capo,
+  ]);
 
   const lastPlayedId = getLastPlayedSongId();
 
@@ -1479,10 +1518,9 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
               {/* Horizontally scrolling chord lookahead strip */}
               <div className="py-2 sm:py-3 border-y border-white/5">
                 <div
-                  className="flex items-center gap-4 sm:gap-6 overflow-x-auto scroll-smooth [&::-webkit-scrollbar]:hidden px-8 select-none"
+                  className="flex items-center gap-4 sm:gap-6 overflow-x-auto [&::-webkit-scrollbar]:hidden px-8 select-none"
                   style={{
                     scrollbarWidth: "none",
-                    scrollSnapType: "x proximity",
                   }}
                 >
                   {chordStrip.map((c) => {
@@ -1507,30 +1545,26 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                     return (
                       <div
                         key={c.idx}
-                        ref={isActive ? activeChordRef : undefined}
                         onClick={() => {
                           if (c.isValid && segments[c.idx]) {
                             seekToTime(segments[c.idx].startTime);
                           }
                         }}
-                        style={{
-                          scrollSnapAlign: "center",
-                          ...opacityStyle,
-                        }}
-                        className={`shrink-0 flex flex-col items-center justify-center text-center transition-all duration-200 cursor-pointer ${scaleClass} min-w-[90px] sm:min-w-[120px]`}
+                        style={opacityStyle}
+                        className={`shrink-0 flex flex-col items-center justify-center text-center transition-all duration-150 ease-out cursor-pointer ${scaleClass} min-w-[90px] sm:min-w-[120px] will-change-transform`}
                         title={c.isValid ? `Jump to ${chordLabel} at ${c.timeLabel}` : undefined}
                       >
                         {/* Chord Name */}
                         {isActive ? (
-                          <div className="text-4xl sm:text-5xl font-black font-mono text-[#a3ff12] tracking-tight drop-shadow-[0_0_20px_rgba(163,255,18,0.4)]">
+                          <div className="text-4xl sm:text-5xl font-black font-mono text-[#a3ff12] tracking-tight drop-shadow-[0_0_20px_rgba(163,255,18,0.4)] transition-all duration-150">
                             {chordLabel}
                           </div>
                         ) : isPast ? (
-                          <div className="text-2xl sm:text-3xl font-bold font-mono text-zinc-500 tracking-tight">
+                          <div className="text-2xl sm:text-3xl font-bold font-mono text-zinc-500 tracking-tight transition-all duration-150">
                             {chordLabel}
                           </div>
                         ) : (
-                          <div className="text-2xl sm:text-3xl font-bold font-mono text-zinc-300 tracking-tight">
+                          <div className="text-2xl sm:text-3xl font-bold font-mono text-zinc-300 tracking-tight transition-all duration-150">
                             {chordLabel}
                           </div>
                         )}
@@ -1544,7 +1578,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
 
                         {/* Time label below chord */}
                         <div
-                          className={`text-[11px] font-mono mt-1 ${
+                          className={`text-[11px] font-mono mt-1 transition-colors duration-150 ${
                             isActive
                               ? "text-zinc-300 font-semibold"
                               : "text-zinc-500"
@@ -1596,7 +1630,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                   {/* Chord Measure Progress Bar - glows orange when switch is approaching */}
                   <div className="w-full h-1 bg-white/10 rounded-full overflow-hidden mb-2.5">
                     <div
-                      className={`h-full transition-all duration-75 ${
+                      className={`h-full transition-[width,background-color,box-shadow] duration-75 ease-linear ${
                         isApproachingSwitch
                           ? "bg-orange-500 shadow-[0_0_8px_rgba(249,115,22,0.8)]"
                           : "bg-[#a3ff12] shadow-[0_0_6px_rgba(163,255,18,0.5)]"

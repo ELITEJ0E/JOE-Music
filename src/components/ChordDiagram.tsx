@@ -210,7 +210,7 @@ export const ChordDiagram: React.FC<ChordDiagramProps> = ({
             return (
               <g
                 key="barre-indicator"
-                className={onPluck ? "cursor-pointer" : ""}
+                className={`transition-all duration-150 ease-out ${onPluck ? "cursor-pointer" : ""}`}
                 onClick={() => onPluck?.(5 - barre.fromString, barre.fret)}
               >
                 {/* Horizontal Rounded Barre Pill */}
@@ -223,6 +223,7 @@ export const ChordDiagram: React.FC<ChordDiagramProps> = ({
                   fill="#a3ff12"
                   fillOpacity={0.92}
                   filter="drop-shadow(0 0 6px rgba(163,255,18,0.5))"
+                  className="transition-all duration-150 ease-out"
                 />
                 {/* Barre Finger Label */}
                 <text
@@ -233,6 +234,7 @@ export const ChordDiagram: React.FC<ChordDiagramProps> = ({
                   fontFamily="monospace"
                   fontWeight="bold"
                   textAnchor="middle"
+                  className="transition-all duration-150 ease-out"
                 >
                   {barreFinger}
                 </text>
@@ -258,6 +260,7 @@ export const ChordDiagram: React.FC<ChordDiagramProps> = ({
                 fontFamily="monospace"
                 fontWeight="bold"
                 textAnchor="middle"
+                className="transition-opacity duration-150 ease-out"
               >
                 ✕
               </text>
@@ -275,7 +278,7 @@ export const ChordDiagram: React.FC<ChordDiagramProps> = ({
                 fill="none"
                 stroke={capo > 0 ? "#38bdf8" : "#a3ff12"}
                 strokeWidth="2"
-                className={onPluck ? "cursor-pointer hover:fill-[#a3ff12]/30 transition-all" : ""}
+                className={`transition-all duration-150 ease-out ${onPluck ? "cursor-pointer hover:fill-[#a3ff12]/30" : ""}`}
                 onClick={() => onPluck?.(5 - sIdx, 0)}
               />
             );
@@ -305,7 +308,7 @@ export const ChordDiagram: React.FC<ChordDiagramProps> = ({
               return (
                 <g
                   key={`dot-${sIdx}`}
-                  className={onPluck ? "cursor-pointer" : ""}
+                  className={`transition-all duration-150 ease-out ${onPluck ? "cursor-pointer" : ""}`}
                   onClick={() => onPluck?.(5 - sIdx, fret)}
                 >
                   <circle
@@ -314,6 +317,7 @@ export const ChordDiagram: React.FC<ChordDiagramProps> = ({
                     r="11"
                     fill="#a3ff12"
                     filter="drop-shadow(0 0 6px #a3ff12)"
+                    className="transition-all duration-150 ease-out"
                   />
                   {fingerNumber > 0 ? (
                     <text
@@ -324,6 +328,7 @@ export const ChordDiagram: React.FC<ChordDiagramProps> = ({
                       fontFamily="monospace"
                       fontWeight="bold"
                       textAnchor="middle"
+                      className="transition-all duration-150 ease-out"
                     >
                       {fingerNumber}
                     </text>
