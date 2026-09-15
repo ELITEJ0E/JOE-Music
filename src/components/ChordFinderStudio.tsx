@@ -43,6 +43,8 @@ import { SunoSong } from "./SongsLibraryView";
 import { fetchDecryptedAudioFile } from "../utils/sunoAudioResolver";
 import { SUNO_CATALOG_MASTER } from "../lib/suno-catalog-data";
 
+const WAVEFORM_BAR_HEIGHTS = Array.from({ length: 48 }, (_, wIdx) => 25 + ((wIdx * 23) % 65));
+
 interface ChordFinderStudioProps {
   initialSong?: SunoSong | null;
   onClearInitialSong?: () => void;
@@ -483,7 +485,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
   const nextSegment = segments[activeIdx + 1];
 
   const currentSegDuration = currentSegment
-    ? Math.max(0.1, currentSegment.endTime - currentSegment.startTime)
+    ? Math.max(0.01, currentSegment.endTime - currentSegment.startTime)
     : 1;
   const timeRemainingInSegment = currentSegment
     ? Math.max(0, currentSegment.endTime - currentTime)
@@ -1627,15 +1629,17 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                     </div>
                   </div>
 
-                  {/* Chord Measure Progress Bar - glows orange when switch is approaching */}
-                  <div className="w-full h-1 bg-white/10 rounded-full overflow-hidden mb-2.5">
+                  {/* Chord Measure Progress Bar - GPU-accelerated direct transform tracking with instant switch reset */}
+                  <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden mb-2.5 relative">
                     <div
-                      className={`h-full transition-[width,background-color,box-shadow] duration-75 ease-linear ${
+                      className={`absolute inset-0 origin-left will-change-transform transition-colors duration-150 ${
                         isApproachingSwitch
                           ? "bg-orange-500 shadow-[0_0_8px_rgba(249,115,22,0.8)]"
                           : "bg-[#a3ff12] shadow-[0_0_6px_rgba(163,255,18,0.5)]"
                       }`}
-                      style={{ width: `${Math.round(currentChordProgress * 100)}%` }}
+                      style={{
+                        transform: `scaleX(${Math.max(0, Math.min(1, currentChordProgress))})`,
+                      }}
                     />
                   </div>
 
@@ -1697,22 +1701,32 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                   onScrubEnd={(val) => seekToTime(val)}
                   className="h-12 sm:h-14"
                 >
-                  {/* Waveform vertical bars */}
+                  {/* Waveform vertical bars with high-performance GPU clip-path overlay */}
                   <div className="absolute inset-0 px-2 flex items-center justify-between pointer-events-none z-0">
-                    {Array.from({ length: 48 }).map((_, wIdx) => {
-                      const progress = duration > 0 ? currentTime / duration : 0;
-                      const isPassed = wIdx / 48 <= progress;
-                      const h = 25 + ((wIdx * 23) % 65);
-                      return (
+                    {/* Base inactive bars */}
+                    {WAVEFORM_BAR_HEIGHTS.map((h, wIdx) => (
+                      <div
+                        key={`base-${wIdx}`}
+                        className="w-1 rounded-full bg-zinc-700/80 pointer-events-none"
+                        style={{ height: `${h}%` }}
+                      />
+                    ))}
+
+                    {/* Active highlighted bars clipped smoothly by audio progress */}
+                    <div
+                      className="absolute inset-0 px-2 flex items-center justify-between pointer-events-none will-change-[clip-path]"
+                      style={{
+                        clipPath: `inset(0 ${Math.max(0, Math.min(100, 100 - (duration > 0 ? (currentTime / duration) * 100 : 0)))}% 0 0)`,
+                      }}
+                    >
+                      {WAVEFORM_BAR_HEIGHTS.map((h, wIdx) => (
                         <div
-                          key={wIdx}
-                          className={`w-1 rounded-full transition-colors pointer-events-none ${
-                            isPassed ? "bg-[#a3ff12]" : "bg-zinc-700/80"
-                          }`}
+                          key={`act-${wIdx}`}
+                          className="w-1 rounded-full bg-[#a3ff12] pointer-events-none"
                           style={{ height: `${h}%` }}
                         />
-                      );
-                    })}
+                      ))}
+                    </div>
                   </div>
 
                   {/* Chord split markers and labels */}

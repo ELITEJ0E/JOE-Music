@@ -217,10 +217,10 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
     >
       {/* Background Track Frame */}
       <div className="absolute inset-0 bg-white/5 hover:bg-white/[0.08] rounded-xl border border-white/10 overflow-hidden pointer-events-none">
-        {/* Elapsed Progress Fill */}
+        {/* Elapsed Progress Fill - GPU accelerated */}
         <div
-          className="absolute inset-y-0 left-0 bg-gradient-to-r from-[#a3ff12]/15 to-[#a3ff12]/25"
-          style={{ width: `${progressPct}%` }}
+          className="absolute inset-y-0 left-0 w-full bg-gradient-to-r from-[#a3ff12]/15 to-[#a3ff12]/25 origin-left will-change-transform"
+          style={{ transform: `scaleX(${progressPct / 100})` }}
         />
         {/* Children (e.g. Waveforms, Chord Split Markers) */}
         {children}
