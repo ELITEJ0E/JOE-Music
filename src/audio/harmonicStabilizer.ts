@@ -234,16 +234,26 @@ export function stabilizeChordSegments(
         viability -= 1.2;
       }
 
+      // Power-chord (5th) ambiguity adjacent to same-root triad/seventh:
+      // E.g. G5 preceding or following G major is an incomplete harmonic transient
+      const isSameRootPowerChordAmbiguity = seg.quality === "5" && (
+        (i > 0 && current[i - 1].root === seg.root && current[i - 1].quality !== "5") ||
+        (i < current.length - 1 && current[i + 1].root === seg.root && current[i + 1].quality !== "5")
+      );
+      if (isSameRootPowerChordAmbiguity) {
+        viability -= 1.5;
+      }
+
       // Very short micro-chords / glitches below minGlitchDurationBeats are heavily penalized
       if (durationBeats < minGlitchDurationBeats) {
         viability -= 1.0;
       }
       
       // If the segment meets or exceeds minChordDurationBeats, it's virtually immune to absorption
-      // UNLESS it is an isolated sandwiched low-margin flutter (which should be absorbed into its parent chord)
-      if (durationBeats >= minChordDurationBeats && !isSandwichedFlutter) {
+      // UNLESS it is an isolated sandwiched low-margin flutter or a power-chord ambiguity
+      if (durationBeats >= minChordDurationBeats && !isSandwichedFlutter && !isSameRootPowerChordAmbiguity) {
         viability += 10;
-      } else if (dur > beatIntervalSec * 0.8 && isOnBeat && !isSandwichedFlutter) {
+      } else if (dur > beatIntervalSec * 0.8 && isOnBeat && !isSandwichedFlutter && !isSameRootPowerChordAmbiguity) {
         // If it's at least ~0.8 beats long and lands on a beat, grant a strong viability bonus
         viability += 5;
       }
@@ -276,6 +286,14 @@ export function stabilizeChordSegments(
            mergeIntoLeft = false;
            neighborWins = true;
         } else if (left.chord === right.chord) {
+           mergeIntoLeft = true;
+           neighborWins = true;
+        } else if (seg.quality === "5" && right.root === seg.root && right.quality !== "5") {
+           // Absorb power-chord into following full triad/chord of same root
+           mergeIntoLeft = false;
+           neighborWins = true;
+        } else if (seg.quality === "5" && left.root === seg.root && left.quality !== "5") {
+           // Absorb power-chord into preceding full triad/chord of same root
            mergeIntoLeft = true;
            neighborWins = true;
         } else {
@@ -341,31 +359,34 @@ export function stabilizeChordSegments(
       const seg1 = current[i];
       const seg2 = current[i+1];
       
-      const parsed1 = options.keyContext ? { root: seg1.root, qualitySymbol: seg1.quality } : { root: seg1.root, qualitySymbol: seg1.quality }; // simplified
       const sameRoot = seg1.root === seg2.root;
       
       if (sameRoot && seg1.chord !== seg2.chord) {
         const dur1 = seg1.endTime - seg1.startTime;
         const dur2 = seg2.endTime - seg2.startTime;
+        const dur1Beats = dur1 / beatIntervalSec;
+        const dur2Beats = dur2 / beatIntervalSec;
         const margin1 = seg1.diagnostics?.scoreMargin ?? 0.1;
         const margin2 = seg2.diagnostics?.scoreMargin ?? 0.1;
         
         const strength1 = dur1 * margin1 * (seg1.diagnostics?.thirdEvidence ?? 0.5);
         const strength2 = dur2 * margin2 * (seg2.diagnostics?.thirdEvidence ?? 0.5);
         
-        // Only merge same-root quality differences if at least one segment is a short/transient fluctuation (< 0.75s).
-        // Sustained chords (e.g. 2.4s D followed by 1.4s Dm) are deliberate musical chord changes (e.g. IV -> iv)
-        const isTransientFluctuation = dur1 < 0.75 || dur2 < 0.75;
+        // Beat-based threshold: only merge same-root quality fluctuations if at least one segment
+        // is shorter than ~1.0 beat (or 0.75 beat at fast tempos).
+        // Sustained chords (e.g. 2 full beats of D followed by 2 full beats of Dm) are deliberate musical chord changes.
+        const minSameRootMergeBeats = isFastTempo ? 0.75 : 1.0;
+        const isTransientFluctuation = dur1Beats < minSameRootMergeBeats || dur2Beats < minSameRootMergeBeats;
 
         if (isTransientFluctuation) {
-          if (strength1 > strength2 * 2 || dur2 < 0.6) {
+          if (strength1 > strength2 * 2 || dur2Beats < 0.75) {
             // Merge 2 into 1
             seg1.endTime = seg2.endTime;
             current.splice(i + 1, 1);
             hasChanged = true;
             mergedSegmentsCount++;
             break; // restart loop
-          } else if (strength2 > strength1 * 2 || dur1 < 0.6) {
+          } else if (strength2 > strength1 * 2 || dur1Beats < 0.75) {
             // Merge 1 into 2
             seg2.startTime = seg1.startTime;
             current.splice(i, 1);

@@ -238,13 +238,39 @@ export function extractEnhancedChromagram(
     if (maxC > 1e-5) {
       for (let k = 0; k < 12; k++) {
         frameChroma[k] /= maxC;
-        globalChroma[k] += frameChroma[k];
       }
     }
     if (maxB > 1e-5) {
       for (let k = 0; k < 12; k++) {
         frameBassChroma[k] /= maxB;
       }
+    }
+
+    // 3. Transient Dampening & Spectral Flux Gating
+    // Drum hits (kick, snare, crash) and pick attacks produce brief broadband noise across all 12 bins.
+    // Detect transient bursts where pitch clarity (top 3 bins vs sum of all bins) is low.
+    let chromaSum = 0;
+    for (let k = 0; k < 12; k++) chromaSum += frameChroma[k];
+    
+    // Sort bin values to assess energy concentration
+    const sortedChroma = Array.from(frameChroma).sort((a, b) => b - a);
+    const top3Energy = sortedChroma[0] + sortedChroma[1] + sortedChroma[2];
+    const pitchClarity = chromaSum > 1e-5 ? top3Energy / chromaSum : 0;
+
+    // If a broadband transient occurs (low pitch clarity with energy spread across many bins)
+    // and we have a preceding harmonic frame, attenuate the transient distortion by blending with previous frame
+    if (pitchClarity < 0.45 && chromagram.length > 0 && chromaSum > 1.0) {
+      const prevChroma = chromagram[chromagram.length - 1];
+      const prevBass = bassChromagram[bassChromagram.length - 1];
+      for (let k = 0; k < 12; k++) {
+        // Favor previous harmonic profile (75%) over the noisy transient burst (25%)
+        frameChroma[k] = (prevChroma[k] * 0.75) + (frameChroma[k] * 0.25);
+        frameBassChroma[k] = (prevBass[k] * 0.75) + (frameBassChroma[k] * 0.25);
+      }
+    }
+
+    for (let k = 0; k < 12; k++) {
+      globalChroma[k] += frameChroma[k];
     }
 
     chromagram.push(frameChroma);

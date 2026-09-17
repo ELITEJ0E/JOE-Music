@@ -233,23 +233,35 @@ function getHarmonicTransitionScore(
   chordB: ChordCandidate,
   keyProfile: DiatonicProfile,
   unitB: BeatUnit,
-  isHighResolutionMode: boolean
+  isHighResolutionMode: boolean,
+  prevPrevChordName?: string
 ): number {
   if (chordA.chord === chordB.chord) {
     // Self-transition persistence bonus (encourages sustaining a chord across its duration)
-    return unitB.isDownbeat ? 0.20 : (isHighResolutionMode ? 0.30 : 0.35);
+    return unitB.isDownbeat ? 0.22 : (isHighResolutionMode ? 0.32 : 0.38);
   }
 
   // Chord change occurring - soft priors
   let transitionBonus = 0;
 
-  // Metric timing preference: slight encouragement on bar or half-bar boundaries
+  // Metric timing preference: higher penalty for chord changes on subdivisions (off-beats) vs downbeats
   if (unitB.isDownbeat) {
-    transitionBonus += 0.08;
+    transitionBonus += 0.10;
   } else if (unitB.beatNumberInBar === 3 && !unitB.isSubdivision) {
-    transitionBonus += 0.05;
+    transitionBonus += 0.06;
   } else if (unitB.isSubdivision) {
-    transitionBonus -= 0.05;
+    transitionBonus -= 0.16; // Stronger penalty for off-beat flutter
+  }
+
+  // A-B-A oscillation suppression: penalty if changing back immediately to the previous chord
+  if (prevPrevChordName && prevPrevChordName === chordB.chord && chordA.chord !== chordB.chord) {
+    transitionBonus -= 0.22;
+  }
+
+  // Same-root quality change penalty (e.g., C to Cmaj7 or C to Cadd9):
+  // Flickering extensions require stronger emission evidence
+  if (chordA.root === chordB.root && chordA.chord !== chordB.chord) {
+    transitionBonus -= 0.15;
   }
 
   const rootAIdx = NOTE_NAMES.indexOf(chordA.root);
@@ -327,7 +339,22 @@ export function optimizeChordSequence(
 
       for (let p = 0; p < prevCandidates.length; p++) {
         const prevCand = prevCandidates[p];
-        const transScore = getHarmonicTransitionScore(prevCand, currCand, keyProfile, unit, isHighResolutionMode);
+        let prevPrevName: string | undefined = undefined;
+        if (u >= 2 && backpointers[u - 1]) {
+          const ppIdx = backpointers[u - 1][p];
+          if (ppIdx !== undefined && units[u - 2].candidates[ppIdx]) {
+            prevPrevName = units[u - 2].candidates[ppIdx].chord;
+          }
+        }
+
+        const transScore = getHarmonicTransitionScore(
+          prevCand,
+          currCand,
+          keyProfile,
+          unit,
+          isHighResolutionMode,
+          prevPrevName
+        );
 
         // Gentle soft prior scaling (0.8x) ensures audio emission evidence dominates
         const totalPathScore = trellisScores[u - 1][p] + (transScore * 0.8) + emissionScore;

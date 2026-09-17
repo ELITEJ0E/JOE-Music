@@ -28,6 +28,8 @@ import { SongAnalysis, SavedSong } from "../types";
 import { resolveChordFinderState, transposeChordSymbol } from "../music/chordTransposer";
 import { PlayabilityMode } from "../music/chordVoicingGenerator";
 import { arrangeChordProgression, ProgressionArrangementResult } from "../music/fingerstyleArranger";
+import { CURRENT_ANALYSIS_VERSION, needsReanalysis } from "../audio/analysisVersion";
+import { liveChordDetector, LiveChordResult } from "../audio/liveChordDetector";
 import { ChordDiagram } from "./ChordDiagram";
 import { CustomConfirmDialog } from "./ui/CustomConfirmDialog";
 import { TimelineScrubber } from "./ui/TimelineScrubber";
@@ -100,7 +102,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
           return false;
         });
 
-        if (match && match.chordSegments && match.chordSegments.length > 4) {
+        if (match && match.chordSegments && match.chordSegments.length > 4 && !needsReanalysis(match)) {
           const updated: SavedSong = {
             ...match,
             id: deterministicId,
@@ -202,6 +204,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
   }, [initialSong, onClearInitialSong]);
 
   const [isLiveMic, setIsLiveMic] = useState(false);
+  const [liveChordData, setLiveChordData] = useState<LiveChordResult | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [transpose, setTranspose] = useState(0);
@@ -347,15 +350,36 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
 
   const duration = activeSong?.duration || (segments.length > 0 ? segments[segments.length - 1].endTime : 1);
 
-  // Playhead update loop (when playing audio or simulated playback)
+  // Playhead update loop (continuous high-resolution audio clock with sub-frame interpolation)
   useEffect(() => {
     let animationFrameId: number;
-    let lastTime = performance.now();
+    let lastAudioTime = -1;
+    let basePerfTime = performance.now();
+    let baseAudioTime = 0;
+    let lastSimTime = performance.now();
 
     if (isPlaying && !isDraggingTimeline) {
       const tick = (now: number) => {
-        if (audioRef.current && audioRef.current.src) {
-          setCurrentTime(audioRef.current.currentTime);
+        if (audioRef.current && audioRef.current.src && !isNaN(audioRef.current.duration)) {
+          const currentAudioTime = audioRef.current.currentTime;
+
+          // Calibrate baseline whenever audio element clock updates
+          if (currentAudioTime !== lastAudioTime) {
+            lastAudioTime = currentAudioTime;
+            baseAudioTime = currentAudioTime;
+            basePerfTime = now;
+          }
+
+          const playbackRate = audioRef.current.playbackRate || 1.0;
+          const elapsedSec = ((now - basePerfTime) / 1000) * playbackRate;
+          // Interpolate smoothly between audio element updates, bounded to avoid drift
+          const estimatedTime = Math.max(
+            currentAudioTime - 0.05,
+            Math.min(currentAudioTime + 0.12, baseAudioTime + elapsedSec)
+          );
+
+          setCurrentTime(estimatedTime);
+
           if (audioRef.current.ended) {
             if (isRepeating) {
               audioRef.current.currentTime = 0;
@@ -366,7 +390,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
           }
         } else {
           // Playhead progression for tracks without audio blob
-          const deltaSeconds = Math.max(0, (now - lastTime) / 1000);
+          const deltaSeconds = Math.max(0, (now - lastSimTime) / 1000);
           const step = deltaSeconds * (slowDown ? 0.75 : 1.0);
           setCurrentTime((prev) => {
             const next = prev + step;
@@ -381,7 +405,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
             return next;
           });
         }
-        lastTime = now;
+        lastSimTime = now;
         animationFrameId = requestAnimationFrame(tick);
       };
 
@@ -466,7 +490,27 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
     };
   };
 
-  const activeChord = useMemo(() => getDisplayChord(activeIdx), [activeIdx, segments, transpose, capo, activeSong?.key]);
+  const activeChord = useMemo(() => {
+    if (isLiveMic && liveChordData) {
+      if (!liveChordData.isSilence && liveChordData.chord && liveChordData.chord !== "-") {
+        const resolved = resolveChordFinderState(liveChordData.chord, transpose, capo, activeSong?.key);
+        return {
+          ...resolved,
+          timeLabel: "LIVE",
+          confidence: liveChordData.confidence || 85,
+        };
+      }
+      return {
+        detectedChord: "-",
+        transposedChord: "-",
+        shapeChord: "-",
+        timeLabel: "LIVE",
+        isValid: false,
+        confidence: 0,
+      };
+    }
+    return getDisplayChord(activeIdx);
+  }, [isLiveMic, liveChordData, activeIdx, segments, transpose, capo, activeSong?.key]);
 
   const LOOKBEHIND_COUNT = 1;
   const LOOKAHEAD_COUNT = 5; // tune-able: how many upcoming chords to show ahead of the active one
@@ -1101,17 +1145,22 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
 
   useEffect(() => {
     return () => {
-      audioEngine.releaseInput("chord-finder");
+      liveChordDetector.stop();
+      audioEngine.releaseInput("chord-finder-live");
     };
   }, []);
 
   const toggleLiveMic = async () => {
     if (isLiveMic) {
-      audioEngine.releaseInput("chord-finder");
+      liveChordDetector.stop();
+      audioEngine.releaseInput("chord-finder-live");
       setIsLiveMic(false);
+      setLiveChordData(null);
     } else {
       try {
-        await audioEngine.acquireInput("chord-finder");
+        await liveChordDetector.start((result) => {
+          setLiveChordData(result);
+        });
         setIsLiveMic(true);
       } catch (err) {
         setDialog({
@@ -1162,6 +1211,17 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
     seekToTime(Math.min(duration, currentTime + ffAmount));
   };
 
+  const currentTimeRef = useRef(currentTime);
+  currentTimeRef.current = currentTime;
+  const durationRef = useRef(duration);
+  durationRef.current = duration;
+  const barSecondsRef = useRef(barSeconds);
+  barSecondsRef.current = barSeconds;
+  const activeIdxRef = useRef(activeIdx);
+  activeIdxRef.current = activeIdx;
+  const segmentsRef = useRef(segments);
+  segmentsRef.current = segments;
+
   // Keyboard shortcut listener for Arrow keys (← / → / ↑ / ↓), Space / F8 (Play/Pause), F7 (Rewind), F9 (Fast-Forward)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -1176,42 +1236,48 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
         return;
       }
 
+      const curTime = currentTimeRef.current;
+      const dur = durationRef.current;
+      const barSec = barSecondsRef.current > 0 ? barSecondsRef.current : 5;
+      const curIdx = activeIdxRef.current;
+      const segs = segmentsRef.current;
+
       if (e.code === "Space" || e.key === " " || e.key === "F8") {
         e.preventDefault();
         setIsPlaying((prev) => !prev);
       } else if (e.key === "ArrowLeft" || e.code === "ArrowLeft" || e.key === "F7" || e.key === "j" || e.key === "J") {
         e.preventDefault();
-        if (e.shiftKey && activeIdx > 0 && segments[activeIdx - 1]) {
+        if (e.shiftKey && curIdx > 0 && segs[curIdx - 1]) {
           // Shift + ArrowLeft: Jump to previous chord boundary
-          seekToTime(segments[activeIdx - 1].startTime);
+          seekToTime(segs[curIdx - 1].startTime);
         } else {
           // ArrowLeft: Rewind by 1 measure or 5 seconds
-          handleRewindInChordFinder();
+          seekToTime(Math.max(0, curTime - barSec));
         }
       } else if (e.key === "ArrowRight" || e.code === "ArrowRight" || e.key === "F9" || e.key === "l" || e.key === "L") {
         e.preventDefault();
-        if (e.shiftKey && activeIdx + 1 < segments.length && segments[activeIdx + 1]) {
+        if (e.shiftKey && curIdx + 1 < segs.length && segs[curIdx + 1]) {
           // Shift + ArrowRight: Jump to next chord boundary
-          seekToTime(segments[activeIdx + 1].startTime);
+          seekToTime(segs[curIdx + 1].startTime);
         } else {
           // ArrowRight: Fast-forward by 1 measure or 5 seconds
-          handleFastForwardInChordFinder();
+          seekToTime(Math.min(dur, curTime + barSec));
         }
       } else if (e.key === "ArrowUp" || e.code === "ArrowUp") {
         // ArrowUp: Fine seek forward (2s) or next chord
         e.preventDefault();
-        if (activeIdx + 1 < segments.length && segments[activeIdx + 1]) {
-          seekToTime(segments[activeIdx + 1].startTime);
+        if (curIdx + 1 < segs.length && segs[curIdx + 1]) {
+          seekToTime(segs[curIdx + 1].startTime);
         } else {
-          handleFastForwardInChordFinder(2);
+          seekToTime(Math.min(dur, curTime + 2));
         }
       } else if (e.key === "ArrowDown" || e.code === "ArrowDown") {
         // ArrowDown: Fine seek back (2s) or previous chord
         e.preventDefault();
-        if (activeIdx > 0 && segments[activeIdx - 1]) {
-          seekToTime(segments[activeIdx - 1].startTime);
+        if (curIdx > 0 && segs[curIdx - 1]) {
+          seekToTime(segs[curIdx - 1].startTime);
         } else {
-          handleRewindInChordFinder(2);
+          seekToTime(Math.max(0, curTime - 2));
         }
       }
     };
@@ -1220,7 +1286,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [currentTime, duration, barSeconds, activeIdx, segments]);
+  }, []);
 
   // Progression Arranger: optimize fingerstyle voicings across entire progression
   const arrangedProgression: ProgressionArrangementResult | null = React.useMemo(() => {
@@ -1243,7 +1309,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
   // Resolve active guitar voicing based strictly on shapeChord and verified capo sounding with useMemo caching
   const activeSegment = segments[activeIdx];
   const activeVoicingResult: GuitarVoicingResult = React.useMemo(() => {
-    if (!activeSong || !activeChord.isValid) {
+    if ((!activeSong && !isLiveMic) || !activeChord.isValid) {
       return {
         detectedChord: "-",
         displayChord: "-",
@@ -1260,7 +1326,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
       };
     }
     return resolveGuitarChord(activeChord.shapeChord, {
-      keyContext: activeSong.key,
+      keyContext: activeSong?.key,
       detectionConfidence: activeChord.confidence,
       voicingIndex: effectiveVoicingIndex,
       playabilityMode,
@@ -1270,6 +1336,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
     });
   }, [
     activeSong,
+    isLiveMic,
     activeChord.isValid,
     activeChord.shapeChord,
     activeChord.confidence,
@@ -1548,7 +1615,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
               {/* Horizontally scrolling chord lookahead strip */}
               <div className="py-2 sm:py-3 border-y border-white/5">
                 <div
-                  className="flex items-center gap-4 sm:gap-6 overflow-x-auto [&::-webkit-scrollbar]:hidden px-8 select-none"
+                  className="flex items-center gap-4 sm:gap-6 overflow-x-auto [&::-webkit-scrollbar]:hidden px-8 select-none [overflow-anchor:none]"
                   style={{
                     scrollbarWidth: "none",
                   }}
@@ -1657,10 +1724,10 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                     </div>
                   </div>
 
-                  {/* Chord Measure Progress Bar - GPU-accelerated direct transform tracking with instant switch reset */}
-                  <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden mb-2.5 relative">
+                  {/* Chord Measure Progress Bar - GPU-accelerated sub-frame continuous interpolation with smooth transition */}
+                  <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden mb-2.5 relative [overflow-anchor:none]">
                     <div
-                      className={`absolute inset-0 origin-left will-change-transform transition-colors duration-150 ${
+                      className={`absolute inset-0 origin-left will-change-transform transition-[transform,colors] duration-75 ease-out ${
                         isApproachingSwitch
                           ? "bg-orange-500 shadow-[0_0_8px_rgba(249,115,22,0.8)]"
                           : "bg-[#a3ff12] shadow-[0_0_6px_rgba(163,255,18,0.5)]"
@@ -1672,7 +1739,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                   </div>
 
                   {activeVoicingResult.voicing ? (
-                    <div className="w-[240px] h-[270px] flex items-center justify-center">
+                    <div className="w-[240px] h-[270px] flex items-center justify-center [overflow-anchor:none] flex-shrink-0">
                       <ChordDiagram
                         frets={activeVoicingResult.voicing.frets}
                         fingers={activeVoicingResult.voicing.fingers}
@@ -1685,7 +1752,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                       />
                     </div>
                   ) : (
-                    <div className="w-[240px] h-[270px] flex flex-col items-center justify-center text-center space-y-1">
+                    <div className="w-[240px] h-[270px] flex flex-col items-center justify-center text-center space-y-1 [overflow-anchor:none] flex-shrink-0">
                       <span className="text-xs font-mono font-bold text-zinc-300">No guitar voicing</span>
                       <span className="text-[10px] font-mono text-zinc-500 max-w-[200px]">
                         {activeVoicingResult.simplificationReason || `No safe diagram for ${activeChord.shapeChord}`}

@@ -14,7 +14,7 @@ function reportProgress(message: string, percent: number): void {
 
 self.onmessage = function (e: MessageEvent) {
   try {
-    const { channelData, sampleRate, duration } = e.data;
+    const { channelData, sideChannelData, sampleRate, duration } = e.data;
     if (!channelData || channelData.length === 0) {
       throw new Error("No audio channel data received for analysis.");
     }
@@ -31,11 +31,11 @@ self.onmessage = function (e: MessageEvent) {
       fftSize,
       hopSize,
       onProgress: (pct) => {
-        reportProgress("Extracting Harmonic & Bass Chroma Features...", 10 + Math.round(pct * 40));
+        reportProgress("Extracting Harmonic & Bass Chroma Features...", 10 + Math.round(pct * 30));
       }
     });
 
-    const {
+    let {
       chromagram,
       bassChromagram,
       onsetEnvelope,
@@ -46,6 +46,54 @@ self.onmessage = function (e: MessageEvent) {
 
     if (numFrames < 4) {
       throw new Error(`Audio buffer is too short (${numFrames} frames). Minimum 4 frames required.`);
+    }
+
+    // Stereo Side-Channel Analysis:
+    // When stereo audio is present, analyze the side channel (L - R) to capture
+    // wide-panned rhythm guitars, acoustic guitars, and synths that would otherwise
+    // be overpowered by center-panned kick and bass.
+    if (sideChannelData && sideChannelData.length > 0) {
+      reportProgress("Analyzing Stereo Side Channels for Wide-Panned Guitars...", 42);
+      const sideSpectralResult = extractEnhancedChromagram(sideChannelData, sampleRate, {
+        fftSize,
+        hopSize,
+        onProgress: (pct) => {
+          reportProgress("Extracting Stereo Features...", 42 + Math.round(pct * 10));
+        }
+      });
+
+      const sideChromagram = sideSpectralResult.chromagram;
+      const sideOnset = sideSpectralResult.onsetEnvelope;
+
+      const blendedChromagram: Float32Array[] = [];
+      for (let f = 0; f < numFrames; f++) {
+        const frame = new Float32Array(12);
+        const monoF = chromagram[f];
+        const sideF = sideChromagram && sideChromagram[f] ? sideChromagram[f] : null;
+
+        let maxVal = 0;
+        for (let k = 0; k < 12; k++) {
+          const val = sideF ? monoF[k] * 0.65 + sideF[k] * 0.35 : monoF[k];
+          frame[k] = val;
+          if (val > maxVal) maxVal = val;
+        }
+        if (maxVal > 1e-4) {
+          const invMax = 1 / maxVal;
+          for (let k = 0; k < 12; k++) {
+            frame[k] *= invMax;
+          }
+        }
+        blendedChromagram.push(frame);
+      }
+      chromagram = blendedChromagram;
+
+      if (sideOnset && sideOnset.length === onsetEnvelope.length) {
+        const blendedOnset = new Float32Array(onsetEnvelope.length);
+        for (let i = 0; i < blendedOnset.length; i++) {
+          blendedOnset[i] = onsetEnvelope[i] * 0.75 + sideOnset[i] * 0.25;
+        }
+        onsetEnvelope = blendedOnset;
+      }
     }
 
     // 2. Beat Tracking & Tempo Estimation

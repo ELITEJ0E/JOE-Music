@@ -109,14 +109,14 @@ interface QualityDef {
 const QUALITY_DEFINITIONS: QualityDef[] = [
   { quality: "maj", intervals: [0, 4, 7], baseComplexity: 0.0, definingIntervals: [4] },
   { quality: "min", intervals: [0, 3, 7], baseComplexity: 0.0, definingIntervals: [3] },
-  { quality: "sus4", intervals: [0, 5, 7], baseComplexity: 0.15, definingIntervals: [5] },
-  { quality: "sus2", intervals: [0, 2, 7], baseComplexity: 0.15, definingIntervals: [2] },
-  { quality: "5", intervals: [0, 7], baseComplexity: 0.08, definingIntervals: [7] },
-  { quality: "7", intervals: [0, 4, 7, 10], baseComplexity: 0.16, definingIntervals: [10] },
-  { quality: "maj7", intervals: [0, 4, 7, 11], baseComplexity: 0.18, definingIntervals: [11] },
-  { quality: "min7", intervals: [0, 3, 7, 10], baseComplexity: 0.18, definingIntervals: [3, 10] },
-  { quality: "add9", intervals: [0, 2, 4, 7], baseComplexity: 0.22, definingIntervals: [2, 4] },
-  { quality: "dim", intervals: [0, 3, 6], baseComplexity: 0.15, definingIntervals: [3, 6] }
+  { quality: "sus4", intervals: [0, 5, 7], baseComplexity: 0.16, definingIntervals: [5] },
+  { quality: "sus2", intervals: [0, 2, 7], baseComplexity: 0.16, definingIntervals: [2] },
+  { quality: "5", intervals: [0, 7], baseComplexity: 0.12, definingIntervals: [7] },
+  { quality: "7", intervals: [0, 4, 7, 10], baseComplexity: 0.20, definingIntervals: [10] },
+  { quality: "maj7", intervals: [0, 4, 7, 11], baseComplexity: 0.22, definingIntervals: [11] },
+  { quality: "min7", intervals: [0, 3, 7, 10], baseComplexity: 0.20, definingIntervals: [3, 10] },
+  { quality: "add9", intervals: [0, 2, 4, 7], baseComplexity: 0.24, definingIntervals: [2, 4] },
+  { quality: "dim", intervals: [0, 3, 6], baseComplexity: 0.18, definingIntervals: [3, 6] }
 ];
 
 /**
@@ -176,30 +176,35 @@ export function evaluateQualityForRoot(
 
     // Specific quality acoustic anti-rules:
     // 1. Sus4: if major 3rd is strong, heavily penalize sus4
-    if (qDef.quality === "sus4" && maj3Ev > 0.30) {
-      missingPenalty += maj3Ev * 1.2;
+    if (qDef.quality === "sus4" && maj3Ev > 0.28) {
+      missingPenalty += maj3Ev * 1.5;
     }
     // 2. Sus2: if either 3rd is strong, penalize sus2
-    if (qDef.quality === "sus2" && Math.max(maj3Ev, min3Ev) > 0.30) {
-      missingPenalty += Math.max(maj3Ev, min3Ev) * 1.0;
+    if (qDef.quality === "sus2" && Math.max(maj3Ev, min3Ev) > 0.28) {
+      missingPenalty += Math.max(maj3Ev, min3Ev) * 1.5;
     }
-    // 3. Power chord 5: only when NO 3rd, 2nd, or 4th is present
-    if (qDef.quality === "5" && Math.max(maj3Ev, min3Ev, fourthEv, secondEv) > 0.25) {
-      missingPenalty += 0.6;
+    // 3. Power chord 5: only when NO 3rd is present (strict requirement)
+    if (qDef.quality === "5" && Math.max(maj3Ev, min3Ev) > 0.18) {
+      missingPenalty += 0.8;
     }
 
     // Diatonic consistency bonus
     let diatonicBonus = 0;
     if (qDef.quality === expectedQuality) {
-      diatonicBonus = 0.06;
+      diatonicBonus = 0.08;
     } else if (qDef.quality === expectedQuality + "7") {
       diatonicBonus = 0.04;
     }
 
-    // Extensions require strong defining evidence (>= 0.40) and clear separation
+    // Extensions require strong, sustained defining evidence (>= 0.45) and clear separation from passing notes
     if (["7", "maj7", "min7", "add9"].includes(qDef.quality)) {
-      if (definingEv < 0.40) {
-        missingPenalty += (0.40 - definingEv) * 2.0;
+      const triadStrength = (chroma[rootIdx] + (qDef.quality.includes("min") ? min3Ev : maj3Ev) + fifthEv) / 3;
+      if (definingEv < 0.45) {
+        missingPenalty += (0.45 - definingEv) * 2.5;
+      }
+      // Passing melodic notes: if the defining tone is significantly weaker than the fundamental triad tones, penalize it
+      if (definingEv < triadStrength * 0.65) {
+        missingPenalty += 0.35;
       }
     }
 

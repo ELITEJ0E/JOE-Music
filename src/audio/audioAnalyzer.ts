@@ -1,5 +1,6 @@
 import { audioEngine } from "./audioContext";
-import { SongAnalysis, SongSection } from "../types";
+import { SongAnalysis } from "../types";
+import { CURRENT_ANALYSIS_VERSION } from "./analysisVersion";
 import AnalyzerWorker from "./analyzerWorker?worker";
 
 /**
@@ -29,7 +30,26 @@ export async function analyzeAudioFile(
 
   const duration = audioBuffer.duration;
   const sampleRate = audioBuffer.sampleRate;
-  const channelData = audioBuffer.getChannelData(0);
+  const numChannels = audioBuffer.numberOfChannels;
+  const length = audioBuffer.length;
+
+  // Extract Mid ((L+R)/2) and Side ((L-R)/2) channels for stereo-aware MIR analysis.
+  // Audio playback remains full pristine stereo; mid/side extraction ensures wide-panned
+  // rhythm guitars, acoustic guitars, and keyboards are analyzed alongside center-panned bass.
+  let monoAnalysisData: Float32Array;
+  let sideAnalysisData: Float32Array | undefined = undefined;
+  if (numChannels === 1) {
+    monoAnalysisData = new Float32Array(audioBuffer.getChannelData(0));
+  } else {
+    const left = audioBuffer.getChannelData(0);
+    const right = audioBuffer.getChannelData(1);
+    monoAnalysisData = new Float32Array(length);
+    sideAnalysisData = new Float32Array(length);
+    for (let i = 0; i < length; i++) {
+      monoAnalysisData[i] = (left[i] + right[i]) * 0.5;
+      sideAnalysisData[i] = (left[i] - right[i]) * 0.5;
+    }
+  }
 
   return new Promise((resolve, reject) => {
     const worker = new AnalyzerWorker();
@@ -54,8 +74,10 @@ export async function analyzeAudioFile(
           sampleRate: sampleRate,
           numChannels: audioBuffer.numberOfChannels,
           numSamples: audioBuffer.length,
+          stereoMidSideAnalyzed: !!sideAnalysisData,
           workerStarted: true,
           workerReceivedSamples: true,
+          analysisVersion: CURRENT_ANALYSIS_VERSION,
           ...analysis.diagnostics
         };
 
@@ -76,10 +98,10 @@ export async function analyzeAudioFile(
           sections: analysis.sections,
           beats: analysis.beats,
           confidence: analysis.overallConfidence,
-          tips: "Extracted using Guitariz-inspired MIR (CQT + HPSS + Viterbi HMM).",
+          tips: "Extracted using high-resolution STFT chromagrams with Viterbi decoding and beat-synchronous harmonic stabilization.",
           audioBlob: file,
           duration: duration,
-          analysisVersion: "1.0.0",
+          analysisVersion: CURRENT_ANALYSIS_VERSION,
           diagnostics: mainDiagnostics
         };
         
@@ -88,7 +110,7 @@ export async function analyzeAudioFile(
         console.log("Estimated Tuning Deviation (cents):", songResult.tuningDeviation);
         if (songResult.rawTimelinesForDebug && songResult.rawTimelinesForDebug.length > 0) {
             console.log("=== RAW MIR vs VITERBI vs FINAL ===");
-            songResult.rawTimelinesForDebug.forEach((seg, i) => {
+            songResult.rawTimelinesForDebug.forEach((seg) => {
                 const stabilized = songResult.chordSegments.find(s => s.startTime === seg.startTime);
                 console.log(`[${seg.startTime.toFixed(2)}s - ${seg.endTime.toFixed(2)}s]: RAW=${seg.diagnostics?.rawMirWinner} | VITERBI=${seg.diagnostics?.viterbiChord} | FINAL_BEFORE_STAB=${seg.chord} | STABILIZED=${stabilized ? stabilized.chord : "merged/lost"}`);
                 console.log(`  Top 5 Candidates:`, seg.diagnostics?.top5Candidates);
@@ -109,9 +131,19 @@ export async function analyzeAudioFile(
       worker.terminate();
     };
 
+    const transferBuffers: Transferable[] = [monoAnalysisData.buffer];
+    if (sideAnalysisData) {
+      transferBuffers.push(sideAnalysisData.buffer);
+    }
+
     worker.postMessage(
-      { channelData, sampleRate, duration },
-      [channelData.buffer]
+      {
+        channelData: monoAnalysisData,
+        sideChannelData: sideAnalysisData,
+        sampleRate,
+        duration,
+      },
+      transferBuffers
     );
   });
 }
