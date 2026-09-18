@@ -476,13 +476,14 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
     const cachedIdx = lastActiveIdxRef.current;
     if (cachedIdx >= 0 && cachedIdx < segments.length) {
       const seg = segments[cachedIdx];
-      if (searchTime >= seg.startTime && searchTime <= seg.endTime) {
+      // Instant transition on the beat: active during [startTime, endTime)
+      if (searchTime >= seg.startTime && (searchTime < seg.endTime || cachedIdx === segments.length - 1)) {
         return cachedIdx;
       }
       // Fast path: check next sequential segment
       if (cachedIdx + 1 < segments.length) {
         const nextSeg = segments[cachedIdx + 1];
-        if (searchTime >= nextSeg.startTime && searchTime <= nextSeg.endTime) {
+        if (searchTime >= nextSeg.startTime && (searchTime < nextSeg.endTime || cachedIdx + 1 === segments.length - 1)) {
           lastActiveIdxRef.current = cachedIdx + 1;
           return cachedIdx + 1;
         }
@@ -498,7 +499,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
       const seg = segments[mid];
       if (searchTime < seg.startTime) {
         high = mid - 1;
-      } else if (searchTime > seg.endTime) {
+      } else if (searchTime >= seg.endTime && mid < segments.length - 1) {
         low = mid + 1;
       } else {
         found = mid;

@@ -48,7 +48,8 @@ export function buildMusicalGrid(
   options: { forceHighResolution?: boolean } = {}
 ): { units: BeatUnit[]; isFastMode: boolean; isHighResolutionMode: boolean; beatIntervalSec: number } {
   const beatIntervalSec = 60 / Math.max(40, tempo);
-  const isHighResolutionMode = options.forceHighResolution ?? (tempo >= 115);
+  // High resolution grid (8th-note subdivisions) enabled for true beat & upbeat chord tracking
+  const isHighResolutionMode = options.forceHighResolution ?? (tempo >= 75 || beatIntervalSec >= 0.35);
 
   let effectiveBeats = [...beats];
   if (effectiveBeats.length === 0) {
@@ -79,7 +80,7 @@ export function buildMusicalGrid(
     const beatNumberInBar = (b % 4) + 1; // 1, 2, 3, 4
     const isDownbeat = beatNumberInBar === 1;
 
-    if (isHighResolutionMode && thisBeatDuration > 0.28) {
+    if (isHighResolutionMode && thisBeatDuration > 0.22) {
       // Subdivide into candidate half-beat analysis points (8th notes)
       // Note: This provides temporal resolution, but does NOT force a chord change.
       // Identical consecutive units cleanly merge during sequence decoding.
@@ -185,9 +186,10 @@ export function aggregateChromasForBeatUnits(
     }
   }
 
-  // 2. Multi-Resolution Context: Compute ~2 bar running average around each unit
-  // In 4/4 time, 2 bars is ~8 beats (or ~16 units in fast mode)
-  const contextWindowUnits = isFastMode ? 8 : 4;
+  // 2. High-Fidelity Local Chroma with Micro-Context Smoothing
+  // Uses 92% direct beat chroma to preserve crisp, instantaneous chord transitions
+  // and small 2-unit micro-window (max 1 beat) to prevent cross-measure harmonic smearing
+  const contextWindowUnits = 2;
 
   for (let u = 0; u < units.length; u++) {
     const unit = units[u];
@@ -209,8 +211,8 @@ export function aggregateChromasForBeatUnits(
       for (let k = 0; k < 12; k++) unit.contextChroma[k] /= maxCtx;
     }
 
-    // Blend: 75% local responsiveness + 25% context stability
-    const localWeight = isFastMode ? 0.80 : 0.70;
+    // Blend: 92% local responsiveness (true to beat changes) + 8% micro-smoothing
+    const localWeight = 0.92;
     const ctxWeight = 1.0 - localWeight;
     let maxBlended = 0;
 
@@ -237,31 +239,31 @@ function getHarmonicTransitionScore(
   prevPrevChordName?: string
 ): number {
   if (chordA.chord === chordB.chord) {
-    // Self-transition persistence bonus (encourages sustaining a chord across its duration)
-    return unitB.isDownbeat ? 0.22 : (isHighResolutionMode ? 0.32 : 0.38);
+    // Balanced self-transition persistence: keeps genuine holds without resisting fast changes
+    return unitB.isDownbeat ? 0.08 : 0.12;
   }
 
   // Chord change occurring - soft priors
   let transitionBonus = 0;
 
-  // Metric timing preference: higher penalty for chord changes on subdivisions (off-beats) vs downbeats
+  // Metric timing preference: slight downbeat/beat preference while remaining responsive to upbeats
   if (unitB.isDownbeat) {
-    transitionBonus += 0.10;
+    transitionBonus += 0.08;
   } else if (unitB.beatNumberInBar === 3 && !unitB.isSubdivision) {
-    transitionBonus += 0.06;
+    transitionBonus += 0.05;
   } else if (unitB.isSubdivision) {
-    transitionBonus -= 0.16; // Stronger penalty for off-beat flutter
+    transitionBonus -= 0.03; // Light subdivision adjustment (allows natural syncopated changes)
   }
 
   // A-B-A oscillation suppression: penalty if changing back immediately to the previous chord
   if (prevPrevChordName && prevPrevChordName === chordB.chord && chordA.chord !== chordB.chord) {
-    transitionBonus -= 0.22;
+    transitionBonus -= 0.18;
   }
 
   // Same-root quality change penalty (e.g., C to Cmaj7 or C to Cadd9):
   // Flickering extensions require stronger emission evidence
   if (chordA.root === chordB.root && chordA.chord !== chordB.chord) {
-    transitionBonus -= 0.15;
+    transitionBonus -= 0.12;
   }
 
   const rootAIdx = NOTE_NAMES.indexOf(chordA.root);
