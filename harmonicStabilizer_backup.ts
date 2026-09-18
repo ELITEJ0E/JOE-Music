@@ -83,6 +83,7 @@ export function evaluateSlashChordStability(
   if (diag) {
     const slashBassRatio = diag.slashBassRatio ?? 1.0;
     const slashBassEvidence = diag.slashBassEvidence ?? 0.0;
+
     // Strong genuine slash chord requires high bass ratio and solid evidence
     if (slashBassRatio < 1.35 || slashBassEvidence < 0.40) {
       return { isGenuine: false, baseChord };
@@ -94,45 +95,18 @@ export function evaluateSlashChordStability(
   return { isGenuine: true, baseChord };
 }
 
-/**
- * Helper to measure harmonic distance (circle of fifths distance) between two roots.
- * Returns 0 (same) to 6 (tritone).
- */
-function getHarmonicDistance(root1: string, root2: string): number {
-  const circle = [0, 7, 2, 9, 4, 11, 6, 1, 8, 3, 10, 5]; // C G D A E B F# C# G# D# A# F
-  const pc1 = getPitchClass(root1);
-  const pc2 = getPitchClass(root2);
-  if (pc1 === -1 || pc2 === -1) return 0;
-  const idx1 = circle.indexOf(pc1);
-  const idx2 = circle.indexOf(pc2);
-  let dist = Math.abs(idx1 - idx2);
-  if (dist > 6) dist = 12 - dist;
-  return dist;
-}
-
-/**
- * Simplify extensions based on musical priority if confidence is low.
- * Priority: 1. Triads (C, Cm), 2. 7ths (C7, Cmaj7, Cm7), 3. Complex (sus, add9, etc.)
- */
-function simplifyChordExtension(seg: ChordSegment, minDurForExtension: number) {
-  const diag = seg.diagnostics;
-  const dur = seg.endTime - seg.startTime;
-  
-  // Demote sus/add9 to major/minor triads if they don't persist
-  if (["sus2", "sus4", "add9", "6", "m6"].includes(seg.quality)) {
-    if (dur < minDurForExtension || (diag && diag.definingEvidence < 0.4)) {
-      seg.quality = seg.quality === "m6" ? "min" : "maj";
-      seg.chord = `${seg.root}${seg.quality === "maj" ? "" : "m"}`;
-    }
-  }
-  
-  // Demote 7ths to triads if they are very short or weak
-  if (["7", "maj7", "min7", "m7"].includes(seg.quality)) {
-    if (dur < minDurForExtension * 0.7 || (diag && diag.definingEvidence < 0.35)) {
-      seg.quality = (seg.quality === "min7" || seg.quality === "m7") ? "min" : "maj";
-      seg.chord = `${seg.root}${seg.quality === "maj" ? "" : "m"}`;
-    }
-  }
+interface BeatWindowCandidate {
+  chord: string;
+  root: string;
+  bass: string;
+  quality: string;
+  extensions: string[];
+  rawChord: string;
+  weight: number;
+  confidence: number;
+  supportFrames: number;
+  isSlash: boolean;
+  hasGenuineSlash: boolean;
 }
 
 /**
@@ -158,17 +132,13 @@ export function stabilizeChordSegments(
 
   const tempo = options.tempo || 120;
   const beatIntervalSec = 60 / tempo;
-  const isFastTempo = tempo >= 120; // Fast pop/K-pop/electronic songs
-  
-  // 1. Adaptive Minimum Duration
-  // Slow songs: ~800-1200ms. Fast songs: ~400-700ms.
-  let adaptiveMinDuration = isFastTempo ? 0.55 : 0.90; // base values
-  
-  // Adjust based on song's harmonic density/section later if needed
-  
-  const minSlashDuration = options.minSlashDuration ?? Math.max(0.65, beatIntervalSec * 1.5);
+  const isFastTempo = tempo >= 115;
+  const minSlashDuration = options.minSlashDuration ?? Math.max(0.65, beatIntervalSec * 0.9);
   const totalDuration = options.duration || (rawSegments[rawSegments.length - 1].endTime ?? 0);
-  const changeMargin = options.changeMargin ?? (isFastTempo ? 0.12 : 0.08); // Higher margin needed for fast songs
+  const changeMargin = options.changeMargin ?? 0.08;
+  const minChordDurationBeats = options.minChordDurationBeats ?? (isFastTempo ? 0.75 : 1.0);
+  const minGlitchDuration = options.minGlitchDuration ?? (isFastTempo ? Math.min(0.28, beatIntervalSec * 0.42) : 0.45);
+  const minGlitchDurationBeats = minGlitchDuration / beatIntervalSec;
 
   let mergedSegmentsCount = 0;
   let rejectedTransientSlashCount = 0;
@@ -181,6 +151,7 @@ export function stabilizeChordSegments(
     endTime: Number(s.endTime.toFixed(3))
   }));
 
+  // Helper to find nearest beat/subdivision
   const beats = options.beats && options.beats.length > 0 ? options.beats : [];
   function getDistanceToSubdivision(timeSec: number): number {
     if (beats.length === 0) return 999;
@@ -188,7 +159,6 @@ export function stabilizeChordSegments(
     for (let i = 0; i < beats.length; i++) {
       const b = beats[i];
       if (Math.abs(b - timeSec) < minDiff) minDiff = Math.abs(b - timeSec);
-      
       if (i < beats.length - 1) {
         const mid = (b + beats[i+1]) / 2;
         if (Math.abs(mid - timeSec) < minDiff) minDiff = Math.abs(mid - timeSec);
@@ -215,61 +185,15 @@ export function stabilizeChordSegments(
     }
   }
 
-  // STEP 2: Separate chord identity from extension
-  // Root chord first. Only keep extensions if sustained/confident.
-  const minDurForExtension = adaptiveMinDuration * 1.2;
-  for (let i = 0; i < current.length; i++) {
-    simplifyChordExtension(current[i], minDurForExtension);
-  }
+  // STEP 2: Adaptive Transition Model (Continuous Timeline)
+  // Instead of quantizing to beats, we evaluate the musical viability of each segment.
+  // We absorb weak, transient, or unmusical micro-chords into their neighbors,
+  // preserving strong chord changes regardless of exact beat alignment.
 
-  // STEP 3: Same-Root Quality Fluctuation Merging (e.g. G -> Gmaj7 -> G)
-  // Merge transient fluctuations into the dominant same-root chord before general absorption
   let hasChanged = true;
   let passCount = 0;
-  while (hasChanged && passCount < 10) {
-    hasChanged = false;
-    passCount++;
-    
-    for (let i = 0; i < current.length - 1; i++) {
-      const seg1 = current[i];
-      const seg2 = current[i+1];
-      
-      if (seg1.root === seg2.root && seg1.chord !== seg2.chord) {
-        const dur1 = seg1.endTime - seg1.startTime;
-        const dur2 = seg2.endTime - seg2.startTime;
-        
-        // If one is significantly shorter than the other (flutter), merge into the stronger one
-        const minFluctuationDur = adaptiveMinDuration * 1.25;
-        if (dur1 < minFluctuationDur || dur2 < minFluctuationDur) {
-          const strength1 = dur1 * (seg1.diagnostics?.scoreMargin ?? 0.1);
-          const strength2 = dur2 * (seg2.diagnostics?.scoreMargin ?? 0.1);
-          
-          // Require significant strength advantage to merge
-          if (strength1 > strength2 * 1.2 || dur2 < adaptiveMinDuration * 0.75) {
-            // Merge 2 into 1
-            seg1.endTime = seg2.endTime;
-            current.splice(i + 1, 1);
-            hasChanged = true;
-            mergedSegmentsCount++;
-            break;
-          } else if (strength2 > strength1 * 1.2 || dur1 < adaptiveMinDuration * 0.75) {
-            // Merge 1 into 2
-            seg2.startTime = seg1.startTime;
-            current.splice(i, 1);
-            hasChanged = true;
-            mergedSegmentsCount++;
-            break;
-          }
-        }
-      }
-    }
-  }
 
-  // STEP 4: Confidence-based chord switching & Hysteresis (Iterative Absorption)
-  hasChanged = true;
-  passCount = 0;
-
-  while (hasChanged && passCount < 20) {
+  while (hasChanged && passCount < 15) {
     hasChanged = false;
     passCount++;
     
@@ -288,60 +212,58 @@ export function stabilizeChordSegments(
       const distToBeat = getDistanceToSubdivision(seg.startTime);
       const isOnBeat = distToBeat <= 0.15;
       
-      // Calculate viability (higher is more stable, lower is absorbed)
-      let viability = dur * (isFastTempo ? 2.5 : 1.5); 
-      viability += scoreMargin * 2.0;
+      const isSandwiched = (i > 0 && i < current.length - 1 && current[i-1].chord === current[i+1].chord);
+      
+      // Calculate viability score (higher is more viable, lower is more likely to be absorbed)
+      let viability = dur * 2.0; 
+      viability += scoreMargin * 1.5;
       viability += thirdEvidence * 1.0;
       
-      if (isOnBeat) viability += 0.5;
-      
-      // Hysteresis: if margin is high, it's very viable
+      // Hysteresis score margin bonus: if scoreMargin >= changeMargin, add a viability bonus proportional to the margin above threshold
       if (scoreMargin >= changeMargin) {
-        viability += (scoreMargin - changeMargin) * 3.0;
-      }
-      
-      // Harmonic context: Sandwiched chords (C -> F# -> C)
-      const prev = i > 0 ? current[i-1] : null;
-      const next = i < current.length - 1 ? current[i+1] : null;
-      
-      if (prev && next && prev.chord === next.chord) {
-        const harmonicDist = getHarmonicDistance(seg.root, prev.root);
-        // If sandwiched and harmonically distant (e.g. C -> F# -> C), heavily penalize
-        if (harmonicDist >= 2 && dur < adaptiveMinDuration * 1.5) {
-          viability -= 2.0;
-        } else if (dur <= adaptiveMinDuration * 0.8) {
-          // Even if not distant, if it's very short and sandwiched, it's likely a flutter
-          viability -= 1.5;
-        }
-      }
-      
-      // Penalize very short chords based on adaptive min duration
-      if (dur < adaptiveMinDuration * 0.5) {
-        viability -= 3.0; // extremely short
-      } else if (dur < adaptiveMinDuration * 0.85) {
-        viability -= 1.0; // short
-      }
-      
-      // Power chords / extensions resolving to root
-      if (prev && prev.root === seg.root && seg.quality === "5") {
-        viability -= 1.5; // G5 after G is a flutter
-      }
-      if (next && next.root === seg.root && seg.quality === "5") {
-        viability -= 1.5; // G5 before G is a flutter
-      }
-      
-      // If duration >= adaptiveMinDuration * 1.5, it's very safe
-      if (dur >= adaptiveMinDuration * 1.5) {
-        viability += 5.0;
-      }
-      
-      // If it lands perfectly on a beat and is a solid duration
-      if (isOnBeat && dur >= beatIntervalSec * 0.8) {
-        viability += 2.0;
+        viability += (scoreMargin - changeMargin) * 2.0;
       }
 
-      if (viability < 2.0 && viability < weakestScore) {
-        if ((i === 0 || i === current.length - 1) && dur > 0.2) continue; // Protect edges slightly
+      if (isOnBeat) viability += 0.5; // Changes on subdivisions are more viable
+
+      // Sandwiched A-B-A pattern:
+      // If a short chord (<= 1.25 beats) is sandwiched between the SAME chord on both sides (e.g. A -> F#m -> A or A -> G -> A),
+      // it is an isolated flutter/artifact unless it possesses an unambiguous acoustic score margin.
+      const isSandwichedFlutter = isSandwiched && durationBeats <= 1.25 && scoreMargin < changeMargin * 1.5;
+      if (isSandwichedFlutter) {
+        viability -= 1.2;
+      }
+
+      // Power-chord (5th) ambiguity adjacent to same-root triad/seventh:
+      // E.g. G5 preceding or following G major is an incomplete harmonic transient
+      const isSameRootPowerChordAmbiguity = seg.quality === "5" && (
+        (i > 0 && current[i - 1].root === seg.root && current[i - 1].quality !== "5") ||
+        (i < current.length - 1 && current[i + 1].root === seg.root && current[i + 1].quality !== "5")
+      );
+      if (isSameRootPowerChordAmbiguity) {
+        viability -= 1.5;
+      }
+
+      // Very short micro-chords / glitches below minGlitchDurationBeats are heavily penalized
+      if (durationBeats < minGlitchDurationBeats) {
+        viability -= 1.0;
+      }
+      
+      // If the segment meets or exceeds minChordDurationBeats, it's virtually immune to absorption
+      // UNLESS it is an isolated sandwiched low-margin flutter or a power-chord ambiguity
+      if (durationBeats >= minChordDurationBeats && !isSandwichedFlutter && !isSameRootPowerChordAmbiguity) {
+        viability += 10;
+      } else if (dur > beatIntervalSec * 0.8 && isOnBeat && !isSandwichedFlutter && !isSameRootPowerChordAmbiguity) {
+        // If it's at least ~0.8 beats long and lands on a beat, grant a strong viability bonus
+        viability += 5;
+      }
+
+      const VIABILITY_THRESHOLD = 1.0; // Segments below this are considered for absorption
+
+      if (viability < VIABILITY_THRESHOLD && viability < weakestScore) {
+        // Exclude the very first/last segments unless they are extremely short (< 0.2s)
+        if ((i === 0 || i === current.length - 1) && dur > 0.2) continue;
+        
         weakestScore = viability;
         weakestIdx = i;
       }
@@ -349,6 +271,7 @@ export function stabilizeChordSegments(
 
     if (weakestIdx !== -1) {
       const seg = current[weakestIdx];
+      const segMargin = seg.diagnostics?.scoreMargin ?? 0.1;
       let left = weakestIdx > 0 ? current[weakestIdx - 1] : null;
       let right = weakestIdx < current.length - 1 ? current[weakestIdx + 1] : null;
       
@@ -356,38 +279,58 @@ export function stabilizeChordSegments(
       let neighborWins = false;
       
       if (left && right) {
-        if (left.chord === seg.chord || left.chord === right.chord) {
-          mergeIntoLeft = true;
-          neighborWins = true;
+        if (left.chord === seg.chord) {
+           mergeIntoLeft = true;
+           neighborWins = true;
         } else if (right.chord === seg.chord) {
-          mergeIntoLeft = false;
-          neighborWins = true;
+           mergeIntoLeft = false;
+           neighborWins = true;
+        } else if (left.chord === right.chord) {
+           mergeIntoLeft = true;
+           neighborWins = true;
+        } else if (seg.quality === "5" && right.root === seg.root && right.quality !== "5") {
+           // Absorb power-chord into following full triad/chord of same root
+           mergeIntoLeft = false;
+           neighborWins = true;
+        } else if (seg.quality === "5" && left.root === seg.root && left.quality !== "5") {
+           // Absorb power-chord into preceding full triad/chord of same root
+           mergeIntoLeft = true;
+           neighborWins = true;
         } else {
-          // Compare left and right strength (duration * margin)
-          const leftStrength = (left.endTime - left.startTime) * (left.diagnostics?.scoreMargin ?? 0.1);
-          const rightStrength = (right.endTime - right.startTime) * (right.diagnostics?.scoreMargin ?? 0.1);
-          mergeIntoLeft = leftStrength >= rightStrength;
-          
-          const segStrength = (seg.endTime - seg.startTime) * (seg.diagnostics?.scoreMargin ?? 0.1);
-          neighborWins = Math.max(leftStrength, rightStrength) > (segStrength * 1.5); // Hysteresis: neighbor needs to be notably stronger
+           // Merge into the stronger adjacent chord
+           const leftDur = left.endTime - left.startTime;
+           const rightDur = right.endTime - right.startTime;
+           const leftMargin = left.diagnostics?.scoreMargin ?? 0.1;
+           const rightMargin = right.diagnostics?.scoreMargin ?? 0.1;
+           
+           const leftStrength = leftDur * leftMargin;
+           const rightStrength = rightDur * rightMargin;
+           
+           mergeIntoLeft = leftStrength >= rightStrength;
+           const targetStrength = Math.max(leftStrength, rightStrength);
+           const segStrength = (seg.endTime - seg.startTime) * segMargin;
+           neighborWins = targetStrength > segStrength;
         }
       } else if (left) {
         mergeIntoLeft = true;
-        neighborWins = true;
+        const leftDur = left.endTime - left.startTime;
+        const leftMargin = left.diagnostics?.scoreMargin ?? 0.1;
+        neighborWins = (leftDur * leftMargin) >= ((seg.endTime - seg.startTime) * segMargin);
       } else if (right) {
         mergeIntoLeft = false;
-        neighborWins = true;
-      }
-      
-      const isIdenticalSandwich = left && right && left.chord === right.chord;
-      if (!neighborWins && !isIdenticalSandwich) {
-        // Break out of the loop if the weakest segment is actually stronger than neighbors (rare)
-        // or if we have reached a stable state.
-        // Wait, if neighbor doesn't win and we are above absolute glitch threshold, keep it.
-        const dur = seg.endTime - seg.startTime;
-        if (dur >= adaptiveMinDuration * 0.4) break; 
+        const rightDur = right.endTime - right.startTime;
+        const rightMargin = right.diagnostics?.scoreMargin ?? 0.1;
+        neighborWins = (rightDur * rightMargin) >= ((seg.endTime - seg.startTime) * segMargin);
       }
 
+      // Hysteresis gate: only absorb if the segment's own confidence margin is weak (< changeMargin)
+      // OR the neighbor it would merge into clearly wins that comparison
+      // OR it is a sandwiched flutter between identical chords
+      const isIdenticalSandwich = left && right && left.chord === right.chord;
+      if (segMargin >= changeMargin && !neighborWins && !isIdenticalSandwich) {
+        break;
+      }
+      
       if (mergeIntoLeft && left) {
         left.endTime = seg.endTime;
         left.confidence = Math.round((left.confidence + seg.confidence) / 2);
@@ -403,7 +346,61 @@ export function stabilizeChordSegments(
     }
   }
 
-  // STEP 5: Consecutive Identical Chord Merging
+  // STEP 3: Same-Root Quality/Extension Fluctuation Merging
+  // If adjacent segments share the same root (e.g., F and Fm, G and G5, C and Cmaj7)
+  // and one is significantly weaker or shorter than the other, merge them into the stronger one.
+  hasChanged = true;
+  passCount = 0;
+  while (hasChanged && passCount < 10) {
+    hasChanged = false;
+    passCount++;
+    
+    for (let i = 0; i < current.length - 1; i++) {
+      const seg1 = current[i];
+      const seg2 = current[i+1];
+      
+      const sameRoot = seg1.root === seg2.root;
+      
+      if (sameRoot && seg1.chord !== seg2.chord) {
+        const dur1 = seg1.endTime - seg1.startTime;
+        const dur2 = seg2.endTime - seg2.startTime;
+        const dur1Beats = dur1 / beatIntervalSec;
+        const dur2Beats = dur2 / beatIntervalSec;
+        const margin1 = seg1.diagnostics?.scoreMargin ?? 0.1;
+        const margin2 = seg2.diagnostics?.scoreMargin ?? 0.1;
+        
+        const strength1 = dur1 * margin1 * (seg1.diagnostics?.thirdEvidence ?? 0.5);
+        const strength2 = dur2 * margin2 * (seg2.diagnostics?.thirdEvidence ?? 0.5);
+        
+        // Beat-based threshold: only merge same-root quality fluctuations if at least one segment
+        // is shorter than ~1.0 beat (or 0.75 beat at fast tempos).
+        // Sustained chords (e.g. 2 full beats of D followed by 2 full beats of Dm) are deliberate musical chord changes.
+        const minSameRootMergeBeats = isFastTempo ? 0.75 : 1.0;
+        const isTransientFluctuation = dur1Beats < minSameRootMergeBeats || dur2Beats < minSameRootMergeBeats;
+
+        if (isTransientFluctuation) {
+          if (strength1 > strength2 * 2 || dur2Beats < 0.75) {
+            // Merge 2 into 1
+            seg1.endTime = seg2.endTime;
+            current.splice(i + 1, 1);
+            hasChanged = true;
+            mergedSegmentsCount++;
+            break; // restart loop
+          } else if (strength2 > strength1 * 2 || dur1Beats < 0.75) {
+            // Merge 1 into 2
+            seg2.startTime = seg1.startTime;
+            current.splice(i, 1);
+            hasChanged = true;
+            mergedSegmentsCount++;
+            break; // restart loop
+          }
+        }
+      }
+    }
+  }
+
+  // STEP 4: Consecutive Identical Chord Merging
+  // If adjacent segments ended up as the same chord (e.g. from early filtering), merge them
   let finalSegments: ChordSegment[] = [];
   for (let i = 0; i < current.length; i++) {
     const seg = current[i];
@@ -453,4 +450,3 @@ export function stabilizeChordSegments(
     }
   };
 }
-

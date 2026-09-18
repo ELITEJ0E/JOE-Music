@@ -44,6 +44,10 @@ import {
 import { SunoSong } from "./SongsLibraryView";
 import { fetchDecryptedAudioFile } from "../utils/sunoAudioResolver";
 import { SUNO_CATALOG_MASTER } from "../lib/suno-catalog-data";
+import {
+  extractYouTubeAudio,
+  isValidYouTubeUrl,
+} from "../utils/extractorConfig";
 
 const WAVEFORM_BAR_HEIGHTS = Array.from({ length: 48 }, (_, wIdx) => 25 + ((wIdx * 23) % 65));
 
@@ -62,6 +66,34 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
   const inFlightSongIdRef = useRef<string | null>(null);
   const processedInitialSongIdRef = useRef<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const activeObjectUrlsRef = useRef<Set<string>>(new Set());
+
+  const createTrackedObjectURL = (blob: Blob): string => {
+    const url = URL.createObjectURL(blob);
+    activeObjectUrlsRef.current.add(url);
+    return url;
+  };
+
+  const revokeTrackedObjectURL = (url: string | null | undefined) => {
+    if (url && url.startsWith("blob:")) {
+      try {
+        URL.revokeObjectURL(url);
+      } catch {}
+      activeObjectUrlsRef.current.delete(url);
+    }
+  };
+
+  // Clean up any remaining object URLs on component unmount
+  useEffect(() => {
+    return () => {
+      activeObjectUrlsRef.current.forEach((url) => {
+        try {
+          URL.revokeObjectURL(url);
+        } catch {}
+      });
+      activeObjectUrlsRef.current.clear();
+    };
+  }, []);
 
   const handleCancelAnalysis = () => {
     if (abortControllerRef.current) {
@@ -620,6 +652,67 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
     }
   };
 
+  /**
+   * Unified audio loading & analysis pipeline.
+   * Feeds audio into the existing analyzeAudioFile MIR pipeline, saves the analyzed
+   * song to IndexedDB, and updates the active song workspace with chords, waveform,
+   * transpose, capo, and synchronized playback controls.
+   */
+  const analyzeAndLoadAudio = async (
+    audioSource: File | Blob | string,
+    meta: {
+      title: string;
+      artist?: string;
+      youtubeUrl?: string;
+      sunoUrl?: string;
+      sunoId?: string;
+      originalBlob?: Blob;
+    },
+    onProgressUpdate?: (msg: string, pct: number) => void
+  ): Promise<SavedSong> => {
+    const result = await analyzeAudioFile(
+      audioSource,
+      (msg, pct) => {
+        if (onProgressUpdate) {
+          onProgressUpdate(msg, pct);
+        } else {
+          setAnalysisProgress({ message: msg, pct });
+        }
+      },
+      abortControllerRef.current?.signal,
+      {
+        title: meta.title,
+        artist: meta.artist,
+        youtubeUrl: meta.youtubeUrl,
+        sunoUrl: meta.sunoUrl,
+        sunoId: meta.sunoId,
+      }
+    );
+
+    const songWithMeta: SavedSong = {
+      ...result,
+      title: meta.title || result.title,
+      artist: meta.artist || result.artist,
+      youtubeUrl: meta.youtubeUrl || result.youtubeUrl,
+      sunoUrl: meta.sunoUrl || result.sunoUrl,
+      sunoId: meta.sunoId || result.sunoId,
+      audioBlob: meta.originalBlob || result.audioBlob,
+      lastPlayedAt: Date.now(),
+      savedAt: Date.now(),
+    };
+
+    await saveSongToDB(songWithMeta);
+    saveLastPlayedSongId(songWithMeta.id);
+    setActiveSong(songWithMeta);
+    loadSongsFromDB().then(setSavedSongs);
+
+    setCurrentTime(0);
+    setIsPlaying(false);
+    setAnalysisProgress(null);
+    abortControllerRef.current = null;
+    return songWithMeta;
+  };
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -628,31 +721,19 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
     setAnalysisProgress({ message: "Reading audio file...", pct: 0 });
 
     try {
-      const result = await analyzeAudioFile(
+      await analyzeAndLoadAudio(
         file,
-        (msg, pct) => setAnalysisProgress({ message: msg, pct }),
-        abortControllerRef.current.signal
+        {
+          title: file.name.replace(/\.[^/.]+$/, ""),
+          artist: "Uploaded Audio",
+          originalBlob: file,
+        },
+        (msg, pct) => setAnalysisProgress({ message: msg, pct })
       );
-
-      const songWithMeta: SavedSong = {
-        ...result,
-        lastPlayedAt: Date.now(),
-        savedAt: Date.now(),
-      };
-
-      await saveSongToDB(songWithMeta);
-      saveLastPlayedSongId(songWithMeta.id);
-      setActiveSong(songWithMeta);
-      loadSongsFromDB().then(setSavedSongs);
-
-      setCurrentTime(0);
-      setIsPlaying(false);
-      setAnalysisProgress(null);
-      abortControllerRef.current = null;
     } catch (err: any) {
       setAnalysisProgress(null);
       abortControllerRef.current = null;
-      if (err.message !== "Analysis cancelled by user.") {
+      if (err.name !== "AbortError" && err.message !== "Analysis cancelled by user.") {
         setDialog({
           isOpen: true,
           title: "Analysis Failed",
@@ -662,6 +743,8 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
           onConfirm: () => setDialog((prev) => ({ ...prev, isOpen: false })),
         });
       }
+    } finally {
+      if (e.target) e.target.value = "";
     }
   };
 
@@ -881,49 +964,20 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
       }
     }
 
-    const isYtUrl = (val: string) => val.includes("youtube.com") || val.includes("youtu.be");
-    
+    const isYtDomain = (val: string) => val.includes("youtube.com") || val.includes("youtu.be");
     let targetUrl = "";
-    if (isYtUrl(ytUrl)) {
+    if (isYtDomain(ytUrl)) {
       targetUrl = ytUrl;
-    } else if (isYtUrl(sName)) {
+    } else if (isYtDomain(sName)) {
       targetUrl = sName;
     }
 
     if (targetUrl) {
-      let extractorUrl = import.meta.env.VITE_AUDIO_EXTRACTOR_URL;
-      console.log("[YouTube Diagnostics] Build-time extractorConfigured:", !!extractorUrl);
-      
-      if (!extractorUrl) {
-        try {
-          const configRes = await fetch("/api/extractor-url");
-          if (configRes.ok) {
-            const configData = await configRes.json();
-            if (configData.url) {
-              extractorUrl = configData.url;
-              console.log("[YouTube Diagnostics] Recovered extractorUrl from backend runtime env!");
-            }
-          }
-        } catch (configErr) {
-          console.error("[YouTube Diagnostics] Failed to fetch runtime extractor URL:", configErr);
-        }
-      }
-
-      console.log("[YouTube Diagnostics] extractorConfigured:", !!extractorUrl);
-      if (extractorUrl) {
-        try {
-          const parsedUrl = new URL(extractorUrl);
-          console.log("[YouTube Diagnostics] extractorURL origin only:", parsedUrl.origin);
-        } catch (e) {
-          console.log("[YouTube Diagnostics] extractorURL origin only: invalid URL", extractorUrl);
-        }
-      }
-
-      if (!extractorUrl) {
+      if (!isValidYouTubeUrl(targetUrl)) {
         setDialog({
           isOpen: true,
-          title: "Configuration Error",
-          message: "YouTube audio extractor is not configured.",
+          title: "Invalid YouTube URL",
+          message: "Please enter a valid YouTube video link (e.g. https://www.youtube.com/watch?v=... or https://youtu.be/...)",
           confirmText: "OK",
           type: "error",
           onConfirm: () => setDialog((prev) => ({ ...prev, isOpen: false })),
@@ -932,136 +986,58 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
       }
 
       abortControllerRef.current = new AbortController();
-      setAnalysisProgress({ message: "Fetching audio from YouTube...", pct: 10 });
+      // Step 1: Before extraction
+      setAnalysisProgress({ message: "Preparing YouTube audio...", pct: 5 });
 
-      console.log("[YouTube Diagnostics] requestStarted: true, URL:", `${extractorUrl}/extract`);
-
-      let response: Response;
+      let tempAudioUrl: string | null = null;
       try {
-        response = await fetch(`${extractorUrl}/extract`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url: targetUrl }),
-          signal: abortControllerRef.current.signal,
-        });
-      } catch (fetchErr: any) {
-        if (fetchErr.name === "AbortError") {
-          throw fetchErr;
-        }
-        console.error("[YouTube Diagnostics] Network/CORS failure details:", fetchErr);
-        setDialog({
-          isOpen: true,
-          title: "Connection Failed",
-          message: "Unable to reach the YouTube audio extractor.",
-          confirmText: "OK",
-          type: "error",
-          onConfirm: () => setDialog((prev) => ({ ...prev, isOpen: false })),
-        });
-        setAnalysisProgress(null);
-        abortControllerRef.current = null;
-        return;
-      }
+        // Step 2: During extraction
+        setAnalysisProgress({ message: "Extracting audio...", pct: 15 });
 
-      console.log("[YouTube Diagnostics] responseStatus:", response.status);
-      const responseContentType = response.headers.get("content-type") || "";
-      console.log("[YouTube Diagnostics] responseContentType:", responseContentType);
-
-      if (!response.ok) {
-        let errorMsg = "YouTube audio extraction failed.";
-        if (response.status === 500) {
-          errorMsg = "YouTube audio extraction failed.";
-        } else {
-          try {
-            const errData = await response.json();
-            if (errData.error) errorMsg = errData.error;
-          } catch (_) {}
-        }
-
-        setDialog({
-          isOpen: true,
-          title: "Extraction Failed",
-          message: errorMsg,
-          confirmText: "OK",
-          type: "error",
-          onConfirm: () => setDialog((prev) => ({ ...prev, isOpen: false })),
-        });
-        setAnalysisProgress(null);
-        abortControllerRef.current = null;
-        return;
-      }
-
-      const titleHeader = response.headers.get("X-Video-Title");
-      const artistHeader = response.headers.get("X-Video-Artist");
-      const title = titleHeader ? decodeURIComponent(titleHeader) : "YouTube Track";
-      const artist = artistHeader ? decodeURIComponent(artistHeader) : "";
-      console.log("[YouTube Diagnostics] Headers - X-Video-Title:", title, "X-Video-Artist:", artist);
-
-      let blob: Blob;
-      try {
-        blob = await response.blob();
-      } catch (blobErr) {
-        console.error("[YouTube Diagnostics] Failed to read blob:", blobErr);
-        blob = new Blob([], { type: "audio/mpeg" });
-      }
-
-      console.log("[YouTube Diagnostics] blobSize:", blob.size);
-
-      if (!blob || blob.size === 0) {
-        setDialog({
-          isOpen: true,
-          title: "Extraction Error",
-          message: "YouTube extractor returned no audio.",
-          confirmText: "OK",
-          type: "error",
-          onConfirm: () => setDialog((prev) => ({ ...prev, isOpen: false })),
-        });
-        setAnalysisProgress(null);
-        abortControllerRef.current = null;
-        return;
-      }
-
-      const file = new File([blob], `${title}.mp3`, { type: "audio/mpeg" });
-      console.log("[YouTube Diagnostics] fileSize:", file.size);
-
-      console.log("[YouTube Diagnostics] analyzeAudioFileStarted: true");
-      setAnalysisProgress({ message: "Reading audio file...", pct: 30 });
-
-      try {
-        const result = await analyzeAudioFile(
-          file,
-          (msg, pct) => setAnalysisProgress({ message: msg, pct: 30 + (pct * 0.7) }),
+        const extracted = await extractYouTubeAudio(
+          targetUrl,
           abortControllerRef.current.signal
         );
 
-        const songWithMeta: SavedSong = {
-          ...result,
-          title,
-          artist,
-          lastPlayedAt: Date.now(),
-          savedAt: Date.now(),
-        };
+        // Step 3: After extraction, start chord analysis
+        setAnalysisProgress({ message: "Analyzing chords...", pct: 35 });
 
-        await saveSongToDB(songWithMeta);
-        saveLastPlayedSongId(songWithMeta.id);
-        setActiveSong(songWithMeta);
-        loadSongsFromDB().then(setSavedSongs);
+        tempAudioUrl = createTrackedObjectURL(extracted.blob);
 
-        setCurrentTime(0);
-        setIsPlaying(false);
-        setAnalysisProgress(null);
-        abortControllerRef.current = null;
+        await analyzeAndLoadAudio(
+          tempAudioUrl,
+          {
+            title: extracted.title || "YouTube Track",
+            artist: extracted.artist || "YouTube Artist",
+            youtubeUrl: targetUrl,
+            originalBlob: extracted.blob,
+          },
+          (msg, pct) =>
+            setAnalysisProgress({
+              message: "Analyzing chords...",
+              pct: 35 + pct * 0.65,
+            })
+        );
+
+        // Step 4: Completed - normal workspace
+        setYoutubeUrl("");
+        setSongName("");
       } catch (err: any) {
         setAnalysisProgress(null);
         abortControllerRef.current = null;
         if (err.name !== "AbortError" && err.message !== "Analysis cancelled by user.") {
           setDialog({
             isOpen: true,
-            title: "Analysis Failed",
-            message: err.message || "An error occurred during YouTube extraction or analysis.",
+            title: "Extraction Failed",
+            message: err?.message || "Unable to extract this YouTube video. Please try another URL.",
             confirmText: "OK",
             type: "error",
             onConfirm: () => setDialog((prev) => ({ ...prev, isOpen: false })),
           });
+        }
+      } finally {
+        if (tempAudioUrl) {
+          revokeTrackedObjectURL(tempAudioUrl);
         }
       }
       return;

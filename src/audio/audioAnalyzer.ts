@@ -4,12 +4,20 @@ import { CURRENT_ANALYSIS_VERSION } from "./analysisVersion";
 import AnalyzerWorker from "./analyzerWorker?worker";
 
 /**
- * Analyzes decoded audio buffer and generates real SongAnalysis with synchronized sections and chord timestamps
+ * Analyzes decoded audio buffer and generates real SongAnalysis with synchronized sections and chord timestamps.
+ * Accepts a File, Blob, or URL string (including blob: Object URLs).
  */
 export async function analyzeAudioFile(
-  file: File,
+  source: File | Blob | string,
   onProgress?: (msg: string, pct: number) => void,
-  abortSignal?: AbortSignal
+  abortSignal?: AbortSignal,
+  metadata?: {
+    title?: string;
+    artist?: string;
+    youtubeUrl?: string;
+    sunoUrl?: string;
+    sunoId?: string;
+  }
 ): Promise<SongAnalysis> {
   const ctx = audioEngine.getContext();
   if (ctx.state === "suspended") {
@@ -18,7 +26,29 @@ export async function analyzeAudioFile(
     } catch {}
   }
 
-  const arrayBuffer = await file.arrayBuffer();
+  let arrayBuffer: ArrayBuffer;
+  let sourceBlob: Blob;
+  let fallbackTitle = metadata?.title || "Audio Track";
+  let fallbackArtist = metadata?.artist || "Audio Analysis";
+
+  if (typeof source === "string") {
+    if (onProgress) onProgress("Reading audio stream...", 1);
+    const res = await fetch(source, { signal: abortSignal });
+    if (!res.ok) {
+      throw new Error(`Failed to load audio from source URL: ${res.status} ${res.statusText}`);
+    }
+    arrayBuffer = await res.arrayBuffer();
+    sourceBlob = new Blob([arrayBuffer], { type: res.headers.get("content-type") || "audio/mpeg" });
+  } else if (source instanceof File) {
+    arrayBuffer = await source.arrayBuffer();
+    sourceBlob = source;
+    fallbackTitle = metadata?.title || source.name.replace(/\.[^/.]+$/, "");
+    fallbackArtist = metadata?.artist || "Uploaded Audio Analysis";
+  } else {
+    arrayBuffer = await source.arrayBuffer();
+    sourceBlob = source;
+    fallbackArtist = metadata?.artist || "Audio Analysis";
+  }
   
   if (onProgress) onProgress("Decoding audio data...", 2);
   let audioBuffer: AudioBuffer;
@@ -68,8 +98,8 @@ export async function analyzeAudioFile(
         const { analysis } = e.data;
         
         const mainDiagnostics = {
-          fileSize: file.size,
-          mimeType: file.type || "audio/unknown",
+          fileSize: sourceBlob.size,
+          mimeType: sourceBlob.type || "audio/unknown",
           decodedDuration: duration,
           sampleRate: sampleRate,
           numChannels: audioBuffer.numberOfChannels,
@@ -83,8 +113,8 @@ export async function analyzeAudioFile(
 
         const songResult: SongAnalysis = {
           id: `song-${Date.now()}`,
-          title: file.name.replace(/\.[^/.]+$/, ""),
-          artist: "Uploaded Audio Analysis",
+          title: fallbackTitle,
+          artist: fallbackArtist,
           key: analysis.key,
           tempo: analysis.estimatedBpm,
           timeSignature: "4/4",
@@ -99,7 +129,11 @@ export async function analyzeAudioFile(
           beats: analysis.beats,
           confidence: analysis.overallConfidence,
           tips: "Extracted using high-resolution STFT chromagrams with Viterbi decoding and beat-synchronous harmonic stabilization.",
-          audioBlob: file,
+          audioBlob: sourceBlob,
+          audioUrl: typeof source === "string" && !source.startsWith("blob:") ? source : undefined,
+          youtubeUrl: metadata?.youtubeUrl,
+          sunoUrl: metadata?.sunoUrl,
+          sunoId: metadata?.sunoId,
           duration: duration,
           analysisVersion: CURRENT_ANALYSIS_VERSION,
           diagnostics: mainDiagnostics

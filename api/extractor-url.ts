@@ -9,6 +9,6 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   res.status(200).json({
-    url: process.env.VITE_AUDIO_EXTRACTOR_URL || process.env.AUDIO_EXTRACTOR_URL || ""
+    url: process.env.VITE_EXTRACTOR_API || process.env.VITE_AUDIO_EXTRACTOR_URL || process.env.AUDIO_EXTRACTOR_URL || "https://chord-extractor-7agu.onrender.com"
   });
 }

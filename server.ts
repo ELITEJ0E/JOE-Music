@@ -28,10 +28,10 @@ async function startServer() {
     res.json({ status: "ok", timestamp: Date.now() });
   });
 
-  // Expose ONLY the VITE_AUDIO_EXTRACTOR_URL environment variable safely for client-side runtime recovery
+  // Expose ONLY the VITE_EXTRACTOR_API / VITE_AUDIO_EXTRACTOR_URL environment variable safely for client-side runtime recovery
   app.get("/api/extractor-url", (req, res) => {
     res.json({
-      url: process.env.VITE_AUDIO_EXTRACTOR_URL || process.env.AUDIO_EXTRACTOR_URL || ""
+      url: process.env.VITE_EXTRACTOR_API || process.env.VITE_AUDIO_EXTRACTOR_URL || process.env.AUDIO_EXTRACTOR_URL || "https://chord-extractor-7agu.onrender.com"
     });
   });
 
