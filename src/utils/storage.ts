@@ -1,6 +1,7 @@
 import { TonePreset, SavedRecording, SavedSong, DAWProject, LooperSession, DAWTrack, LooperTrack } from "../types";
 import { DEFAULT_TONE_PRESETS } from "../data/presetsDatabase";
 import { audioBufferToWavBlob, blobToAudioBuffer, extractWaveformPeaks } from "../audio/wavEncoder";
+import { extractYouTubeVideoId, normalizeYouTubeUrl } from "./extractorConfig";
 
 const DB_NAME = "GuitarStudio_DB";
 const DB_VERSION = 3; // Incremented for DAW projects & looper stores
@@ -360,6 +361,75 @@ export async function deleteSongFromDB(id: string): Promise<void> {
   } catch (err) {
     console.warn("Failed to delete song:", err);
   }
+}
+
+export const YOUTUBE_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+/**
+ * Retrieves a cached YouTube song analysis from IndexedDB if it was saved within the maxAgeMs window.
+ * Matches by exact URL, normalized canonical URL, video ID, or song ID.
+ */
+export async function getCachedYouTubeSong(
+  rawUrl: string,
+  maxAgeMs: number = YOUTUBE_CACHE_MAX_AGE_MS
+): Promise<SavedSong | null> {
+  if (!rawUrl || typeof rawUrl !== "string") return null;
+
+  const targetVideoId = extractYouTubeVideoId(rawUrl);
+  const normalizedTarget = normalizeYouTubeUrl(rawUrl).toLowerCase();
+  const rawLower = rawUrl.trim().toLowerCase();
+
+  const songs = await loadSongsFromDB();
+  const now = Date.now();
+
+  for (const song of songs) {
+    let isMatch = false;
+
+    if (song.youtubeUrl) {
+      const sYtLower = song.youtubeUrl.trim().toLowerCase();
+      if (sYtLower === rawLower || sYtLower === normalizedTarget) {
+        isMatch = true;
+      }
+      if (!isMatch && targetVideoId) {
+        const songVideoId = extractYouTubeVideoId(song.youtubeUrl);
+        if (songVideoId && songVideoId.toLowerCase() === targetVideoId.toLowerCase()) {
+          isMatch = true;
+        }
+      }
+    }
+
+    if (!isMatch && targetVideoId) {
+      if (song.id === `yt-${targetVideoId}` || song.id === targetVideoId) {
+        isMatch = true;
+      }
+    }
+
+    if (isMatch) {
+      const timestamp = song.savedAt || song.lastPlayedAt || 0;
+      const age = now - timestamp;
+      // Check 24-hour cache validity
+      if (age <= maxAgeMs) {
+        // Ensure the cached song has valid harmonic/chord data
+        if ((song.chordSegments && song.chordSegments.length > 0) || (song.chords && song.chords.length > 0)) {
+          return song;
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Stores or updates a cached YouTube song analysis in IndexedDB with an updated timestamp.
+ */
+export async function saveCachedYouTubeSong(song: SavedSong): Promise<void> {
+  const songToCache: SavedSong = {
+    ...song,
+    savedAt: Date.now(),
+    lastPlayedAt: Date.now(),
+  };
+  await saveSongToDB(songToCache);
 }
 
 export async function saveProjectToDB(project: DAWProject): Promise<void> {

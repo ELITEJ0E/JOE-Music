@@ -3,6 +3,11 @@ import {
   DEFAULT_EXTRACTOR_API,
   getExtractorApiUrl,
   isValidYouTubeUrl,
+  extractYouTubeVideoId,
+  normalizeYouTubeUrl,
+  pingExtractorWarmup,
+  isExtractionInFlight,
+  getActiveExtractionCount,
   extractYouTubeAudio,
 } from "./extractorConfig";
 
@@ -12,6 +17,34 @@ describe("extractorConfig & extractYouTubeAudio", () => {
       const url = getExtractorApiUrl();
       expect(url).toBe(DEFAULT_EXTRACTOR_API);
       expect(url).not.toMatch(/\/$/); // no trailing slash
+    });
+  });
+
+  describe("extractYouTubeVideoId & normalizeYouTubeUrl", () => {
+    it("extracts video ID from standard watch URL", () => {
+      expect(extractYouTubeVideoId("https://www.youtube.com/watch?v=dQw4w9WgXcQ")).toBe("dQw4w9WgXcQ");
+      expect(extractYouTubeVideoId("https://youtube.com/watch?v=dQw4w9WgXcQ&t=45s")).toBe("dQw4w9WgXcQ");
+    });
+
+    it("extracts video ID from short URLs and shorts", () => {
+      expect(extractYouTubeVideoId("https://youtu.be/dQw4w9WgXcQ")).toBe("dQw4w9WgXcQ");
+      expect(extractYouTubeVideoId("https://www.youtube.com/shorts/dQw4w9WgXcQ")).toBe("dQw4w9WgXcQ");
+      expect(extractYouTubeVideoId("https://youtube.com/embed/dQw4w9WgXcQ")).toBe("dQw4w9WgXcQ");
+    });
+
+    it("normalizes various URL formats to standard canonical URL", () => {
+      expect(normalizeYouTubeUrl("https://youtu.be/dQw4w9WgXcQ?si=test1234")).toBe(
+        "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+      );
+      expect(normalizeYouTubeUrl("https://www.youtube.com/shorts/dQw4w9WgXcQ")).toBe(
+        "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+      );
+    });
+
+    it("returns null or empty for non-YouTube strings", () => {
+      expect(extractYouTubeVideoId("https://example.com/audio.mp3")).toBeNull();
+      expect(extractYouTubeVideoId("")).toBeNull();
+      expect(normalizeYouTubeUrl("")).toBe("");
     });
   });
 
@@ -40,7 +73,30 @@ describe("extractorConfig & extractYouTubeAudio", () => {
     });
   });
 
-  describe("extractYouTubeAudio client", () => {
+  describe("pingExtractorWarmup", () => {
+    beforeEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it("reports connecting and ready states during successful ping", async () => {
+      const states: string[] = [];
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+      });
+
+      const ready = await pingExtractorWarmup({
+        baseUrl: "https://chord-extractor-7agu.onrender.com",
+        onStateChange: (state) => states.push(state),
+      });
+
+      expect(ready).toBe(true);
+      expect(states).toContain("connecting");
+      expect(states).toContain("ready");
+    });
+  });
+
+  describe("extractYouTubeAudio client & Request Locking", () => {
     const originalFetch = globalThis.fetch;
 
     beforeEach(() => {
@@ -94,6 +150,63 @@ describe("extractorConfig & extractYouTubeAudio", () => {
       expect(result.title).toBe("Hotel California");
       expect(result.artist).toBe("Eagles");
       expect(result.blob).toBe(mockBlob);
+      expect(result.videoId).toBe("dQw4w9WgXcQ");
+    });
+
+    it("locks concurrent requests to the same video URL so only 1 network fetch fires", async () => {
+      const mockBlob = new Blob(["fake-bytes"], { type: "audio/mpeg" });
+      const mockHeaders = new Headers({
+        "Content-Type": "audio/mpeg",
+        "X-Video-Title": encodeURIComponent("Test Song"),
+      });
+
+      let fetchResolve: any;
+      const delayedFetch = new Promise<any>((resolve) => {
+        fetchResolve = resolve;
+      });
+
+      globalThis.fetch = vi.fn().mockReturnValue(
+        delayedFetch.then(() => ({
+          ok: true,
+          status: 200,
+          headers: mockHeaders,
+          blob: async () => mockBlob,
+        }))
+      );
+
+      // Trigger two concurrent extractions with different URL formats pointing to the same video ID
+      const req1 = extractYouTubeAudio("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+      const req2 = extractYouTubeAudio("https://youtu.be/dQw4w9WgXcQ");
+
+      expect(isExtractionInFlight("https://www.youtube.com/watch?v=dQw4w9WgXcQ")).toBe(true);
+      expect(getActiveExtractionCount()).toBe(1);
+
+      // Resolve the delayed backend response
+      fetchResolve();
+
+      const [res1, res2] = await Promise.all([req1, req2]);
+      expect(globalThis.fetch).toHaveBeenCalledTimes(1); // Locked into single call!
+      expect(res1.blob).toBe(res2.blob);
+      expect(res1.title).toBe("Test Song");
+      expect(isExtractionInFlight()).toBe(false);
+    });
+
+    it("calls onProgress callbacks during extraction lifecycle", async () => {
+      const mockBlob = new Blob(["fake-audio"], { type: "audio/mpeg" });
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Headers(),
+        blob: async () => mockBlob,
+      });
+
+      const stages: string[] = [];
+      await extractYouTubeAudio("https://www.youtube.com/watch?v=dQw4w9WgXcQ", {
+        onProgress: (evt) => stages.push(evt.stage),
+      });
+
+      expect(stages).toContain("connecting");
+      expect(stages).toContain("downloading");
     });
 
     it("handles 400 Bad Request with a clear user-friendly message", async () => {
@@ -161,3 +274,4 @@ describe("extractorConfig & extractYouTubeAudio", () => {
     });
   });
 });
+

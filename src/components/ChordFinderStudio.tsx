@@ -33,21 +33,24 @@ import { liveChordDetector, LiveChordResult } from "../audio/liveChordDetector";
 import { ChordDiagram } from "./ChordDiagram";
 import { CustomConfirmDialog } from "./ui/CustomConfirmDialog";
 import { TimelineScrubber } from "./ui/TimelineScrubber";
-import {
-  saveSongToDB,
-  loadSongsFromDB,
-  deleteSongFromDB,
-  saveLastPlayedSongId,
-  getLastPlayedSongId,
-} from "../utils/storage";
-
 import { SunoSong } from "./SongsLibraryView";
 import { fetchDecryptedAudioFile } from "../utils/sunoAudioResolver";
 import { SUNO_CATALOG_MASTER } from "../lib/suno-catalog-data";
 import {
   extractYouTubeAudio,
   isValidYouTubeUrl,
+  extractYouTubeVideoId,
+  normalizeYouTubeUrl,
+  isExtractionInFlight,
 } from "../utils/extractorConfig";
+import {
+  saveSongToDB,
+  loadSongsFromDB,
+  deleteSongFromDB,
+  saveLastPlayedSongId,
+  getLastPlayedSongId,
+  getCachedYouTubeSong,
+} from "../utils/storage";
 
 const WAVEFORM_BAR_HEIGHTS = Array.from({ length: 48 }, (_, wIdx) => 25 + ((wIdx * 23) % 65));
 
@@ -67,6 +70,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
   const processedInitialSongIdRef = useRef<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const activeObjectUrlsRef = useRef<Set<string>>(new Set());
+  const isExtractingRef = useRef<boolean>(false);
 
   const createTrackedObjectURL = (blob: Blob): string => {
     const url = URL.createObjectURL(blob);
@@ -104,6 +108,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
       }
       abortControllerRef.current = null;
     }
+    isExtractingRef.current = false;
     inFlightSongIdRef.current = null;
     processedInitialSongIdRef.current = null;
     setAnalysisProgress(null);
@@ -973,7 +978,14 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
     }
 
     if (targetUrl) {
+      // 1. Prevent duplicate extraction requests
+      if (isExtractingRef.current || isExtractionInFlight(targetUrl)) {
+        return;
+      }
+      isExtractingRef.current = true;
+
       if (!isValidYouTubeUrl(targetUrl)) {
+        isExtractingRef.current = false;
         setDialog({
           isOpen: true,
           title: "Invalid YouTube URL",
@@ -985,23 +997,79 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
         return;
       }
 
+      const normalizedUrl = normalizeYouTubeUrl(targetUrl);
+      const videoId = extractYouTubeVideoId(targetUrl);
+      const deterministicId = videoId ? `yt-${videoId}` : `yt-${Date.now()}`;
+
+      // 2. 24-Hour Cache Check before making network calls
+      setAnalysisProgress({ message: "Checking song library...", pct: 5 });
+      try {
+        const cachedSong = await getCachedYouTubeSong(targetUrl);
+        if (cachedSong) {
+          const updatedSong: SavedSong = {
+            ...cachedSong,
+            id: deterministicId,
+            youtubeUrl: normalizedUrl,
+            lastPlayedAt: Date.now(),
+          };
+          await saveSongToDB(updatedSong);
+          saveLastPlayedSongId(updatedSong.id);
+          setActiveSong(updatedSong);
+          const freshList = await loadSongsFromDB();
+          setSavedSongs(freshList);
+          setCurrentTime(0);
+          setIsPlaying(false);
+          setAnalysisProgress(null);
+          setYoutubeUrl("");
+          setSongName("");
+          isExtractingRef.current = false;
+          return;
+        }
+      } catch (cacheErr) {
+        console.warn("YouTube cache check notice:", cacheErr);
+      }
+
+      // 3. Setup AbortController and Progress
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
       abortControllerRef.current = new AbortController();
-      // Step 1: Before extraction
-      setAnalysisProgress({ message: "Preparing YouTube audio...", pct: 5 });
 
       let tempAudioUrl: string | null = null;
+      let progressTimer: any = null;
+
       try {
-        // Step 2: During extraction
-        setAnalysisProgress({ message: "Extracting audio...", pct: 15 });
+        // Stage 1 & 2: Connecting, Cold-Start Warmup & Downloading Audio (0% - 48%)
+        setAnalysisProgress({ message: "Connecting to audio extractor...", pct: 10 });
 
-        const extracted = await extractYouTubeAudio(
-          targetUrl,
-          abortControllerRef.current.signal
-        );
+        // Smooth progress interpolation while waiting for network audio extraction
+        progressTimer = setInterval(() => {
+          setAnalysisProgress((prev) => {
+            if (!prev) return null;
+            if (prev.pct < 48) {
+              return { ...prev, pct: Math.min(48, prev.pct + 1.5) };
+            }
+            return prev;
+          });
+        }, 500);
 
-        // Step 3: After extraction, start chord analysis
-        setAnalysisProgress({ message: "Analyzing chords...", pct: 35 });
+        const extracted = await extractYouTubeAudio(normalizedUrl, {
+          signal: abortControllerRef.current.signal,
+          onProgress: (evt) => {
+            setAnalysisProgress((prev) => ({
+              message: evt.message,
+              pct: Math.max(prev?.pct || 0, evt.pct || 0),
+            }));
+          },
+        });
 
+        if (progressTimer) {
+          clearInterval(progressTimer);
+          progressTimer = null;
+        }
+
+        // Stage 3 & 4: Audio Decoding & Chord Analysis (50% - 100%)
+        setAnalysisProgress({ message: "Reading audio stream & computing harmonics...", pct: 50 });
         tempAudioUrl = createTrackedObjectURL(extracted.blob);
 
         await analyzeAndLoadAudio(
@@ -1009,36 +1077,69 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
           {
             title: extracted.title || "YouTube Track",
             artist: extracted.artist || "YouTube Artist",
-            youtubeUrl: targetUrl,
+            youtubeUrl: normalizedUrl,
             originalBlob: extracted.blob,
           },
           (msg, pct) =>
             setAnalysisProgress({
-              message: "Analyzing chords...",
-              pct: 35 + pct * 0.65,
+              message: msg,
+              pct: Math.min(99, 50 + pct * 0.5),
             })
         );
 
-        // Step 4: Completed - normal workspace
         setYoutubeUrl("");
         setSongName("");
       } catch (err: any) {
+        if (progressTimer) {
+          clearInterval(progressTimer);
+          progressTimer = null;
+        }
         setAnalysisProgress(null);
         abortControllerRef.current = null;
         if (err.name !== "AbortError" && err.message !== "Analysis cancelled by user.") {
+          console.error("YouTube audio extraction failed:", err);
+
+          let errorTitle = "Extraction Failed";
+          let errorMessage = err?.message || "Unable to extract this YouTube video. Please try another URL.";
+
+          if (
+            err.message?.includes("waking up") ||
+            err.message?.includes("starting up") ||
+            err.message?.includes("Unable to reach")
+          ) {
+            errorTitle = "Extractor Server Starting";
+            errorMessage =
+              "The audio extractor server was sleeping (cold start). It is now waking up. Please wait a few seconds and try again.";
+          } else if (err.message?.includes("10-minute maximum limit")) {
+            errorTitle = "Video Too Long";
+            errorMessage =
+              "This YouTube video exceeds the 10-minute limit. Please choose a shorter song or upload an audio file directly.";
+          } else if (err.message?.includes("Invalid YouTube URL")) {
+            errorTitle = "Invalid Video Link";
+            errorMessage = "Please verify the YouTube URL and ensure it links to a valid video.";
+          } else if (err.message?.includes("decode") || err.message?.includes("Audio decoding")) {
+            errorTitle = "Audio Decoding Failed";
+            errorMessage =
+              "The browser was unable to decode the downloaded audio stream. Please try another video or upload a standard audio file.";
+          }
+
           setDialog({
             isOpen: true,
-            title: "Extraction Failed",
-            message: err?.message || "Unable to extract this YouTube video. Please try another URL.",
+            title: errorTitle,
+            message: errorMessage,
             confirmText: "OK",
             type: "error",
             onConfirm: () => setDialog((prev) => ({ ...prev, isOpen: false })),
           });
         }
       } finally {
+        if (progressTimer) {
+          clearInterval(progressTimer);
+        }
         if (tempAudioUrl) {
           revokeTrackedObjectURL(tempAudioUrl);
         }
+        isExtractingRef.current = false;
       }
       return;
     }
