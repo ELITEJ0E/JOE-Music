@@ -4,6 +4,7 @@ export const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A",
 export const NOTE_NAMES_FLAT = ["C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B"];
 
 export function getPitchClass(noteName: string): PitchClass {
+  if (!noteName || typeof noteName !== "string") return -1;
   const norm = noteName.replace(/x/g, "##").trim();
   const first = norm.charAt(0).toUpperCase();
   let pc = NOTE_NAMES.indexOf(first);

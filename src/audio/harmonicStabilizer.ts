@@ -99,6 +99,7 @@ export function evaluateSlashChordStability(
  * Returns 0 (same) to 6 (tritone).
  */
 function getHarmonicDistance(root1: string, root2: string): number {
+  if (!root1 || !root2) return 0;
   const circle = [0, 7, 2, 9, 4, 11, 6, 1, 8, 3, 10, 5]; // C G D A E B F# C# G# D# A# F
   const pc1 = getPitchClass(root1);
   const pc2 = getPitchClass(root2);
