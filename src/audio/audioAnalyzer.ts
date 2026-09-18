@@ -17,6 +17,7 @@ export async function analyzeAudioFile(
     youtubeUrl?: string;
     sunoUrl?: string;
     sunoId?: string;
+    imageUrl?: string;
   }
 ): Promise<SongAnalysis> {
   const ctx = audioEngine.getContext();
@@ -134,6 +135,7 @@ export async function analyzeAudioFile(
           youtubeUrl: metadata?.youtubeUrl,
           sunoUrl: metadata?.sunoUrl,
           sunoId: metadata?.sunoId,
+          imageUrl: metadata?.imageUrl,
           duration: duration,
           analysisVersion: CURRENT_ANALYSIS_VERSION,
           diagnostics: mainDiagnostics

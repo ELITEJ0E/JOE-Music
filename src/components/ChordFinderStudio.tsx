@@ -42,6 +42,7 @@ import {
   extractYouTubeVideoId,
   normalizeYouTubeUrl,
   isExtractionInFlight,
+  getYouTubeThumbnailUrl,
 } from "../utils/extractorConfig";
 import {
   saveSongToDB,
@@ -609,10 +610,13 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
       youtubeUrl?: string;
       sunoUrl?: string;
       sunoId?: string;
+      imageUrl?: string;
       originalBlob?: Blob;
     },
     onProgressUpdate?: (msg: string, pct: number) => void
   ): Promise<SavedSong> => {
+    const defaultThumbnail = meta.imageUrl || (meta.youtubeUrl ? getYouTubeThumbnailUrl(meta.youtubeUrl) : undefined);
+
     const result = await analyzeAudioFile(
       audioSource,
       (msg, pct) => {
@@ -629,6 +633,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
         youtubeUrl: meta.youtubeUrl,
         sunoUrl: meta.sunoUrl,
         sunoId: meta.sunoId,
+        imageUrl: defaultThumbnail,
       }
     );
 
@@ -639,6 +644,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
       youtubeUrl: meta.youtubeUrl || result.youtubeUrl,
       sunoUrl: meta.sunoUrl || result.sunoUrl,
       sunoId: meta.sunoId || result.sunoId,
+      imageUrl: meta.imageUrl || result.imageUrl || defaultThumbnail,
       audioBlob: meta.originalBlob || result.audioBlob,
       lastPlayedAt: Date.now(),
       savedAt: Date.now(),
@@ -944,10 +950,12 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
       try {
         const cachedSong = await getCachedYouTubeSong(targetUrl);
         if (cachedSong) {
+          const thumbUrl = cachedSong.imageUrl || (videoId ? getYouTubeThumbnailUrl(videoId) : undefined);
           const updatedSong: SavedSong = {
             ...cachedSong,
             id: deterministicId,
             youtubeUrl: normalizedUrl,
+            imageUrl: thumbUrl,
             lastPlayedAt: Date.now(),
           };
           await saveSongToDB(updatedSong);
@@ -1010,12 +1018,18 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
         setAnalysisProgress({ message: "Reading audio stream & computing harmonics...", pct: 50 });
         tempAudioUrl = createTrackedObjectURL(extracted.blob);
 
+        const thumbUrl =
+          extracted.imageUrl ||
+          extracted.thumbnailUrl ||
+          (videoId ? getYouTubeThumbnailUrl(videoId) : undefined);
+
         await analyzeAndLoadAudio(
           tempAudioUrl,
           {
             title: extracted.title || "YouTube Track",
             artist: extracted.artist || "YouTube Artist",
             youtubeUrl: normalizedUrl,
+            imageUrl: thumbUrl,
             originalBlob: extracted.blob,
           },
           (msg, pct) =>
@@ -2163,62 +2177,80 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                   {savedSongs.map((song) => {
                     const isActive = activeSong?.id === song.id;
                     const isLastPlayed = song.id === lastPlayedId;
+                    const thumb = song.imageUrl || (song.youtubeUrl ? getYouTubeThumbnailUrl(song.youtubeUrl) : undefined);
                     return (
                       <div
                         key={song.id}
                         onClick={() => loadSavedSong(song)}
-                        className={`group p-3.5 rounded-2xl cursor-pointer transition-all border flex flex-col justify-between ${
+                        className={`group p-3 rounded-2xl cursor-pointer transition-all border flex flex-col justify-between ${
                           isActive
                             ? "bg-[#a3ff12]/15 border-[#a3ff12] shadow-[0_0_15px_rgba(163,255,18,0.1)]"
                             : "bg-white/5 hover:bg-white/10 border-white/5 hover:border-white/10"
                         }`}
                       >
-                        <div className="flex justify-between items-center gap-2 overflow-hidden">
-                          <div className="overflow-hidden whitespace-nowrap min-w-0 flex-1 relative">
-                            <div
-                              className={`inline-flex whitespace-nowrap ${
-                                isActive
-                                  ? "animate-[marquee-scroll_8s_linear_infinite]"
-                                  : "group-hover:animate-[marquee-scroll_8s_linear_infinite]"
-                              }`}
-                            >
-                              <span
-                                className={`text-xs font-bold transition-colors pr-6 shrink-0 ${
-                                  isActive ? "text-[#a3ff12]" : "text-white group-hover:text-[#a3ff12]"
-                                }`}
-                              >
-                                {song.title}
-                              </span>
-                              <span
-                                className={`text-xs font-bold transition-colors pr-6 shrink-0 ${
-                                  isActive
-                                    ? "text-[#a3ff12] opacity-100"
-                                    : "text-white group-hover:text-[#a3ff12] opacity-0 group-hover:opacity-100"
-                                }`}
-                              >
-                                {song.title}
-                              </span>
+                        <div className="flex items-center gap-3 overflow-hidden">
+                          <div className="w-10 h-10 rounded-xl overflow-hidden shrink-0 bg-black/40 border border-white/10 flex items-center justify-center">
+                            {thumb ? (
+                              <img
+                                src={thumb}
+                                alt={song.title}
+                                className="w-full h-full object-cover"
+                                referrerPolicy="no-referrer"
+                              />
+                            ) : (
+                              <Music className="w-4 h-4 text-[#a3ff12]/60" />
+                            )}
+                          </div>
+
+                          <div className="flex-1 min-w-0">
+                            <div className="flex justify-between items-center gap-2 overflow-hidden">
+                              <div className="overflow-hidden whitespace-nowrap min-w-0 flex-1 relative">
+                                <div
+                                  className={`inline-flex whitespace-nowrap ${
+                                    isActive
+                                      ? "animate-[marquee-scroll_8s_linear_infinite]"
+                                      : "group-hover:animate-[marquee-scroll_8s_linear_infinite]"
+                                  }`}
+                                >
+                                  <span
+                                    className={`text-xs font-bold transition-colors pr-6 shrink-0 ${
+                                      isActive ? "text-[#a3ff12]" : "text-white group-hover:text-[#a3ff12]"
+                                    }`}
+                                  >
+                                    {song.title}
+                                  </span>
+                                  <span
+                                    className={`text-xs font-bold transition-colors pr-6 shrink-0 ${
+                                      isActive
+                                        ? "text-[#a3ff12] opacity-100"
+                                        : "text-white group-hover:text-[#a3ff12] opacity-0 group-hover:opacity-100"
+                                    }`}
+                                  >
+                                    {song.title}
+                                  </span>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-1 shrink-0">
+                                {isLastPlayed && (
+                                  <span className="px-1.5 py-0.5 bg-[#a3ff12]/20 border border-[#a3ff12]/30 text-[#a3ff12] rounded text-[8px] font-mono font-bold">
+                                    LAST PLAYED
+                                  </span>
+                                )}
+                                <button
+                                  onClick={(e) => handleDeleteSong(song.id, e)}
+                                  className="w-5 h-5 rounded-md hover:bg-red-500/20 flex items-center justify-center text-zinc-500 hover:text-red-400 transition-colors"
+                                  title="Delete Song"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+
+                            <div className="mt-0.5 text-[11px] font-semibold text-[#a3ff12] truncate">
+                              {song.artist || "Unknown Artist"}
                             </div>
                           </div>
-
-                          <div className="flex items-center gap-1 shrink-0">
-                            {isLastPlayed && (
-                              <span className="px-1.5 py-0.5 bg-[#a3ff12]/20 border border-[#a3ff12]/30 text-[#a3ff12] rounded text-[8px] font-mono font-bold">
-                                LAST PLAYED
-                              </span>
-                            )}
-                            <button
-                              onClick={(e) => handleDeleteSong(song.id, e)}
-                              className="w-5 h-5 rounded-md hover:bg-red-500/20 flex items-center justify-center text-zinc-500 hover:text-red-400 transition-colors"
-                              title="Delete Song"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </div>
-
-                        <div className="mt-1 text-[11px] font-semibold text-[#a3ff12] truncate">
-                          {song.artist || "Unknown Artist"}
                         </div>
 
                         <div className="flex items-center justify-between mt-2.5 text-[9.5px] font-mono">

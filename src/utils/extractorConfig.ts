@@ -48,6 +48,19 @@ export function extractYouTubeVideoId(url: string): string | null {
 }
 
 /**
+ * Returns high-quality thumbnail URL for a YouTube URL or video ID.
+ */
+export function getYouTubeThumbnailUrl(urlOrVideoId: string): string {
+  if (!urlOrVideoId || typeof urlOrVideoId !== "string") return "";
+  const trimmed = urlOrVideoId.trim();
+  const videoId = extractYouTubeVideoId(trimmed) || (/^[a-zA-Z0-9_-]{11}$/.test(trimmed) ? trimmed : null);
+  if (videoId) {
+    return `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+  }
+  return "";
+}
+
+/**
  * Normalizes any YouTube URL variant to a standard canonical watch URL.
  */
 export function normalizeYouTubeUrl(url: string): string {
@@ -136,6 +149,8 @@ export interface ExtractedYouTubeResult {
   title: string;
   artist: string;
   videoId?: string;
+  thumbnailUrl?: string;
+  imageUrl?: string;
 }
 
 export interface ExtractProgressEvent {
@@ -307,7 +322,16 @@ export async function extractYouTubeAudio(
       throw new Error("Unable to extract this YouTube video. Please try another URL.");
     }
 
-    return { blob, title, artist, videoId: videoId || undefined };
+    const thumbUrl = getYouTubeThumbnailUrl(normalizedUrl) || (videoId ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg` : undefined);
+
+    return {
+      blob,
+      title,
+      artist,
+      videoId: videoId || undefined,
+      thumbnailUrl: thumbUrl,
+      imageUrl: thumbUrl,
+    };
   })();
 
   // Register in-flight lock

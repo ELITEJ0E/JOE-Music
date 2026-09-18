@@ -16,12 +16,17 @@ export async function analyzeSong(songQuery: string, artist?: string, genre?: st
 
   let resolvedYoutubeTitle = "";
   let resolvedYoutubeAuthor = "";
+  let resolvedImageUrl = "";
   const isYoutubeUrl = typeof songQuery === "string" && (
     songQuery.includes("youtube.com") || 
     songQuery.includes("youtu.be")
   );
 
   if (isYoutubeUrl) {
+    const ytIdMatch = songQuery.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([a-zA-Z0-9_-]{11})/i);
+    if (ytIdMatch) {
+      resolvedImageUrl = `https://i.ytimg.com/vi/${ytIdMatch[1]}/hqdefault.jpg`;
+    }
     try {
       const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(songQuery.trim())}&format=json`;
       const oembedRes = await fetch(oembedUrl);
@@ -30,6 +35,9 @@ export async function analyzeSong(songQuery: string, artist?: string, genre?: st
         if (oembedData && oembedData.title) {
           resolvedYoutubeTitle = oembedData.title;
           resolvedYoutubeAuthor = oembedData.author_name || "";
+          if (oembedData.thumbnail_url) {
+            resolvedImageUrl = oembedData.thumbnail_url;
+          }
           // Clean title if contains standard video suffixes
           songQuery = resolvedYoutubeTitle
             .replace(/\(Official (Music )?Video\)/gi, "")
@@ -116,6 +124,7 @@ export async function analyzeSong(songQuery: string, artist?: string, genre?: st
     return {
       title: songQuery,
       artist: artist || "Identified Track",
+      imageUrl: resolvedImageUrl || undefined,
       key: "G Major",
       tempo: 112,
       timeSignature: "4/4",
@@ -207,5 +216,8 @@ Return valid JSON only without markdown code fences or backticks.`;
   const responseText = response.text || "{}";
   const cleaned = responseText.replace(/```json/g, "").replace(/```/g, "").trim();
   const parsed = JSON.parse(cleaned);
+  if (resolvedImageUrl && !parsed.imageUrl) {
+    parsed.imageUrl = resolvedImageUrl;
+  }
   return parsed;
 }
