@@ -15,7 +15,12 @@ export function getExtractorApiUrl(): string {
     (typeof process !== "undefined" && (process.env?.VITE_EXTRACTOR_API || process.env?.VITE_AUDIO_EXTRACTOR_URL || process.env?.AUDIO_EXTRACTOR_URL));
 
   if (envUrl && typeof envUrl === "string" && envUrl.trim()) {
-    return envUrl.trim().replace(/\/+$/, "");
+    const trimmed = envUrl.trim().replace(/\/+$/, "");
+    // Automatically fallback to active Render service if an outdated/inaccessible Railway URL is set in environment variables
+    if (trimmed.includes("chord-extractor-production.up.railway.app") || trimmed.includes("railway.app")) {
+      return DEFAULT_EXTRACTOR_API;
+    }
+    return trimmed;
   }
   return DEFAULT_EXTRACTOR_API;
 }

@@ -6,11 +6,12 @@ export interface TimelineScrubberProps {
   min?: number;
   max?: number;
   step?: number;
-  onChange: (val: number) => void;
+  onChange?: (val: number) => void;
+  onScrubStart?: () => void;
   onScrubEnd?: (val: number) => void;
   disabled?: boolean;
   className?: string;
-  children?: React.ReactNode;
+  children?: React.ReactNode | ((activeTime: number, isDragging: boolean) => React.ReactNode);
   formatTime?: (seconds: number) => string;
 }
 
@@ -21,6 +22,7 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
   max,
   step = 0.05,
   onChange,
+  onScrubStart,
   onScrubEnd,
   disabled = false,
   className = "",
@@ -29,6 +31,7 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [dragTime, setDragTime] = useState<number | null>(null);
   const [hoverTime, setHoverTime] = useState<number | null>(null);
   const [hoverX, setHoverX] = useState<number>(0);
 
@@ -78,13 +81,19 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
     const handleWindowMouseMove = (e: MouseEvent) => {
       const val = getTimestampFromClientX(e.clientX);
       dragValueRef.current = val;
-      onChange(val);
+      setDragTime(val);
+      if (onChange) {
+        onChange(val);
+      }
     };
 
     const handleWindowMouseUp = (e: MouseEvent) => {
       const val = getTimestampFromClientX(e.clientX);
       setIsDragging(false);
-      onChange(val);
+      setDragTime(null);
+      if (onChange) {
+        onChange(val);
+      }
       if (onScrubEnd) {
         onScrubEnd(val);
       }
@@ -98,7 +107,10 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
       if (e.touches && e.touches.length > 0) {
         const val = getTimestampFromClientX(e.touches[0].clientX);
         dragValueRef.current = val;
-        onChange(val);
+        setDragTime(val);
+        if (onChange) {
+          onChange(val);
+        }
       }
     };
 
@@ -109,7 +121,10 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
       }
       const val = clientX ? getTimestampFromClientX(clientX) : dragValueRef.current;
       setIsDragging(false);
-      onChange(val);
+      setDragTime(null);
+      if (onChange) {
+        onChange(val);
+      }
       if (onScrubEnd) {
         onScrubEnd(val);
       }
@@ -137,8 +152,14 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
     e.preventDefault();
     const val = getTimestampFromClientX(e.clientX);
     dragValueRef.current = val;
+    setDragTime(val);
     setIsDragging(true);
-    onChange(val);
+    if (onScrubStart) {
+      onScrubStart();
+    }
+    if (onChange) {
+      onChange(val);
+    }
   };
 
   const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
@@ -146,8 +167,14 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
     if (e.touches && e.touches.length > 0) {
       const val = getTimestampFromClientX(e.touches[0].clientX);
       dragValueRef.current = val;
+      setDragTime(val);
       setIsDragging(true);
-      onChange(val);
+      if (onScrubStart) {
+        onScrubStart();
+      }
+      if (onChange) {
+        onChange(val);
+      }
     }
   };
 
@@ -185,16 +212,20 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
 
     if (nextVal !== null) {
       e.preventDefault();
-      onChange(nextVal);
+      if (onChange) {
+        onChange(nextVal);
+      }
       if (onScrubEnd) {
         onScrubEnd(nextVal);
       }
     }
   };
 
+  const activeDisplayTime = isDragging && dragTime !== null ? dragTime : currentTime;
+
   const progressPct =
     effectiveMax > effectiveMin
-      ? Math.min(100, Math.max(0, ((currentTime - effectiveMin) / (effectiveMax - effectiveMin)) * 100))
+      ? Math.min(100, Math.max(0, ((activeDisplayTime - effectiveMin) / (effectiveMax - effectiveMin)) * 100))
       : 0;
 
   return (
@@ -205,7 +236,7 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
       aria-label="Audio Timeline Scrubber"
       aria-valuemin={effectiveMin}
       aria-valuemax={effectiveMax}
-      aria-valuenow={currentTime}
+      aria-valuenow={activeDisplayTime}
       onMouseDown={handleMouseDown}
       onTouchStart={handleTouchStart}
       onMouseMove={handleMouseMove}
@@ -219,11 +250,11 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
       <div className="absolute inset-0 bg-white/5 hover:bg-white/[0.08] rounded-xl border border-white/10 overflow-hidden pointer-events-none">
         {/* Elapsed Progress Fill - GPU accelerated */}
         <div
-          className="absolute inset-y-0 left-0 w-full bg-gradient-to-r from-[#a3ff12]/15 to-[#a3ff12]/25 origin-left will-change-transform"
+          className="absolute inset-y-0 left-0 w-full bg-gradient-to-r from-[#a3ff12]/15 to-[#a3ff12]/25 origin-left will-change-transform pointer-events-none"
           style={{ transform: `scaleX(${progressPct / 100})` }}
         />
         {/* Children (e.g. Waveforms, Chord Split Markers) */}
-        {children}
+        {typeof children === "function" ? children(activeDisplayTime, isDragging) : children}
       </div>
 
       {/* Hover Scrubber Line & Timestamp Tooltip (Desktop) */}
@@ -256,7 +287,7 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
           {/* Active Drag Floating Tooltip */}
           {isDragging && (
             <div className="absolute -top-8 -translate-x-1/2 bg-[#a3ff12] text-black font-bold font-mono px-2 py-0.5 rounded text-[10px] shadow-[0_0_12px_rgba(163,255,18,0.5)] whitespace-nowrap">
-              {timeFormatter(currentTime)}
+              {timeFormatter(activeDisplayTime)}
             </div>
           )}
         </div>

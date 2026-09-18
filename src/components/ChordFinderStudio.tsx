@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import {
   Upload,
   Link as LinkIcon,
@@ -268,10 +268,12 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
 
   // Timeline dragging & hover states
   const [isDraggingTimeline, setIsDraggingTimeline] = useState(false);
+  const [dragTargetTime, setDragTargetTime] = useState<number | null>(null);
   const [hoverTimelineTime, setHoverTimelineTime] = useState<number | null>(null);
-  const timelineRef = useRef<HTMLDivElement | null>(null);
-  const dragTargetTimeRef = useRef<number>(0);
   const rafIdRef = useRef<number | null>(null);
+
+  // Active display time reflecting smooth drag feedback or live playback time
+  const displayTime = isDraggingTimeline && dragTargetTime !== null ? dragTargetTime : currentTime;
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -468,17 +470,18 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
   const lastActiveIdxRef = useRef<number>(0);
   const activeSegmentIdx = useMemo(() => {
     if (!segments || segments.length === 0) return 0;
+    const searchTime = displayTime;
     // Fast path: check current cached index
     const cachedIdx = lastActiveIdxRef.current;
     if (cachedIdx >= 0 && cachedIdx < segments.length) {
       const seg = segments[cachedIdx];
-      if (currentTime >= seg.startTime && currentTime <= seg.endTime) {
+      if (searchTime >= seg.startTime && searchTime <= seg.endTime) {
         return cachedIdx;
       }
       // Fast path: check next sequential segment
       if (cachedIdx + 1 < segments.length) {
         const nextSeg = segments[cachedIdx + 1];
-        if (currentTime >= nextSeg.startTime && currentTime <= nextSeg.endTime) {
+        if (searchTime >= nextSeg.startTime && searchTime <= nextSeg.endTime) {
           lastActiveIdxRef.current = cachedIdx + 1;
           return cachedIdx + 1;
         }
@@ -492,9 +495,9 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
     while (low <= high) {
       const mid = (low + high) >> 1;
       const seg = segments[mid];
-      if (currentTime < seg.startTime) {
+      if (searchTime < seg.startTime) {
         high = mid - 1;
-      } else if (currentTime > seg.endTime) {
+      } else if (searchTime > seg.endTime) {
         low = mid + 1;
       } else {
         found = mid;
@@ -503,7 +506,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
     }
     lastActiveIdxRef.current = found;
     return found;
-  }, [currentTime, segments]);
+  }, [displayTime, segments]);
 
   const activeIdx = activeSegmentIdx !== -1 ? activeSegmentIdx : 0;
 
@@ -569,10 +572,10 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
     ? Math.max(0.01, currentSegment.endTime - currentSegment.startTime)
     : 1;
   const timeRemainingInSegment = currentSegment
-    ? Math.max(0, currentSegment.endTime - currentTime)
+    ? Math.max(0, currentSegment.endTime - displayTime)
     : 0;
   const currentChordProgress = currentSegment
-    ? Math.min(1, Math.max(0, (currentTime - currentSegment.startTime) / currentSegDuration))
+    ? Math.min(1, Math.max(0, (displayTime - currentSegment.startTime) / currentSegDuration))
     : 0;
 
   // Approaching switch threshold: within the last 2 seconds or last 50% of the segment
@@ -582,80 +585,15 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
     timeRemainingInSegment <= switchThreshold &&
     !!nextSegment;
 
-
-
-  // Seek helper that syncs currentTime and audio element
-  const seekToTime = (newTime: number) => {
-    const clamped = Math.max(0, Math.min(newTime, duration));
+  // Seek helper that syncs currentTime and audio element safely
+  const seekToTime = useCallback((newTime: number) => {
+    const curDur = durationRef.current > 0 ? durationRef.current : (duration > 0 ? duration : 3600);
+    const clamped = Math.max(0, Math.min(newTime, curDur));
     setCurrentTime(clamped);
     if (audioRef.current && audioRef.current.src && !isNaN(audioRef.current.duration)) {
       audioRef.current.currentTime = clamped;
     }
-  };
-
-  // Draggable timeline interaction handlers with zero-latency 60/120fps tracking and mobile touch-drag
-  const audioSeekThrottleRef = useRef<number>(0);
-
-  const handleTimelinePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!activeSong || duration <= 0) return;
-    setIsDraggingTimeline(true);
-    try {
-      e.currentTarget.setPointerCapture(e.pointerId);
-    } catch (_) {}
-
-    const rect = timelineRef.current?.getBoundingClientRect() || e.currentTarget.getBoundingClientRect();
-    const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
-    const targetTime = (x / rect.width) * duration;
-    dragTargetTimeRef.current = targetTime;
-    setCurrentTime(targetTime);
-    if (audioRef.current && audioRef.current.src && !isNaN(audioRef.current.duration)) {
-      audioRef.current.currentTime = targetTime;
-    }
-  };
-
-  const handleTimelinePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!activeSong || duration <= 0) return;
-    const rect = timelineRef.current?.getBoundingClientRect() || e.currentTarget.getBoundingClientRect();
-    const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
-    const targetTime = (x / rect.width) * duration;
-
-    if (isDraggingTimeline) {
-      dragTargetTimeRef.current = targetTime;
-      // Instant direct visual update for zero-lag mobile finger drag
-      setCurrentTime(targetTime);
-
-      // Throttle audio element seek to avoid audio decoding stall
-      const now = performance.now();
-      if (now - audioSeekThrottleRef.current > 50) {
-        audioSeekThrottleRef.current = now;
-        if (audioRef.current && audioRef.current.src && !isNaN(audioRef.current.duration)) {
-          audioRef.current.currentTime = targetTime;
-        }
-      }
-    } else {
-      setHoverTimelineTime(targetTime);
-    }
-  };
-
-  const handleTimelinePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (isDraggingTimeline) {
-      const rect = timelineRef.current?.getBoundingClientRect() || e.currentTarget.getBoundingClientRect();
-      const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
-      const targetTime = (x / rect.width) * duration;
-      dragTargetTimeRef.current = targetTime;
-      seekToTime(targetTime);
-      setIsDraggingTimeline(false);
-      try {
-        e.currentTarget.releasePointerCapture(e.pointerId);
-      } catch (_) {}
-    }
-  };
-
-  const handleTimelinePointerLeave = () => {
-    if (!isDraggingTimeline) {
-      setHoverTimelineTime(null);
-    }
-  };
+  }, [duration]);
 
   /**
    * Unified audio loading & analysis pipeline.
@@ -1279,13 +1217,20 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
   };
 
   const handleRewindInChordFinder = (stepAmount?: number) => {
-    const rewindAmount = typeof stepAmount === "number" ? stepAmount : (barSeconds > 0 ? barSeconds : 5);
-    seekToTime(Math.max(0, currentTime - rewindAmount));
+    const curTime = audioRef.current?.src && !isNaN(audioRef.current.currentTime) && isFinite(audioRef.current.currentTime)
+      ? audioRef.current.currentTime
+      : currentTimeRef.current;
+    const rewindAmount = typeof stepAmount === "number" ? stepAmount : (barSecondsRef.current > 0 ? barSecondsRef.current : 4);
+    seekToTime(Math.max(0, curTime - rewindAmount));
   };
 
   const handleFastForwardInChordFinder = (stepAmount?: number) => {
-    const ffAmount = typeof stepAmount === "number" ? stepAmount : (barSeconds > 0 ? barSeconds : 5);
-    seekToTime(Math.min(duration, currentTime + ffAmount));
+    const curTime = audioRef.current?.src && !isNaN(audioRef.current.currentTime) && isFinite(audioRef.current.currentTime)
+      ? audioRef.current.currentTime
+      : currentTimeRef.current;
+    const curDur = durationRef.current > 0 ? durationRef.current : (duration > 0 ? duration : 3600);
+    const ffAmount = typeof stepAmount === "number" ? stepAmount : (barSecondsRef.current > 0 ? barSecondsRef.current : 4);
+    seekToTime(Math.min(curDur, curTime + ffAmount));
   };
 
   const currentTimeRef = useRef(currentTime);
@@ -1298,6 +1243,8 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
   activeIdxRef.current = activeIdx;
   const segmentsRef = useRef(segments);
   segmentsRef.current = segments;
+  const seekToTimeRef = useRef(seekToTime);
+  seekToTimeRef.current = seekToTime;
 
   // Keyboard shortcut listener for Arrow keys (← / → / ↑ / ↓), Space / F8 (Play/Pause), F7 (Rewind), F9 (Fast-Forward)
   useEffect(() => {
@@ -1313,11 +1260,16 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
         return;
       }
 
-      const curTime = currentTimeRef.current;
-      const dur = durationRef.current;
-      const barSec = barSecondsRef.current > 0 ? barSecondsRef.current : 5;
+      // Read most accurate current time from audio element if active, otherwise ref
+      let curTime = currentTimeRef.current;
+      if (audioRef.current && audioRef.current.src && !isNaN(audioRef.current.currentTime) && isFinite(audioRef.current.currentTime)) {
+        curTime = audioRef.current.currentTime;
+      }
+      const dur = durationRef.current > 0 ? durationRef.current : (audioRef.current?.duration || 3600);
+      const barSec = barSecondsRef.current > 0 ? barSecondsRef.current : 4;
       const curIdx = activeIdxRef.current;
       const segs = segmentsRef.current;
+      const doSeek = seekToTimeRef.current;
 
       if (e.code === "Space" || e.key === " " || e.key === "F8") {
         e.preventDefault();
@@ -1326,35 +1278,35 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
         e.preventDefault();
         if (e.shiftKey && curIdx > 0 && segs[curIdx - 1]) {
           // Shift + ArrowLeft: Jump to previous chord boundary
-          seekToTime(segs[curIdx - 1].startTime);
+          doSeek(segs[curIdx - 1].startTime);
         } else {
-          // ArrowLeft: Rewind by 1 measure or 5 seconds
-          seekToTime(Math.max(0, curTime - barSec));
+          // ArrowLeft: Rewind by 1 measure (or barSec seconds)
+          doSeek(Math.max(0, curTime - barSec));
         }
       } else if (e.key === "ArrowRight" || e.code === "ArrowRight" || e.key === "F9" || e.key === "l" || e.key === "L") {
         e.preventDefault();
         if (e.shiftKey && curIdx + 1 < segs.length && segs[curIdx + 1]) {
           // Shift + ArrowRight: Jump to next chord boundary
-          seekToTime(segs[curIdx + 1].startTime);
+          doSeek(segs[curIdx + 1].startTime);
         } else {
-          // ArrowRight: Fast-forward by 1 measure or 5 seconds
-          seekToTime(Math.min(dur, curTime + barSec));
+          // ArrowRight: Fast-forward by 1 measure (or barSec seconds)
+          doSeek(Math.min(dur, curTime + barSec));
         }
       } else if (e.key === "ArrowUp" || e.code === "ArrowUp") {
         // ArrowUp: Fine seek forward (2s) or next chord
         e.preventDefault();
         if (curIdx + 1 < segs.length && segs[curIdx + 1]) {
-          seekToTime(segs[curIdx + 1].startTime);
+          doSeek(segs[curIdx + 1].startTime);
         } else {
-          seekToTime(Math.min(dur, curTime + 2));
+          doSeek(Math.min(dur, curTime + 2));
         }
       } else if (e.key === "ArrowDown" || e.code === "ArrowDown") {
         // ArrowDown: Fine seek back (2s) or previous chord
         e.preventDefault();
         if (curIdx > 0 && segs[curIdx - 1]) {
-          seekToTime(segs[curIdx - 1].startTime);
+          doSeek(segs[curIdx - 1].startTime);
         } else {
-          seekToTime(Math.max(0, curTime - 2));
+          doSeek(Math.max(0, curTime - 2));
         }
       }
     };
@@ -1854,7 +1806,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                     <span>TIMELINE</span>
                   </span>
                   <span className="text-[#a3ff12] font-bold">
-                    {formatTime(currentTime)} / {formatTime(duration)}
+                    {formatTime(displayTime)} / {formatTime(duration)}
                   </span>
                 </div>
 
@@ -1864,77 +1816,87 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                   duration={duration}
                   step={0.01}
                   formatTime={formatTime}
-                  onChange={(val) => {
-                    setCurrentTime(val);
-                    if (audioRef.current && audioRef.current.src && !isNaN(audioRef.current.duration)) {
-                      audioRef.current.currentTime = val;
-                    }
+                  onScrubStart={() => {
+                    setIsDraggingTimeline(true);
                   }}
-                  onScrubEnd={(val) => seekToTime(val)}
+                  onChange={(val) => {
+                    // Instant visual drag update without touching audio element
+                    setDragTargetTime(val);
+                  }}
+                  onScrubEnd={(val) => {
+                    // Only commits audio seek when user releases/lets go of drag
+                    setIsDraggingTimeline(false);
+                    setDragTargetTime(null);
+                    seekToTime(val);
+                  }}
                   className="h-12 sm:h-14"
                 >
-                  {/* Waveform vertical bars with high-performance GPU clip-path overlay */}
-                  <div className="absolute inset-0 px-2 flex items-center justify-between pointer-events-none z-0">
-                    {/* Base inactive bars */}
-                    {WAVEFORM_BAR_HEIGHTS.map((h, wIdx) => (
-                      <div
-                        key={`base-${wIdx}`}
-                        className="w-1 rounded-full bg-zinc-700/80 pointer-events-none"
-                        style={{ height: `${h}%` }}
-                      />
-                    ))}
+                  {(activeDisplayTime) => (
+                    <>
+                      {/* Waveform vertical bars with high-performance GPU clip-path overlay */}
+                      <div className="absolute inset-0 px-2 flex items-center justify-between pointer-events-none z-0">
+                        {/* Base inactive bars */}
+                        {WAVEFORM_BAR_HEIGHTS.map((h, wIdx) => (
+                          <div
+                            key={`base-${wIdx}`}
+                            className="w-1 rounded-full bg-zinc-700/80 pointer-events-none"
+                            style={{ height: `${h}%` }}
+                          />
+                        ))}
 
-                    {/* Active highlighted bars clipped smoothly by audio progress */}
-                    <div
-                      className="absolute inset-0 px-2 flex items-center justify-between pointer-events-none will-change-[clip-path]"
-                      style={{
-                        clipPath: `inset(0 ${Math.max(0, Math.min(100, 100 - (duration > 0 ? (currentTime / duration) * 100 : 0)))}% 0 0)`,
-                      }}
-                    >
-                      {WAVEFORM_BAR_HEIGHTS.map((h, wIdx) => (
+                        {/* Active highlighted bars clipped smoothly by audio progress */}
                         <div
-                          key={`act-${wIdx}`}
-                          className="w-1 rounded-full bg-[#a3ff12] pointer-events-none"
-                          style={{ height: `${h}%` }}
-                        />
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Chord split markers and labels */}
-                  <div className="absolute inset-0 flex pointer-events-none z-10">
-                    {segments.map((seg, idx) => {
-                      const leftPct = duration > 0 ? (seg.startTime / duration) * 100 : 0;
-                      const isCurrentSeg = currentTime >= seg.startTime && currentTime <= seg.endTime;
-                      const segState = resolveChordFinderState(seg.chord, transpose, capo, activeSong?.key);
-                      const soundingChord = segState.transposedChord;
-                      const playShape = segState.shapeChord;
-                      return (
-                        <div
-                          key={seg.id || idx}
-                          className={`absolute h-full border-l flex flex-col justify-end pb-0.5 pl-1 text-[9px] font-mono transition-colors ${
-                            isCurrentSeg
-                              ? "border-[#a3ff12]/60 text-[#a3ff12] font-bold"
-                              : "border-white/10 text-zinc-400"
-                          }`}
-                          style={{ left: `${leftPct}%` }}
+                          className="absolute inset-0 px-2 flex items-center justify-between pointer-events-none will-change-[clip-path]"
+                          style={{
+                            clipPath: `inset(0 ${Math.max(0, Math.min(100, 100 - (duration > 0 ? (activeDisplayTime / duration) * 100 : 0)))}% 0 0)`,
+                          }}
                         >
-                          <span className="bg-black/70 px-1 py-0.5 rounded backdrop-blur-xs flex items-center gap-1">
-                            <span className={isCurrentSeg ? "text-[#a3ff12]" : "text-zinc-200"}>{soundingChord}</span>
-                            {capo > 0 && segState.isValid && (
-                              <span className="text-[8px] text-sky-400 font-semibold opacity-90">({playShape})</span>
-                            )}
-                          </span>
+                          {WAVEFORM_BAR_HEIGHTS.map((h, wIdx) => (
+                            <div
+                              key={`act-${wIdx}`}
+                              className="w-1 rounded-full bg-[#a3ff12] pointer-events-none"
+                              style={{ height: `${h}%` }}
+                            />
+                          ))}
                         </div>
-                      );
-                    })}
-                  </div>
+                      </div>
+
+                      {/* Chord split markers and labels */}
+                      <div className="absolute inset-0 flex pointer-events-none z-10">
+                        {segments.map((seg, idx) => {
+                          const leftPct = duration > 0 ? (seg.startTime / duration) * 100 : 0;
+                          const isCurrentSeg = activeDisplayTime >= seg.startTime && activeDisplayTime <= seg.endTime;
+                          const segState = resolveChordFinderState(seg.chord, transpose, capo, activeSong?.key);
+                          const soundingChord = segState.transposedChord;
+                          const playShape = segState.shapeChord;
+                          return (
+                            <div
+                              key={seg.id || idx}
+                              className={`absolute h-full border-l flex flex-col justify-end pb-0.5 pl-1 text-[9px] font-mono transition-colors ${
+                                isCurrentSeg
+                                  ? "border-[#a3ff12]/60 text-[#a3ff12] font-bold"
+                                  : "border-white/10 text-zinc-400"
+                              }`}
+                              style={{ left: `${leftPct}%` }}
+                            >
+                              <span className="bg-black/70 px-1 py-0.5 rounded backdrop-blur-xs flex items-center gap-1">
+                                <span className={isCurrentSeg ? "text-[#a3ff12]" : "text-zinc-200"}>{soundingChord}</span>
+                                {capo > 0 && segState.isValid && (
+                                  <span className="text-[8px] text-sky-400 font-semibold opacity-90">({playShape})</span>
+                                )}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
                 </TimelineScrubber>
 
                 {/* Transport controls: Repeat, |<<, ▶, >>| */}
                 <div className="flex items-center justify-between sm:justify-center sm:gap-6 pt-0.5">
                   <span className="text-xs font-mono text-zinc-400 w-12 text-left sm:text-right">
-                    {formatTime(currentTime)}
+                    {formatTime(displayTime)}
                   </span>
 
                   <div className="flex items-center gap-2 sm:gap-3">
