@@ -1619,6 +1619,11 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
             <span className="px-2.5 py-0.5 sm:px-3 sm:py-1 bg-white/5 border border-white/5 rounded-full text-[11px] sm:text-xs">
               {activeSong.tuning || "E Standard"}
             </span>
+            {capo > 0 && (
+              <span className="px-2.5 py-0.5 sm:px-3 sm:py-1 bg-sky-500/10 border border-sky-500/30 rounded-full text-[11px] sm:text-xs font-mono text-sky-400 font-bold">
+                Capo {capo}
+              </span>
+            )}
             {(activeSong.sunoId || activeSong.id?.startsWith("suno-") || activeSong.audioUrl) && (
               <button
                 onClick={() => handleTranscribeSong(activeSong, true)}
@@ -1640,26 +1645,6 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
         <div className="lg:col-span-8 frosted-card rounded-3xl p-3 sm:p-5 flex flex-col justify-between space-y-2.5 sm:space-y-4">
           {activeSong ? (
             <>
-              {/* Header row */}
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-mono font-bold text-zinc-400 uppercase tracking-wider">
-                  CHORD PROGRESSION
-                </span>
-                <div className="flex items-center gap-1.5 sm:gap-2">
-                  <span className="px-2 py-0.5 sm:px-3 sm:py-1 bg-white/5 border border-white/5 rounded-full text-[11px] sm:text-xs font-mono text-zinc-300">
-                    {activeSong.tuning || "E Standard"}
-                  </span>
-                  <span className="px-2 py-0.5 sm:px-3 sm:py-1 bg-white/5 border border-white/5 rounded-full text-[11px] sm:text-xs font-mono text-zinc-300">
-                    Key: {activeSong.key || "C Maj"}
-                  </span>
-                  {capo > 0 && (
-                    <span className="px-2 py-0.5 sm:px-3 sm:py-1 bg-sky-500/10 border border-sky-500/30 rounded-full text-[11px] sm:text-xs font-mono text-sky-400 font-bold">
-                      Capo {capo}
-                    </span>
-                  )}
-                </div>
-              </div>
-
               {/* Dedicated Sounding / Capo / Play Shape Overview HUD */}
               {activeChord.isValid && (
                 <div className="grid grid-cols-3 gap-2 bg-black/40 border border-white/10 rounded-2xl p-1.5 sm:p-2.5 text-center font-mono select-none">
@@ -1760,10 +1745,10 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
               </div>
 
               {/* Guitar Chord Fretboard Diagram for Current Chord */}
-              <div className="flex flex-col items-center justify-center py-0.5 sm:py-1">
-                <div className="bg-[#13161a] rounded-2xl p-1.5 sm:p-2.5 border border-white/10 shadow-xl relative w-[125px] sm:w-[155px] flex flex-col items-center">
+              <div className="flex flex-col items-center justify-center py-1">
+                <div className="bg-[#13161a] rounded-2xl p-2 sm:p-2.5 border border-white/10 shadow-xl relative w-[170px] sm:w-[195px] flex flex-col items-center">
                   {/* Diagram Header */}
-                  <div className="flex items-center justify-between w-full pb-1 mb-1 border-b border-white/10 text-[9px] sm:text-[10px] font-mono">
+                  <div className="flex items-center justify-between w-full pb-1 mb-1 border-b border-white/10 text-[10px] sm:text-[11px] font-mono">
                     <span className="text-zinc-400 font-bold">
                       {activeVoicingResult.voicing?.cagedShape
                         ? `${activeVoicingResult.voicing.cagedShape}-Shape`
@@ -1771,7 +1756,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                     </span>
                     <div className="flex items-center gap-1">
                       {activeVoicingResult.voicingType === "simplified" && (
-                        <span className="px-1 py-0.2 rounded text-[8px] font-bold bg-yellow-400/10 text-yellow-400">
+                        <span className="px-1.5 py-0.5 rounded text-[8.5px] font-bold bg-yellow-400/10 text-yellow-400">
                           Playable
                         </span>
                       )}
@@ -1785,10 +1770,10 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                               capo
                             )
                           }
-                          className="p-0.5 sm:p-1 rounded bg-[#a3ff12]/10 hover:bg-[#a3ff12]/20 text-[#a3ff12] transition-colors"
+                          className="p-1 rounded bg-[#a3ff12]/10 hover:bg-[#a3ff12]/20 text-[#a3ff12] transition-colors"
                           title="Hear Chord Strum"
                         >
-                          <Play className="w-2.5 h-2.5 sm:w-3 sm:h-3 fill-[#a3ff12]" />
+                          <Play className="w-3 h-3 fill-[#a3ff12]" />
                         </button>
                       )}
                     </div>
@@ -1809,7 +1794,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                   </div>
 
                   {activeVoicingResult.voicing ? (
-                    <div className="w-[105px] sm:w-[130px] h-[108px] sm:h-[135px] flex items-center justify-center [overflow-anchor:none] flex-shrink-0">
+                    <div className="w-[140px] sm:w-[160px] h-[155px] sm:h-[175px] flex items-center justify-center [overflow-anchor:none] flex-shrink-0">
                       <ChordDiagram
                         frets={activeVoicingResult.voicing.frets}
                         fingers={activeVoicingResult.voicing.fingers}
@@ -1818,14 +1803,13 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                         cagedShape={activeVoicingResult.voicing.cagedShape}
                         title={capo > 0 ? `${activeChord.shapeChord} (Capo ${capo})` : activeChord.transposedChord}
                         capo={capo}
-                        size="xxs"
-                        className="scale-95 sm:scale-100 origin-center"
+                        size="xs"
                       />
                     </div>
                   ) : (
-                    <div className="w-[105px] sm:w-[130px] h-[108px] sm:h-[135px] flex flex-col items-center justify-center text-center space-y-0.5 [overflow-anchor:none] flex-shrink-0">
-                      <span className="text-[10px] sm:text-[11px] font-mono font-bold text-zinc-300">No guitar voicing</span>
-                      <span className="text-[8.5px] sm:text-[9px] font-mono text-zinc-500 max-w-[110px]">
+                    <div className="w-[140px] sm:w-[160px] h-[155px] sm:h-[175px] flex flex-col items-center justify-center text-center space-y-1 [overflow-anchor:none] flex-shrink-0">
+                      <span className="text-[11px] font-mono font-bold text-zinc-300">No guitar voicing</span>
+                      <span className="text-[9px] font-mono text-zinc-500 max-w-[130px]">
                         {activeVoicingResult.simplificationReason || `No safe diagram for ${activeChord.shapeChord}`}
                       </span>
                     </div>
@@ -2178,7 +2162,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
           </div>
 
           {/* Previous Played Songs Panel */}
-          <div className="frosted-card rounded-3xl p-5 flex flex-col space-y-3 flex-1 overflow-hidden min-h-[300px]">
+          <div className="frosted-card rounded-3xl p-4 sm:p-5 flex flex-col space-y-2.5 overflow-hidden">
             <div className="flex items-center justify-between border-b border-white/5 pb-2 shrink-0">
               <div className="flex items-center space-x-2">
                 <Music className="w-4 h-4 text-[#a3ff12]" />
@@ -2191,7 +2175,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
               </span>
             </div>
 
-            <div className="flex-1 overflow-y-auto space-y-2 pr-1 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
+            <div className="max-h-[272px] overflow-y-auto space-y-2 pr-1.5 scrollbar-thin scrollbar-thumb-white/10 hover:scrollbar-thumb-[#a3ff12]/40 scrollbar-track-transparent">
               {savedSongs.length === 0 ? (
                 <div className="p-6 border border-dashed border-white/10 rounded-2xl text-center flex flex-col items-center justify-center space-y-2">
                   <Music className="w-6 h-6 text-zinc-600 mb-1" />
@@ -2201,7 +2185,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                   </p>
                 </div>
               ) : (
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   {savedSongs.map((song) => {
                     const isActive = activeSong?.id === song.id;
                     const isLastPlayed = song.id === lastPlayedId;
@@ -2210,14 +2194,14 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                       <div
                         key={song.id}
                         onClick={() => loadSavedSong(song)}
-                        className={`group p-3 rounded-2xl cursor-pointer transition-all border flex flex-col justify-between ${
+                        className={`group p-2 sm:p-2.5 rounded-xl cursor-pointer transition-all border flex flex-col justify-between ${
                           isActive
                             ? "bg-[#a3ff12]/15 border-[#a3ff12] shadow-[0_0_15px_rgba(163,255,18,0.1)]"
                             : "bg-white/5 hover:bg-white/10 border-white/5 hover:border-white/10"
                         }`}
                       >
-                        <div className="flex items-center gap-3 overflow-hidden">
-                          <div className="w-10 h-10 rounded-xl overflow-hidden shrink-0 bg-black/40 border border-white/10 flex items-center justify-center">
+                        <div className="flex items-center gap-2.5 overflow-hidden">
+                          <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg overflow-hidden shrink-0 bg-black/40 border border-white/10 flex items-center justify-center">
                             {thumb ? (
                               <img
                                 src={thumb}
@@ -2226,7 +2210,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                                 referrerPolicy="no-referrer"
                               />
                             ) : (
-                              <Music className="w-4 h-4 text-[#a3ff12]/60" />
+                              <Music className="w-3.5 h-3.5 text-[#a3ff12]/60" />
                             )}
                           </div>
 
@@ -2275,17 +2259,17 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                               </div>
                             </div>
 
-                            <div className="mt-0.5 text-[11px] font-semibold text-[#a3ff12] truncate">
+                            <div className="text-[10px] sm:text-[11px] font-semibold text-[#a3ff12] truncate">
                               {song.artist || "Unknown Artist"}
                             </div>
                           </div>
                         </div>
 
-                        <div className="flex items-center justify-between mt-2.5 text-[9.5px] font-mono">
-                          <span className="px-2 py-0.5 bg-[#a3ff12]/15 border border-[#a3ff12]/30 rounded-md text-[#a3ff12] font-bold">
+                        <div className="flex items-center justify-between mt-1.5 text-[9px] font-mono">
+                          <span className="px-1.5 py-0.2 bg-[#a3ff12]/15 border border-[#a3ff12]/30 rounded text-[#a3ff12] font-bold">
                             {song.key || "C Maj"}
                           </span>
-                          <span className="px-2 py-0.5 bg-[#a3ff12]/10 border border-[#a3ff12]/20 rounded-md text-[#a3ff12] font-bold">
+                          <span className="px-1.5 py-0.2 bg-[#a3ff12]/10 border border-[#a3ff12]/20 rounded text-[#a3ff12] font-bold">
                             {song.tempo || 120} BPM
                           </span>
                           {song.duration && (
