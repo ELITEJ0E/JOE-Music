@@ -162,13 +162,15 @@ export function stabilizeChordSegments(
   const isFastTempo = tempo >= 115;
   
   // 1. Adaptive Minimum Musical Duration:
-  // Strictly preserves 1-beat and half-beat (8th note) chord switches (true to beat changing)
-  // while filtering out sub-musical noise transients (< 0.18s).
-  const adaptiveMinDuration = Math.max(0.18, Math.min(0.38, beatIntervalSec * 0.45));
+  // Base duration scales with beat interval (~0.85 beat, min 0.42s).
+  // Genuine half-beat (8th note) chords are protected if supported by solid margin and evidence.
+  let adaptiveMinDuration = isFastTempo 
+    ? Math.max(0.42, beatIntervalSec * 0.85) 
+    : Math.max(0.65, beatIntervalSec * 0.95);
   
-  const minSlashDuration = options.minSlashDuration ?? Math.max(0.40, beatIntervalSec * 0.85);
+  const minSlashDuration = options.minSlashDuration ?? Math.max(0.45, beatIntervalSec * 0.90);
   const totalDuration = options.duration || (rawSegments[rawSegments.length - 1].endTime ?? 0);
-  const changeMargin = options.changeMargin ?? 0.08;
+  const changeMargin = options.changeMargin ?? (isFastTempo ? 0.10 : 0.08);
 
   let mergedSegmentsCount = 0;
   let rejectedTransientSlashCount = 0;
@@ -288,16 +290,14 @@ export function stabilizeChordSegments(
       const distToBeat = getDistanceToSubdivision(seg.startTime);
       const isOnBeat = distToBeat <= 0.15;
       
-      // Calculate viability (higher is more stable, lower is absorbed)
-      let viability = dur * 2.5; 
+      // Base viability from duration, score margin, and third evidence
+      let viability = dur * (isFastTempo ? 2.5 : 1.8); 
       viability += scoreMargin * 2.0;
       viability += thirdEvidence * 1.0;
       
-      if (isOnBeat) viability += 1.5;
-      
-      // If duration is at least half a beat and lands on a beat/subdivision, strongly protect it
-      if (isOnBeat && dur >= beatIntervalSec * 0.42) {
-        viability += 3.5;
+      // If duration is at least half a beat and lands on a beat/subdivision with solid evidence, protect it
+      if (isOnBeat && dur >= beatIntervalSec * 0.42 && (scoreMargin >= 0.08 || thirdEvidence >= 0.35)) {
+        viability += 2.5;
       }
 
       // Hysteresis: if margin is high, it's very viable
@@ -305,25 +305,25 @@ export function stabilizeChordSegments(
         viability += (scoreMargin - changeMargin) * 3.0;
       }
       
-      // Harmonic context: Sandwiched chords (C -> F# -> C)
+      // Harmonic context: Sandwiched chords (C -> F# -> C or D -> Em -> A)
       const prev = i > 0 ? current[i-1] : null;
       const next = i < current.length - 1 ? current[i+1] : null;
       
       if (prev && next && prev.chord === next.chord) {
         const harmonicDist = getHarmonicDistance(seg.root, prev.root);
-        // If sandwiched and harmonically distant, penalize only if sub-beat duration
-        if (harmonicDist >= 2 && dur < adaptiveMinDuration) {
-          viability -= 2.0;
-        } else if (dur < 0.15) {
-          viability -= 1.5;
+        // If sandwiched and harmonically distant, penalize heavily
+        if (harmonicDist >= 2 && dur < adaptiveMinDuration * 1.5) {
+          viability -= 2.5;
+        } else if (dur <= adaptiveMinDuration * 0.8) {
+          viability -= 1.8;
         }
       }
       
-      // Penalize sub-musical noise (< 0.15s)
-      if (dur < 0.15) {
-        viability -= 3.0;
-      } else if (dur < adaptiveMinDuration * 0.7) {
-        viability -= 0.5;
+      // Penalize short passing transients (< 0.25s or < 0.75 * adaptiveMinDuration without strong margin)
+      if (dur < 0.25) {
+        viability -= 3.0; // very short passing note
+      } else if (dur < adaptiveMinDuration * 0.85 && scoreMargin < 0.15) {
+        viability -= 1.5;
       }
       
       // Power chords / extensions resolving to root

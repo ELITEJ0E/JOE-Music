@@ -145,7 +145,7 @@ self.onmessage = function (e: MessageEvent) {
       }
     );
 
-    const { segments: rawBeatSegments, isFastMode, beatUnits } = beatHarmonicsResult;
+    const { segments: rawBeatSegments, isFastMode, beatUnits, transitionDiagnostics } = beatHarmonicsResult;
 
     // 4. Post-MIR Harmonic Stabilization Layer
     // Filters transient glitches, rejects pick/acoustic transient slash chords,
@@ -242,7 +242,8 @@ self.onmessage = function (e: MessageEvent) {
           numChordChanges,
           changesPerMinute,
           averageChordConfidence,
-          averageTransitionConfidence
+          averageTransitionConfidence,
+          transitionDiagnostics
         }
       }
     });

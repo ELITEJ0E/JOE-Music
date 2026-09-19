@@ -37,6 +37,46 @@ export interface BeatAnalysisConfig {
   highHarmonicResolution?: boolean;
 }
 
+export interface TransitionDiagnostic {
+  timeSec: number;
+  previousChord: string;
+  candidateChord: string;
+  duration: number;
+  durationBeats: number;
+  candidateScore: number;
+  runnerUpScore: number;
+  scoreMargin: number;
+  rootEvidence: number;
+  thirdEvidence: number;
+  bassEvidence: number;
+  neighborSupport: number;
+  transitionCost: number;
+  persistenceScore: number;
+  commitDecision: "ACCEPTED" | "REJECTED";
+  rejectionReason: string;
+}
+
+export function formatTransitionDiagnostic(d: TransitionDiagnostic): string {
+  return `Candidate ${d.candidateChord} at ${d.timeSec.toFixed(3)}s
+duration: ${d.duration.toFixed(3)}s
+durationBeats: ${d.durationBeats.toFixed(2)}
+candidateScore: ${d.candidateScore.toFixed(2)}
+runnerUpScore: ${d.runnerUpScore.toFixed(2)}
+scoreMargin: ${d.scoreMargin.toFixed(2)}
+rootEvidence: ${d.rootEvidence.toFixed(2)}
+thirdEvidence: ${d.thirdEvidence.toFixed(2)}
+bassEvidence: ${d.bassEvidence.toFixed(2)}
+neighborSupport: ${d.neighborSupport.toFixed(2)}
+transitionCost: ${d.transitionCost.toFixed(2)}
+persistenceScore: ${d.persistenceScore.toFixed(2)}
+
+DECISION:
+${d.commitDecision}
+
+REASON:
+${d.rejectionReason}`;
+}
+
 /**
  * Builds the musical time grid (Beats or Half-Beats) adaptively based on tempo.
  * For fast songs (>= 115 BPM), includes 8th-note subdivisions to resolve fast harmonic rhythm.
@@ -48,8 +88,8 @@ export function buildMusicalGrid(
   options: { forceHighResolution?: boolean } = {}
 ): { units: BeatUnit[]; isFastMode: boolean; isHighResolutionMode: boolean; beatIntervalSec: number } {
   const beatIntervalSec = 60 / Math.max(40, tempo);
-  // High resolution grid (8th-note subdivisions) enabled for true beat & upbeat chord tracking
-  const isHighResolutionMode = options.forceHighResolution ?? (tempo >= 75 || beatIntervalSec >= 0.35);
+  // High resolution grid (8th-note subdivisions) enabled for fast songs or high harmonic flux
+  const isHighResolutionMode = options.forceHighResolution ?? (tempo >= 115);
 
   let effectiveBeats = [...beats];
   if (effectiveBeats.length === 0) {
@@ -211,8 +251,9 @@ export function aggregateChromasForBeatUnits(
       for (let k = 0; k < 12; k++) unit.contextChroma[k] /= maxCtx;
     }
 
-    // Blend: 92% local responsiveness (true to beat changes) + 8% micro-smoothing
-    const localWeight = 0.92;
+    // For subdivision units (half-beats, ~240ms), blend 80% local + 20% context to prevent isolated vocal spikes
+    // For beat units (~480ms), blend 90% local + 10% context
+    const localWeight = unit.isSubdivision ? 0.80 : 0.90;
     const ctxWeight = 1.0 - localWeight;
     let maxBlended = 0;
 
@@ -236,68 +277,105 @@ function getHarmonicTransitionScore(
   keyProfile: DiatonicProfile,
   unitB: BeatUnit,
   isHighResolutionMode: boolean,
-  prevPrevChordName?: string
+  prevPrevChordName?: string,
+  unitIdx?: number,
+  allUnits?: BeatUnit[]
 ): number {
   if (chordA.chord === chordB.chord) {
-    // Balanced self-transition persistence: keeps genuine holds without resisting fast changes
-    return unitB.isDownbeat ? 0.08 : 0.12;
+    // Sustaining current chord (balanced persistence without inertia locking)
+    let holdBonus = unitB.isDownbeat ? 0.15 : 0.22;
+    if (chordB.score >= 0.50) holdBonus += 0.10;
+    if (chordB.thirdEvidence >= 0.30) holdBonus += 0.08;
+    return holdBonus;
   }
 
-  // Chord change occurring - soft priors
-  let transitionBonus = 0;
+  // Chord change occurring: base commitment barrier in log-probability space
+  let transitionBonus = -0.35;
 
-  // Metric timing preference: slight downbeat/beat preference while remaining responsive to upbeats
+  // 1. Metric timing preference:
   if (unitB.isDownbeat) {
-    transitionBonus += 0.08;
+    transitionBonus += 0.25;
   } else if (unitB.beatNumberInBar === 3 && !unitB.isSubdivision) {
-    transitionBonus += 0.05;
+    transitionBonus += 0.18;
+  } else if (!unitB.isSubdivision) {
+    transitionBonus += 0.10;
   } else if (unitB.isSubdivision) {
-    transitionBonus -= 0.03; // Light subdivision adjustment (allows natural syncopated changes)
+    // Forward lookahead: does the candidate persist into the subsequent beat unit?
+    const nextUnit = (unitIdx !== undefined && allUnits && unitIdx < allUnits.length - 1)
+      ? allUnits[unitIdx + 1]
+      : null;
+    const nextMatch = nextUnit?.candidates.find(c => c.chord === chordB.chord);
+    const nextScore = nextMatch ? nextMatch.score : 0;
+
+    if (nextScore >= 0.35) {
+      // Anticipated syncopated change that carries forward into the next beat
+      transitionBonus += 0.12;
+    } else if (nextScore < 0.20) {
+      // Isolated half-beat spike (passing melody note, vocal embellishment, or transient)
+      const hasExtremeEvidence = (chordB.scoreMargin ?? 0) >= 0.25 && chordB.thirdEvidence >= 0.55;
+      if (!hasExtremeEvidence) {
+        transitionBonus -= 0.55;
+      }
+    }
   }
 
-  // A-B-A oscillation suppression: penalty if changing back immediately to the previous chord
+  // 2. A-B-A oscillation suppression:
   if (prevPrevChordName && prevPrevChordName === chordB.chord && chordA.chord !== chordB.chord) {
+    transitionBonus -= 0.50;
+  }
+
+  // 3. Same-root quality / extension flickers (Phase 6):
+  if (chordA.root === chordB.root && chordA.chord !== chordB.chord) {
+    if (chordB.quality === "5") {
+      transitionBonus -= 0.40; // drop full triad to power chord
+    } else if (["maj7", "min7", "7", "add9", "sus2", "sus4"].includes(chordB.quality)) {
+      if ((chordB.diagnostics?.definingEvidence ?? 0) < 0.40) {
+        transitionBonus -= 0.35;
+      } else {
+        transitionBonus -= 0.18;
+      }
+    } else {
+      transitionBonus -= 0.22;
+    }
+  }
+
+  // 4. Candidate Evidence & Margin:
+  if (chordB.scoreMargin !== undefined && chordB.scoreMargin > 0) {
+    transitionBonus += Math.min(0.30, chordB.scoreMargin * 1.2);
+  }
+  if ((chordB.scoreMargin ?? 0) < 0.04) {
     transitionBonus -= 0.18;
   }
-
-  // Same-root quality change penalty (e.g., C to Cmaj7 or C to Cadd9):
-  // Flickering extensions require stronger emission evidence
-  if (chordA.root === chordB.root && chordA.chord !== chordB.chord) {
-    transitionBonus -= 0.12;
+  if (chordB.thirdEvidence >= 0.40) {
+    transitionBonus += 0.14;
+  } else if (chordB.thirdEvidence < 0.15 && chordB.quality !== "5") {
+    transitionBonus -= 0.25;
+  }
+  if (chordB.rootScore >= 0.65) {
+    transitionBonus += 0.10;
+  }
+  if ((chordB.neighborSupport ?? 0) >= 0.35) {
+    transitionBonus += 0.18;
   }
 
+  // 5. Harmonic Progression Plausibility:
   const rootAIdx = NOTE_NAMES.indexOf(chordA.root);
   const rootBIdx = NOTE_NAMES.indexOf(chordB.root);
   if (rootAIdx !== -1 && rootBIdx !== -1) {
     const rootDiff = (rootBIdx - rootAIdx + 12) % 12;
-
-    // 1. Circle of Fifths: Up 4th / down 5th (5 or 7 semitones)
     if (rootDiff === 5 || rootDiff === 7) {
-      transitionBonus += 0.08;
-    }
-    // 2. Diatonic step: Up or down a major 2nd (2 or 10 semitones)
-    else if (rootDiff === 2 || rootDiff === 10) {
-      transitionBonus += 0.06;
-    }
-    // 3. Relative major/minor (3 or 9 semitones)
-    else if (rootDiff === 3 || rootDiff === 9) {
-      transitionBonus += 0.06;
-    }
-    // 4. Semitone jump: soft nudge only (allows chromatic, Neapolitan, and tritone substitutions)
-    else if (rootDiff === 1 || rootDiff === 11) {
-      transitionBonus -= 0.05;
-    }
-    // 5. Tritone jump: soft nudge only
-    else if (rootDiff === 6) {
-      transitionBonus -= 0.08;
+      transitionBonus += 0.16; // Circle of Fifths (IV / V)
+    } else if (rootDiff === 2 || rootDiff === 10) {
+      transitionBonus += 0.12; // Diatonic step (ii / vi / vii)
+    } else if (rootDiff === 3 || rootDiff === 9) {
+      transitionBonus += 0.12; // Relative major / minor
+    } else if (rootDiff === 6) {
+      transitionBonus -= 0.20; // Tritone jump
     }
   }
 
-  // If both chords are diatonic to the song's global key, gentle bonus
-  const diatonicA = keyProfile.diatonicRoots.includes(rootAIdx);
-  const diatonicB = keyProfile.diatonicRoots.includes(rootBIdx);
-  if (diatonicA && diatonicB) {
-    transitionBonus += 0.06;
+  if (keyProfile.diatonicRoots.includes(rootAIdx) && keyProfile.diatonicRoots.includes(rootBIdx)) {
+    transitionBonus += 0.12;
   }
 
   return transitionBonus;
@@ -310,10 +388,13 @@ function getHarmonicTransitionScore(
 export function optimizeChordSequence(
   units: BeatUnit[],
   keyProfile: DiatonicProfile,
-  isHighResolutionMode: boolean
-): ChordSegment[] {
+  isHighResolutionMode: boolean,
+  tempo: number = 120
+): { segments: ChordSegment[]; diagnostics: TransitionDiagnostic[] } {
   const K = units.length;
-  if (K === 0) return [];
+  if (K === 0) return { segments: [], diagnostics: [] };
+
+  const beatIntervalSec = 60 / Math.max(40, tempo);
 
   // Viterbi Trellis: bestScore[unitIdx][candidateIdx], backpointer[unitIdx][candidateIdx]
   const trellisScores: number[][] = [];
@@ -355,11 +436,13 @@ export function optimizeChordSequence(
           keyProfile,
           unit,
           isHighResolutionMode,
-          prevPrevName
+          prevPrevName,
+          u,
+          units
         );
 
-        // Gentle soft prior scaling (0.8x) ensures audio emission evidence dominates
-        const totalPathScore = trellisScores[u - 1][p] + (transScore * 0.8) + emissionScore;
+        // Natural log emission + transition prior
+        const totalPathScore = trellisScores[u - 1][p] + transScore + emissionScore;
         if (totalPathScore > bestPathScore) {
           bestPathScore = totalPathScore;
           bestPrevIdx = p;
@@ -390,6 +473,75 @@ export function optimizeChordSequence(
 
   for (let u = 0; u < K; u++) {
     units[u].selectedCandidate = units[u].candidates[optimalIndices[u]];
+  }
+
+  // Collect Diagnostics (Phase 12)
+  const diagnosticsList: TransitionDiagnostic[] = [];
+  for (let u = 0; u < K; u++) {
+    const rawWinner = units[u].candidates[0];
+    const selected = units[u].selectedCandidate!;
+    const prevChord = u > 0 ? (units[u - 1].selectedCandidate?.chord ?? "None") : "Start";
+
+    if (u > 0 && selected.chord !== prevChord) {
+      // Transition ACCEPTED
+      const diag: TransitionDiagnostic = {
+        timeSec: units[u].startTime,
+        previousChord: prevChord,
+        candidateChord: selected.chord,
+        duration: units[u].duration,
+        durationBeats: Number((units[u].duration / beatIntervalSec).toFixed(2)),
+        candidateScore: selected.score,
+        runnerUpScore: units[u].candidates.find(c => c.chord !== selected.chord)?.score ?? 0,
+        scoreMargin: selected.scoreMargin ?? 0,
+        rootEvidence: selected.rootScore,
+        thirdEvidence: selected.thirdEvidence,
+        bassEvidence: selected.bassEvidence,
+        neighborSupport: selected.neighborSupport ?? 0,
+        transitionCost: 0,
+        persistenceScore: selected.persistenceScore ?? 0,
+        commitDecision: "ACCEPTED",
+        rejectionReason: "None (Genuine harmonic change confirmed by score and musical continuity)"
+      };
+      diagnosticsList.push(diag);
+      console.log(`[CHORD DIAGNOSTIC]\n${formatTransitionDiagnostic(diag)}\n`);
+    }
+
+    if (rawWinner && selected && rawWinner.chord !== selected.chord) {
+      // Raw candidate REJECTED in favor of persistence or another path
+      let rejectionReason = "Candidate evidence insufficient to overcome harmonic transition barrier";
+      if (units[u].isSubdivision && (rawWinner.neighborSupport ?? 0) < 0.25) {
+        rejectionReason = "Weak harmonic evidence + isolated half-beat + insufficient neighboring support";
+      } else if (u >= 2 && units[u - 2].selectedCandidate?.chord === rawWinner.chord) {
+        rejectionReason = "A-B-A rapid oscillation without overwhelming independent harmonic evidence";
+      } else if (prevChord.startsWith(rawWinner.root) && rawWinner.quality === "5") {
+        rejectionReason = "Transient same-root power chord drop without third omission across surrounding context";
+      } else if (rawWinner.thirdEvidence < 0.20) {
+        rejectionReason = "Insufficient third evidence; transient passing melody tone";
+      } else if ((rawWinner.scoreMargin ?? 0) < 0.05) {
+        rejectionReason = "Low score margin and lack of forward confirmation on subsequent beat";
+      }
+
+      const diag: TransitionDiagnostic = {
+        timeSec: units[u].startTime,
+        previousChord: prevChord,
+        candidateChord: rawWinner.chord,
+        duration: units[u].duration,
+        durationBeats: Number((units[u].duration / beatIntervalSec).toFixed(2)),
+        candidateScore: rawWinner.score,
+        runnerUpScore: units[u].candidates.find(c => c.chord !== rawWinner.chord)?.score ?? 0,
+        scoreMargin: rawWinner.scoreMargin ?? 0,
+        rootEvidence: rawWinner.rootScore,
+        thirdEvidence: rawWinner.thirdEvidence,
+        bassEvidence: rawWinner.bassEvidence,
+        neighborSupport: rawWinner.neighborSupport ?? 0,
+        transitionCost: -0.35,
+        persistenceScore: rawWinner.persistenceScore ?? 0,
+        commitDecision: "REJECTED",
+        rejectionReason
+      };
+      diagnosticsList.push(diag);
+      console.log(`[CHORD DIAGNOSTIC]\n${formatTransitionDiagnostic(diag)}\n`);
+    }
   }
 
   // Merge consecutive identical beat units into unified ChordSegments
@@ -464,7 +616,7 @@ export function optimizeChordSequence(
     });
   }
 
-  return rawSegments;
+  return { segments: rawSegments, diagnostics: diagnosticsList };
 }
 
 /**
@@ -515,7 +667,13 @@ export function analyzeBeatSynchronousHarmonics(
   chromagram: Float32Array[],
   bassChromagram: Float32Array[],
   config: BeatAnalysisConfig
-): { segments: ChordSegment[]; isFastMode: boolean; isHighResolutionMode: boolean; beatUnits: BeatUnit[] } {
+): {
+  segments: ChordSegment[];
+  isFastMode: boolean;
+  isHighResolutionMode: boolean;
+  beatUnits: BeatUnit[];
+  transitionDiagnostics: TransitionDiagnostic[];
+} {
   const keyProfile = parseDiatonicProfile(config.estimatedKey);
 
   // Compute harmonic change density across beats
@@ -555,17 +713,56 @@ export function analyzeBeatSynchronousHarmonics(
       unit.blendedChroma,
       unit.localBassChroma,
       keyProfile,
-      3
+      4
     );
   }
 
-  // 4. Sequence Optimization across beat units with soft priors
-  const rawSegments = optimizeChordSequence(units, keyProfile, isHighResolutionMode);
+  // 4. Temporal Evidence Accumulation & Persistence Across Neighbor Units (Phases 3 & 4)
+  for (let u = 0; u < units.length; u++) {
+    const unit = units[u];
+    const prevUnit = u > 0 ? units[u - 1] : null;
+    const nextUnit = u < units.length - 1 ? units[u + 1] : null;
+
+    for (const cand of unit.candidates) {
+      // Runner-up margin specific to this candidate
+      const runnerUp = unit.candidates.find(c => c.chord !== cand.chord);
+      const runnerUpScore = runnerUp ? runnerUp.score : 0;
+      cand.scoreMargin = Number(Math.max(0, cand.score - runnerUpScore).toFixed(3));
+
+      // Neighbor support
+      const prevMatch = prevUnit?.candidates.find(c => c.chord === cand.chord);
+      const prevScore = prevMatch ? prevMatch.score : 0;
+
+      const nextMatch = nextUnit?.candidates.find(c => c.chord === cand.chord);
+      const nextScore = nextMatch ? nextMatch.score : 0;
+
+      const neighborSupport = Number(Math.max(prevScore, nextScore).toFixed(3));
+      cand.neighborSupport = neighborSupport;
+
+      // Persistence Score: weighted combination of emission score, third evidence, margin, and neighbor support
+      const persistence = (cand.score * 0.40) +
+        (cand.thirdEvidence * 0.20) +
+        (neighborSupport * 0.25) +
+        (cand.scoreMargin * 0.15);
+      cand.persistenceScore = Number(persistence.toFixed(3));
+      cand.diagnostics.neighborSupport = neighborSupport;
+      cand.diagnostics.persistenceScore = cand.persistenceScore;
+    }
+  }
+
+  // 5. Sequence Optimization across beat units with soft priors & diagnostics
+  const { segments: rawSegments, diagnostics: transitionDiagnostics } = optimizeChordSequence(
+    units,
+    keyProfile,
+    isHighResolutionMode,
+    config.tempo
+  );
 
   return {
     segments: rawSegments,
     isFastMode: isHighResolutionMode,
     isHighResolutionMode,
-    beatUnits: units
+    beatUnits: units,
+    transitionDiagnostics
   };
 }

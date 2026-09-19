@@ -18,6 +18,9 @@ export interface ChordCandidate {
   thirdEvidence: number;
   isSlash: boolean;
   bassEvidence: number;
+  scoreMargin?: number;
+  neighborSupport?: number;
+  persistenceScore?: number;
   diagnostics: {
     rootCandidates: Array<{ note: string; score: number }>;
     maj3Evidence: number;
@@ -26,6 +29,8 @@ export interface ChordCandidate {
     definingEvidence: number;
     slashBassRatio: number;
     scoreMargin?: number;
+    neighborSupport?: number;
+    persistenceScore?: number;
   };
 }
 
@@ -344,6 +349,7 @@ export function rankChordCandidatesForWindow(
   const runnerUpScore = results[1]?.score ?? 0;
   const margin = Number(Math.max(0, topScore - runnerUpScore).toFixed(3));
   for (const res of results) {
+    res.scoreMargin = margin;
     res.diagnostics.scoreMargin = margin;
   }
   return results;
