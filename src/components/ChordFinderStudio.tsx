@@ -1647,20 +1647,20 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
             <>
               {/* Dedicated Sounding / Capo / Play Shape Overview HUD */}
               {activeChord.isValid && (
-                <div className="grid grid-cols-3 gap-2 bg-black/40 border border-white/10 rounded-2xl p-1.5 sm:p-2.5 text-center font-mono select-none">
-                  <div className="flex flex-col items-center justify-center border-r border-white/10 pr-1 sm:pr-2">
-                    <span className="text-[8.5px] sm:text-[10px] uppercase font-bold tracking-wider text-zinc-400">SOUNDING</span>
-                    <span className="text-xs sm:text-base font-extrabold text-zinc-100">{activeChord.transposedChord}</span>
+                <div className="grid grid-cols-3 gap-2 bg-black/40 border border-white/10 rounded-xl py-1 px-3 text-center font-mono select-none">
+                  <div className="flex items-center justify-center gap-1.5 border-r border-white/10 pr-2">
+                    <span className="text-[8.5px] uppercase font-bold tracking-wider text-zinc-400">SOUNDING:</span>
+                    <span className="text-xs sm:text-sm font-extrabold text-zinc-100">{activeChord.transposedChord}</span>
                   </div>
-                  <div className="flex flex-col items-center justify-center border-r border-white/10 px-1 sm:px-2">
-                    <span className="text-[8.5px] sm:text-[10px] uppercase font-bold tracking-wider text-zinc-400">CAPO</span>
-                    <span className={`text-xs sm:text-base font-extrabold ${capo > 0 ? "text-sky-400" : "text-zinc-300"}`}>
+                  <div className="flex items-center justify-center gap-1.5 border-r border-white/10 px-2">
+                    <span className="text-[8.5px] uppercase font-bold tracking-wider text-zinc-400">CAPO:</span>
+                    <span className={`text-xs sm:text-sm font-extrabold ${capo > 0 ? "text-sky-400" : "text-zinc-400"}`}>
                       {capo > 0 ? `${capo}` : "0"}
                     </span>
                   </div>
-                  <div className="flex flex-col items-center justify-center pl-1 sm:pl-2">
-                    <span className="text-[8.5px] sm:text-[10px] uppercase font-bold tracking-wider text-zinc-400">PLAY</span>
-                    <span className="text-xs sm:text-base font-black text-[#a3ff12]">
+                  <div className="flex items-center justify-center gap-1.5 pl-2">
+                    <span className="text-[8.5px] uppercase font-bold tracking-wider text-zinc-400">PLAY:</span>
+                    <span className="text-xs sm:text-sm font-black text-[#a3ff12]">
                       {capo > 0 ? activeChord.shapeChord : activeChord.transposedChord}
                     </span>
                   </div>
@@ -1668,9 +1668,9 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
               )}
 
               {/* Horizontally scrolling chord lookahead strip */}
-              <div className="py-1.5 sm:py-2.5 border-y border-white/5">
+              <div className="py-1.5 border-y border-white/5">
                 <div
-                  className="flex items-center gap-3 sm:gap-5 overflow-x-auto [&::-webkit-scrollbar]:hidden px-4 sm:px-8 select-none [overflow-anchor:none]"
+                  className="flex items-center gap-3 sm:gap-4 overflow-x-auto [&::-webkit-scrollbar]:hidden px-3 sm:px-6 select-none [overflow-anchor:none]"
                   style={{
                     scrollbarWidth: "none",
                   }}
@@ -1703,34 +1703,34 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                           }
                         }}
                         style={opacityStyle}
-                        className={`shrink-0 flex flex-col items-center justify-center text-center transition-all duration-150 ease-out cursor-pointer ${scaleClass} min-w-[90px] sm:min-w-[120px] will-change-transform`}
+                        className={`shrink-0 flex flex-col items-center justify-center text-center transition-all duration-150 ease-out cursor-pointer ${scaleClass} min-w-[72px] sm:min-w-[90px] will-change-transform`}
                         title={c.isValid ? `Jump to ${chordLabel} at ${c.timeLabel}` : undefined}
                       >
-                        {/* Chord Name */}
+                        {/* Chord Name - Balanced scale: clear, legible, not oversized */}
                         {isActive ? (
-                          <div className="text-4xl sm:text-5xl font-black font-mono text-[#a3ff12] tracking-tight drop-shadow-[0_0_20px_rgba(163,255,18,0.4)] transition-all duration-150">
+                          <div className="text-2xl sm:text-3xl font-black font-mono text-[#a3ff12] tracking-tight drop-shadow-[0_0_12px_rgba(163,255,18,0.35)] transition-all duration-150">
                             {chordLabel}
                           </div>
                         ) : isPast ? (
-                          <div className="text-2xl sm:text-3xl font-bold font-mono text-zinc-500 tracking-tight transition-all duration-150">
+                          <div className="text-base sm:text-lg font-bold font-mono text-zinc-500 tracking-tight transition-all duration-150">
                             {chordLabel}
                           </div>
                         ) : (
-                          <div className="text-2xl sm:text-3xl font-bold font-mono text-zinc-300 tracking-tight transition-all duration-150">
+                          <div className="text-base sm:text-lg font-bold font-mono text-zinc-300 tracking-tight transition-all duration-150">
                             {chordLabel}
                           </div>
                         )}
 
                         {/* Active chord Sounding Pill when Capo > 0 */}
                         {isActive && capo > 0 && c.isValid && (
-                          <div className="text-[10px] font-mono font-bold text-sky-400 mt-1 px-2 py-0.5 rounded-full bg-sky-400/10 border border-sky-400/20">
+                          <div className="text-[9.5px] font-mono font-bold text-sky-400 mt-0.5 px-1.5 py-0.2 rounded-full bg-sky-400/10 border border-sky-400/20">
                             Sounding: {c.transposedChord}
                           </div>
                         )}
 
                         {/* Time label below chord */}
                         <div
-                          className={`text-[11px] font-mono mt-1 transition-colors duration-150 ${
+                          className={`text-[10.5px] font-mono mt-0.5 transition-colors duration-150 ${
                             isActive
                               ? "text-zinc-300 font-semibold"
                               : "text-zinc-500"
@@ -1744,19 +1744,26 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                 </div>
               </div>
 
-              {/* Guitar Chord Fretboard Diagram for Current Chord */}
+              {/* Guitar Chord Fretboard Diagram for Current Chord - Moderate, well-proportioned visual */}
               <div className="flex flex-col items-center justify-center py-1">
-                <div className="bg-[#13161a] rounded-2xl p-2 sm:p-2.5 border border-white/10 shadow-xl relative w-[170px] sm:w-[195px] flex flex-col items-center">
+                <div className="bg-[#13161a] rounded-2xl p-2.5 sm:p-3 border border-white/10 shadow-xl relative w-[190px] sm:w-[220px] flex flex-col items-center">
                   {/* Diagram Header */}
                   <div className="flex items-center justify-between w-full pb-1 mb-1 border-b border-white/10 text-[10px] sm:text-[11px] font-mono">
-                    <span className="text-zinc-400 font-bold">
-                      {activeVoicingResult.voicing?.cagedShape
-                        ? `${activeVoicingResult.voicing.cagedShape}-Shape`
-                        : "Fretboard"}
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-zinc-300 font-bold">
+                        {activeVoicingResult.voicing?.cagedShape
+                          ? `${activeVoicingResult.voicing.cagedShape}-Shape`
+                          : "Fretboard"}
+                      </span>
+                      {activeChord.isValid && (
+                        <span className="text-[10px] font-bold text-[#a3ff12] bg-[#a3ff12]/10 px-1.5 py-0.2 rounded border border-[#a3ff12]/20">
+                          {capo > 0 ? activeChord.shapeChord : activeChord.transposedChord}
+                        </span>
+                      )}
+                    </div>
                     <div className="flex items-center gap-1">
                       {activeVoicingResult.voicingType === "simplified" && (
-                        <span className="px-1.5 py-0.5 rounded text-[8.5px] font-bold bg-yellow-400/10 text-yellow-400">
+                        <span className="px-1.5 py-0.2 rounded text-[8.5px] font-bold bg-yellow-400/10 text-yellow-400 border border-yellow-400/20">
                           Playable
                         </span>
                       )}
@@ -1770,7 +1777,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                               capo
                             )
                           }
-                          className="p-1 rounded bg-[#a3ff12]/10 hover:bg-[#a3ff12]/20 text-[#a3ff12] transition-colors"
+                          className="p-1 rounded bg-[#a3ff12]/10 hover:bg-[#a3ff12]/20 text-[#a3ff12] transition-colors cursor-pointer"
                           title="Hear Chord Strum"
                         >
                           <Play className="w-3 h-3 fill-[#a3ff12]" />
@@ -1779,7 +1786,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                     </div>
                   </div>
 
-                  {/* Chord Measure Progress Bar - GPU-accelerated sub-frame continuous interpolation with smooth transition */}
+                  {/* Chord Measure Progress Bar */}
                   <div className="w-full h-1 bg-white/10 rounded-full overflow-hidden mb-1 relative [overflow-anchor:none]">
                     <div
                       className={`absolute inset-0 origin-left will-change-transform transition-[transform,colors] duration-75 ease-out ${
@@ -1794,7 +1801,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                   </div>
 
                   {activeVoicingResult.voicing ? (
-                    <div className="w-[140px] sm:w-[160px] h-[155px] sm:h-[175px] flex items-center justify-center [overflow-anchor:none] flex-shrink-0">
+                    <div className="w-full flex items-center justify-center [overflow-anchor:none] flex-shrink-0 py-0.5">
                       <ChordDiagram
                         frets={activeVoicingResult.voicing.frets}
                         fingers={activeVoicingResult.voicing.fingers}
@@ -1803,13 +1810,13 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                         cagedShape={activeVoicingResult.voicing.cagedShape}
                         title={capo > 0 ? `${activeChord.shapeChord} (Capo ${capo})` : activeChord.transposedChord}
                         capo={capo}
-                        size="xs"
+                        size="md"
                       />
                     </div>
                   ) : (
-                    <div className="w-[140px] sm:w-[160px] h-[155px] sm:h-[175px] flex flex-col items-center justify-center text-center space-y-1 [overflow-anchor:none] flex-shrink-0">
+                    <div className="w-full h-[180px] sm:h-[200px] flex flex-col items-center justify-center text-center space-y-1 [overflow-anchor:none] flex-shrink-0">
                       <span className="text-[11px] font-mono font-bold text-zinc-300">No guitar voicing</span>
-                      <span className="text-[9px] font-mono text-zinc-500 max-w-[130px]">
+                      <span className="text-[9.5px] font-mono text-zinc-500 max-w-[140px]">
                         {activeVoicingResult.simplificationReason || `No safe diagram for ${activeChord.shapeChord}`}
                       </span>
                     </div>
