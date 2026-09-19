@@ -9,7 +9,7 @@ export interface ChordDiagramProps {
     toString: number;
   };
   position?: number;
-  size?: "sm" | "md" | "lg";
+  size?: "xs" | "sm" | "md" | "lg";
   cagedShape?: "C" | "A" | "G" | "E" | "D";
   title?: string;
   showPositionLabel?: boolean;
@@ -91,9 +91,10 @@ export const ChordDiagram: React.FC<ChordDiagramProps> = ({
 
   // Sizing styles
   const sizeClasses = {
-    sm: "w-36 max-w-full",
-    md: "w-56 max-w-full",
-    lg: "w-64 sm:w-72 max-w-full",
+    xs: "w-28 sm:w-32 max-w-full",
+    sm: "w-32 sm:w-36 max-w-full",
+    md: "w-44 sm:w-52 max-w-full",
+    lg: "w-60 sm:w-68 max-w-full",
   }[size];
 
   // String index to X coordinate
