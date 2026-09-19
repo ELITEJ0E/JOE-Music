@@ -59,7 +59,7 @@ export function calculateStartFret(
   return Math.max(1, minFret);
 }
 
-export const ChordDiagram: React.FC<ChordDiagramProps> = ({
+export const ChordDiagramComponent: React.FC<ChordDiagramProps> = ({
   frets,
   fingers,
   barre,
@@ -106,7 +106,7 @@ export const ChordDiagram: React.FC<ChordDiagramProps> = ({
     <div className={`flex flex-col items-center select-none ${className}`}>
       <svg
         viewBox="0 0 240 260"
-        className={`${sizeClasses} h-auto filter drop-shadow-md`}
+        className={`${sizeClasses} h-auto select-none ${onPluck ? "" : "pointer-events-none"}`}
         role="img"
         aria-label={title || `Guitar chord diagram starting at fret ${startFret}`}
       >
@@ -120,7 +120,6 @@ export const ChordDiagram: React.FC<ChordDiagramProps> = ({
               height={capo > 0 ? 8 : 6}
               fill={capo > 0 ? "#38bdf8" : "#a3ff12"}
               rx={capo > 0 ? "4" : "3"}
-              filter={capo > 0 ? "drop-shadow(0 0 6px rgba(56,189,248,0.6))" : undefined}
             />
             {capo > 0 && showPositionLabel && (
               <text
@@ -181,7 +180,6 @@ export const ChordDiagram: React.FC<ChordDiagramProps> = ({
         {/* 6 Strings Vertical Lines (Low E thicker on left, High E thinner on right) */}
         {[0, 1, 2, 3, 4, 5].map((s) => {
           const x = getStringX(s);
-          // String gauge: 6th string (s=0) is thickest (~2.6px), 1st string (s=5) is thinnest (~1.0px)
           const gauge = 1.0 + (5 - s) * 0.32;
           return (
             <line
@@ -196,7 +194,7 @@ export const ChordDiagram: React.FC<ChordDiagramProps> = ({
           );
         })}
 
-        {/* Barre Rendering (if present and in view) */}
+        {/* Barre Rendering - High-performance GPU geometry with halo */}
         {barre && (() => {
           const relFret = barre.fret - startFret + 1;
           if (relFret >= 1 && relFret <= numVisibleFrets) {
@@ -206,16 +204,24 @@ export const ChordDiagram: React.FC<ChordDiagramProps> = ({
             const minX = Math.min(x1, x2);
             const maxX = Math.max(x1, x2);
             const pillWidth = maxX - minX + 22;
-
-            // Barre finger number from fingers array or default 1 (index finger)
             const barreFinger = fingers ? fingers[barre.fromString] || 1 : 1;
 
             return (
               <g
                 key="barre-indicator"
-                className={`transition-all duration-150 ease-out ${onPluck ? "cursor-pointer" : ""}`}
+                className={onPluck ? "cursor-pointer" : ""}
                 onClick={() => onPluck?.(5 - barre.fromString, barre.fret)}
               >
+                {/* Soft outer glow halo */}
+                <rect
+                  x={minX - 13}
+                  y={y - 13}
+                  width={pillWidth + 4}
+                  height={26}
+                  rx={13}
+                  fill="#a3ff12"
+                  fillOpacity={0.2}
+                />
                 {/* Horizontal Rounded Barre Pill */}
                 <rect
                   x={minX - 11}
@@ -224,9 +230,7 @@ export const ChordDiagram: React.FC<ChordDiagramProps> = ({
                   height={22}
                   rx={11}
                   fill="#a3ff12"
-                  fillOpacity={0.92}
-                  filter="drop-shadow(0 0 6px rgba(163,255,18,0.5))"
-                  className="transition-all duration-150 ease-out"
+                  fillOpacity={0.95}
                 />
                 {/* Barre Finger Label */}
                 <text
@@ -237,7 +241,6 @@ export const ChordDiagram: React.FC<ChordDiagramProps> = ({
                   fontFamily="monospace"
                   fontWeight="bold"
                   textAnchor="middle"
-                  className="transition-all duration-150 ease-out"
                 >
                   {barreFinger}
                 </text>
@@ -263,7 +266,6 @@ export const ChordDiagram: React.FC<ChordDiagramProps> = ({
                 fontFamily="monospace"
                 fontWeight="bold"
                 textAnchor="middle"
-                className="transition-opacity duration-150 ease-out"
               >
                 ✕
               </text>
@@ -281,7 +283,7 @@ export const ChordDiagram: React.FC<ChordDiagramProps> = ({
                 fill="none"
                 stroke={capo > 0 ? "#38bdf8" : "#a3ff12"}
                 strokeWidth="2"
-                className={`transition-all duration-150 ease-out ${onPluck ? "cursor-pointer hover:fill-[#a3ff12]/30" : ""}`}
+                className={onPluck ? "cursor-pointer hover:fill-[#a3ff12]/30" : ""}
                 onClick={() => onPluck?.(5 - sIdx, 0)}
               />
             );
@@ -291,16 +293,13 @@ export const ChordDiagram: React.FC<ChordDiagramProps> = ({
           if (typeof fret === "number" && fret > 0) {
             const relFret = fret - startFret + 1;
 
-            // Render only if within visible 5-fret window
             if (relFret >= 1 && relFret <= numVisibleFrets) {
-              // Check if note is already visually represented by the barre pill at the same fret
               const isCoveredByBarre =
                 barre &&
                 barre.fret === fret &&
                 sIdx >= barre.fromString &&
                 sIdx <= barre.toString;
 
-              // If covered by the barre at the exact same fret, don't draw duplicate dot
               if (isCoveredByBarre) {
                 return null;
               }
@@ -311,16 +310,23 @@ export const ChordDiagram: React.FC<ChordDiagramProps> = ({
               return (
                 <g
                   key={`dot-${sIdx}`}
-                  className={`transition-all duration-150 ease-out ${onPluck ? "cursor-pointer" : ""}`}
+                  className={onPluck ? "cursor-pointer" : ""}
                   onClick={() => onPluck?.(5 - sIdx, fret)}
                 >
+                  {/* Subtle vector glow halo (hardware accelerated, 0ms raster overhead) */}
+                  <circle
+                    cx={x}
+                    cy={y}
+                    r="14"
+                    fill="#a3ff12"
+                    fillOpacity="0.22"
+                  />
+                  {/* Crisp primary finger dot */}
                   <circle
                     cx={x}
                     cy={y}
                     r="11"
                     fill="#a3ff12"
-                    filter="drop-shadow(0 0 6px #a3ff12)"
-                    className="transition-all duration-150 ease-out"
                   />
                   {fingerNumber > 0 ? (
                     <text
@@ -331,7 +337,6 @@ export const ChordDiagram: React.FC<ChordDiagramProps> = ({
                       fontFamily="monospace"
                       fontWeight="bold"
                       textAnchor="middle"
-                      className="transition-all duration-150 ease-out"
                     >
                       {fingerNumber}
                     </text>
@@ -363,3 +368,5 @@ export const ChordDiagram: React.FC<ChordDiagramProps> = ({
     </div>
   );
 };
+
+export const ChordDiagram = React.memo(ChordDiagramComponent);

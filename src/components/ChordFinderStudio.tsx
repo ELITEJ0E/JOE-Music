@@ -1641,8 +1641,8 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
 
       {/* Main Center Area: Side-by-Side Workspace Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
-        {/* Chord Progression Canvas (Left/Center Column - 8 cols) */}
-        <div className="lg:col-span-8 frosted-card rounded-3xl p-3 sm:p-5 flex flex-col justify-between space-y-2.5 sm:space-y-4">
+        {/* Chord Progression Canvas (Left/Center Column - 8 cols) - Optimized hardware composited layer */}
+        <div className="lg:col-span-8 bg-[#0d1015]/95 border border-white/10 rounded-3xl p-3 sm:p-5 flex flex-col justify-between space-y-2.5 sm:space-y-4 shadow-xl [contain:paint]">
           {activeSong ? (
             <>
               {/* Dedicated Sounding / Capo / Play Shape Overview HUD */}
@@ -1744,9 +1744,9 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                 </div>
               </div>
 
-              {/* Guitar Chord Fretboard Diagram for Current Chord - Moderate, well-proportioned visual */}
+              {/* Guitar Chord Fretboard Diagram for Current Chord - High-Performance Hardware-Accelerated Display */}
               <div className="flex flex-col items-center justify-center py-1">
-                <div className="bg-[#13161a] rounded-2xl p-2.5 sm:p-3 border border-white/10 shadow-xl relative w-[190px] sm:w-[220px] flex flex-col items-center">
+                <div className="bg-[#13161a] rounded-2xl p-2.5 sm:p-3 border border-white/10 shadow-xl relative w-[190px] sm:w-[220px] flex flex-col items-center [transform:translateZ(0)]">
                   {/* Diagram Header */}
                   <div className="flex items-center justify-between w-full pb-1 mb-1 border-b border-white/10 text-[10px] sm:text-[11px] font-mono">
                     <div className="flex items-center gap-1.5">
@@ -1786,13 +1786,13 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                     </div>
                   </div>
 
-                  {/* Chord Measure Progress Bar */}
+                  {/* Chord Measure Progress Bar - Direct GPU Transform without Transition Thrashing */}
                   <div className="w-full h-1 bg-white/10 rounded-full overflow-hidden mb-1 relative [overflow-anchor:none]">
                     <div
-                      className={`absolute inset-0 origin-left will-change-transform transition-[transform,colors] duration-75 ease-out ${
+                      className={`absolute inset-0 origin-left will-change-transform ${
                         isApproachingSwitch
-                          ? "bg-orange-500 shadow-[0_0_8px_rgba(249,115,22,0.8)]"
-                          : "bg-[#a3ff12] shadow-[0_0_6px_rgba(163,255,18,0.5)]"
+                          ? "bg-orange-500"
+                          : "bg-[#a3ff12]"
                       }`}
                       style={{
                         transform: `scaleX(${Math.max(0, Math.min(1, currentChordProgress))})`,
@@ -1801,7 +1801,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                   </div>
 
                   {activeVoicingResult.voicing ? (
-                    <div className="w-full flex items-center justify-center [overflow-anchor:none] flex-shrink-0 py-0.5">
+                    <div className="w-full flex items-center justify-center [overflow-anchor:none] flex-shrink-0 py-0.5 pointer-events-none">
                       <ChordDiagram
                         frets={activeVoicingResult.voicing.frets}
                         fingers={activeVoicingResult.voicing.fingers}
@@ -1912,7 +1912,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                               }`}
                               style={{ left: `${leftPct}%` }}
                             >
-                              <span className="bg-black/70 px-1 py-0.5 rounded backdrop-blur-xs flex items-center gap-1">
+                              <span className="bg-[#0b0e12] border border-white/10 px-1 py-0.5 rounded flex items-center gap-1 shadow-sm">
                                 <span className={isCurrentSeg ? "text-[#a3ff12]" : "text-zinc-200"}>{soundingChord}</span>
                                 {capo > 0 && segState.isValid && (
                                   <span className="text-[8px] text-sky-400 font-semibold opacity-90">({playShape})</span>
@@ -2169,7 +2169,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
           </div>
 
           {/* Previous Played Songs Panel */}
-          <div className="frosted-card rounded-3xl p-4 sm:p-5 flex flex-col space-y-2.5 overflow-hidden">
+          <div className="bg-[#0d1015]/95 border border-white/10 rounded-3xl p-4 sm:p-5 flex flex-col space-y-2.5 overflow-hidden shadow-xl [contain:paint]">
             <div className="flex items-center justify-between border-b border-white/5 pb-2 shrink-0">
               <div className="flex items-center space-x-2">
                 <Music className="w-4 h-4 text-[#a3ff12]" />
