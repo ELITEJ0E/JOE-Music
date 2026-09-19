@@ -56,6 +56,27 @@ export interface TransitionDiagnostic {
   rejectionReason: string;
 }
 
+export interface DiagnosticTimelineEntry {
+  timeSec: number;
+  rawCandidate: string;
+  currentChord: string;
+  score: number;
+  margin: number;
+  rootEvidence: number;
+  neighborSupport: number;
+  pending: "yes" | "no";
+  finalChord: string;
+}
+
+export function formatDiagnosticTimelineTable(entries: DiagnosticTimelineEntry[]): string {
+  const header = "| Time  | Raw Candidate | Current Chord | Score | Margin | Root Evidence | Neighbor Support | Pending | Final |";
+  const divider = "|-------|---------------|---------------|-------|--------|---------------|------------------|---------|-------|";
+  const rows = entries.map(e =>
+    `| ${e.timeSec.toFixed(3).padEnd(5)} | ${e.rawCandidate.padEnd(13)} | ${e.currentChord.padEnd(13)} | ${e.score.toFixed(2).padEnd(5)} | ${e.margin.toFixed(2).padEnd(6)} | ${e.rootEvidence.toFixed(2).padEnd(13)} | ${e.neighborSupport.toFixed(2).padEnd(16)} | ${e.pending.padEnd(7)} | ${e.finalChord.padEnd(5)} |`
+  );
+  return [header, divider, ...rows].join("\n");
+}
+
 export function formatTransitionDiagnostic(d: TransitionDiagnostic): string {
   return `Candidate ${d.candidateChord} at ${d.timeSec.toFixed(3)}s
 duration: ${d.duration.toFixed(3)}s
@@ -390,9 +411,14 @@ export function optimizeChordSequence(
   keyProfile: DiatonicProfile,
   isHighResolutionMode: boolean,
   tempo: number = 120
-): { segments: ChordSegment[]; diagnostics: TransitionDiagnostic[] } {
+): {
+  segments: ChordSegment[];
+  diagnostics: TransitionDiagnostic[];
+  diagnosticTimeline: DiagnosticTimelineEntry[];
+  formattedTimelineTable: string;
+} {
   const K = units.length;
-  if (K === 0) return { segments: [], diagnostics: [] };
+  if (K === 0) return { segments: [], diagnostics: [], diagnosticTimeline: [], formattedTimelineTable: "" };
 
   const beatIntervalSec = 60 / Math.max(40, tempo);
 
@@ -475,74 +501,275 @@ export function optimizeChordSequence(
     units[u].selectedCandidate = units[u].candidates[optimalIndices[u]];
   }
 
-  // Collect Diagnostics (Phase 12)
+  // Pending-Candidate Evidence Confirmation Engine (Section 7)
   const diagnosticsList: TransitionDiagnostic[] = [];
+  const timelineEntries: DiagnosticTimelineEntry[] = [];
+  const finalChords: string[] = new Array(K);
+
+  let committedChord = units[0].selectedCandidate?.chord || units[0].candidates[0].chord;
+
+  interface PendingCandidateState {
+    chord: string;
+    startUnit: number;
+    startTime: number;
+    unitsCount: number;
+    accumulatedScore: number;
+    peakMargin: number;
+    maxThirdEvidence: number;
+    maxRootEvidence: number;
+    neighborSupport: number;
+  }
+  let pendingState: PendingCandidateState | null = null;
+
   for (let u = 0; u < K; u++) {
-    const rawWinner = units[u].candidates[0];
-    const selected = units[u].selectedCandidate!;
-    const prevChord = u > 0 ? (units[u - 1].selectedCandidate?.chord ?? "None") : "Start";
+    const unit = units[u];
+    const rawWinner = unit.candidates[0];
+    const selected = unit.selectedCandidate || rawWinner;
+    const runnerUp = unit.candidates.find(c => c.chord !== rawWinner.chord);
+    const margin = Number(Math.max(0, rawWinner.score - (runnerUp ? runnerUp.score : 0)).toFixed(2));
+    const rootEv = Number(rawWinner.rootScore.toFixed(2));
+    const neighborSup = Number((rawWinner.neighborSupport ?? 0).toFixed(2));
+    const thirdEv = Number(rawWinner.thirdEvidence.toFixed(2));
 
-    if (u > 0 && selected.chord !== prevChord) {
-      // Transition ACCEPTED
-      const diag: TransitionDiagnostic = {
-        timeSec: units[u].startTime,
-        previousChord: prevChord,
-        candidateChord: selected.chord,
-        duration: units[u].duration,
-        durationBeats: Number((units[u].duration / beatIntervalSec).toFixed(2)),
-        candidateScore: selected.score,
-        runnerUpScore: units[u].candidates.find(c => c.chord !== selected.chord)?.score ?? 0,
-        scoreMargin: selected.scoreMargin ?? 0,
-        rootEvidence: selected.rootScore,
-        thirdEvidence: selected.thirdEvidence,
-        bassEvidence: selected.bassEvidence,
-        neighborSupport: selected.neighborSupport ?? 0,
-        transitionCost: 0,
-        persistenceScore: selected.persistenceScore ?? 0,
-        commitDecision: "ACCEPTED",
-        rejectionReason: "None (Genuine harmonic change confirmed by score and musical continuity)"
-      };
-      diagnosticsList.push(diag);
-      console.log(`[CHORD DIAGNOSTIC]\n${formatTransitionDiagnostic(diag)}\n`);
-    }
+    const targetCandidate = selected;
 
-    if (rawWinner && selected && rawWinner.chord !== selected.chord) {
-      // Raw candidate REJECTED in favor of persistence or another path
-      let rejectionReason = "Candidate evidence insufficient to overcome harmonic transition barrier";
-      if (units[u].isSubdivision && (rawWinner.neighborSupport ?? 0) < 0.25) {
-        rejectionReason = "Weak harmonic evidence + isolated half-beat + insufficient neighboring support";
-      } else if (u >= 2 && units[u - 2].selectedCandidate?.chord === rawWinner.chord) {
-        rejectionReason = "A-B-A rapid oscillation without overwhelming independent harmonic evidence";
-      } else if (prevChord.startsWith(rawWinner.root) && rawWinner.quality === "5") {
-        rejectionReason = "Transient same-root power chord drop without third omission across surrounding context";
-      } else if (rawWinner.thirdEvidence < 0.20) {
-        rejectionReason = "Insufficient third evidence; transient passing melody tone";
-      } else if ((rawWinner.scoreMargin ?? 0) < 0.05) {
-        rejectionReason = "Low score margin and lack of forward confirmation on subsequent beat";
+    if (targetCandidate.chord === committedChord) {
+      // Sustains current committed chord.
+      // If there was an active pending candidate, it was an isolated transient (e.g. A -> E -> A).
+      if (pendingState !== null) {
+        const diag: TransitionDiagnostic = {
+          timeSec: pendingState.startTime,
+          previousChord: committedChord,
+          candidateChord: pendingState.chord,
+          duration: unit.startTime - pendingState.startTime,
+          durationBeats: Number(((unit.startTime - pendingState.startTime) / beatIntervalSec).toFixed(2)),
+          candidateScore: Number((pendingState.accumulatedScore / pendingState.unitsCount).toFixed(2)),
+          runnerUpScore: 0,
+          scoreMargin: pendingState.peakMargin,
+          rootEvidence: pendingState.maxRootEvidence,
+          thirdEvidence: pendingState.maxThirdEvidence,
+          bassEvidence: 0,
+          neighborSupport: pendingState.neighborSupport,
+          transitionCost: -0.35,
+          persistenceScore: 0,
+          commitDecision: "REJECTED",
+          rejectionReason: "Transient candidate (A-B-A rapid oscillation or isolated melody/bass transient without persistence)"
+        };
+        diagnosticsList.push(diag);
+        console.log(`[CHORD DIAGNOSTIC]\n${formatTransitionDiagnostic(diag)}\n`);
+        pendingState = null;
       }
 
-      const diag: TransitionDiagnostic = {
-        timeSec: units[u].startTime,
-        previousChord: prevChord,
-        candidateChord: rawWinner.chord,
-        duration: units[u].duration,
-        durationBeats: Number((units[u].duration / beatIntervalSec).toFixed(2)),
-        candidateScore: rawWinner.score,
-        runnerUpScore: units[u].candidates.find(c => c.chord !== rawWinner.chord)?.score ?? 0,
-        scoreMargin: rawWinner.scoreMargin ?? 0,
-        rootEvidence: rawWinner.rootScore,
-        thirdEvidence: rawWinner.thirdEvidence,
-        bassEvidence: rawWinner.bassEvidence,
-        neighborSupport: rawWinner.neighborSupport ?? 0,
-        transitionCost: -0.35,
-        persistenceScore: rawWinner.persistenceScore ?? 0,
-        commitDecision: "REJECTED",
-        rejectionReason
-      };
-      diagnosticsList.push(diag);
-      console.log(`[CHORD DIAGNOSTIC]\n${formatTransitionDiagnostic(diag)}\n`);
+      finalChords[u] = committedChord;
+      timelineEntries.push({
+        timeSec: unit.startTime,
+        rawCandidate: rawWinner.chord,
+        currentChord: committedChord,
+        score: rawWinner.score,
+        margin,
+        rootEvidence: rootEv,
+        neighborSupport: neighborSup,
+        pending: "no",
+        finalChord: committedChord
+      });
+    } else {
+      // New candidate appears (e.g. currentChord = A, candidate = E)
+      const nextUnit = u < K - 1 ? units[u + 1] : null;
+      const nextSupports = nextUnit?.candidates.some(c => c.chord === targetCandidate.chord && c.score >= 0.40);
+      const isDownbeatOrBeat = !unit.isSubdivision;
+
+      // Check immediate confirmation: overwhelming evidence + forward/metric confirmation
+      const isOverwhelminglyStrong = targetCandidate.score >= 0.75 &&
+                                     margin >= 0.18 &&
+                                     thirdEv >= 0.35 &&
+                                     (nextSupports || isDownbeatOrBeat || (targetCandidate.score >= 0.85 && rootEv >= 0.85));
+
+      if (isOverwhelminglyStrong && pendingState === null) {
+        const prev = committedChord;
+        committedChord = targetCandidate.chord;
+        finalChords[u] = committedChord;
+
+        const diag: TransitionDiagnostic = {
+          timeSec: unit.startTime,
+          previousChord: prev,
+          candidateChord: committedChord,
+          duration: unit.duration,
+          durationBeats: Number((unit.duration / beatIntervalSec).toFixed(2)),
+          candidateScore: targetCandidate.score,
+          runnerUpScore: runnerUp ? runnerUp.score : 0,
+          scoreMargin: margin,
+          rootEvidence: rootEv,
+          thirdEvidence: thirdEv,
+          bassEvidence: targetCandidate.bassEvidence,
+          neighborSupport: neighborSup,
+          transitionCost: 0,
+          persistenceScore: targetCandidate.persistenceScore ?? 0,
+          commitDecision: "ACCEPTED",
+          rejectionReason: "None (Genuine harmonic change confirmed by score and musical continuity)"
+        };
+        diagnosticsList.push(diag);
+        console.log(`[CHORD DIAGNOSTIC]\n${formatTransitionDiagnostic(diag)}\n`);
+
+        timelineEntries.push({
+          timeSec: unit.startTime,
+          rawCandidate: rawWinner.chord,
+          currentChord: committedChord,
+          score: rawWinner.score,
+          margin,
+          rootEvidence: rootEv,
+          neighborSupport: neighborSup,
+          pending: "no",
+          finalChord: committedChord
+        });
+      } else {
+        // Enters or accumulates PENDING candidate
+        if (pendingState === null || pendingState.chord !== targetCandidate.chord) {
+          if (pendingState !== null && pendingState.chord !== committedChord && targetCandidate.chord !== committedChord) {
+            // Forward harmonic movement to a third distinct chord (A -> B -> C)
+            // If B had strong evidence, commit B before entering pending state for C
+            const prevAvg = pendingState.accumulatedScore / pendingState.unitsCount;
+            if (prevAvg >= 0.70 && (pendingState.peakMargin >= 0.10 || pendingState.maxThirdEvidence >= 0.25)) {
+              const bChord = pendingState.chord;
+              for (let k = pendingState.startUnit; k < u; k++) {
+                finalChords[k] = bChord;
+                if (timelineEntries[k]) {
+                  timelineEntries[k].finalChord = bChord;
+                  timelineEntries[k].pending = "no";
+                }
+              }
+              committedChord = bChord;
+            }
+          }
+
+          pendingState = {
+            chord: targetCandidate.chord,
+            startUnit: u,
+            startTime: unit.startTime,
+            unitsCount: 1,
+            accumulatedScore: targetCandidate.score,
+            peakMargin: margin,
+            maxThirdEvidence: thirdEv,
+            maxRootEvidence: rootEv,
+            neighborSupport: neighborSup
+          };
+
+          // While pending, output maintains committed chord
+          finalChords[u] = committedChord;
+          timelineEntries.push({
+            timeSec: unit.startTime,
+            rawCandidate: rawWinner.chord,
+            currentChord: committedChord,
+            score: rawWinner.score,
+            margin,
+            rootEvidence: rootEv,
+            neighborSupport: neighborSup,
+            pending: "yes",
+            finalChord: committedChord
+          });
+        } else {
+          // Pending candidate persists into another temporal unit
+          pendingState.unitsCount++;
+          pendingState.accumulatedScore += targetCandidate.score;
+          pendingState.peakMargin = Math.max(pendingState.peakMargin, margin);
+          pendingState.maxThirdEvidence = Math.max(pendingState.maxThirdEvidence, thirdEv);
+          pendingState.maxRootEvidence = Math.max(pendingState.maxRootEvidence, rootEv);
+          pendingState.neighborSupport = Math.max(pendingState.neighborSupport, neighborSup);
+
+          const avgScore = pendingState.accumulatedScore / pendingState.unitsCount;
+          const isConfirmed = (pendingState.unitsCount >= 2 && avgScore >= 0.45 && (pendingState.peakMargin >= 0.06 || pendingState.maxThirdEvidence >= 0.25)) ||
+                              (avgScore >= 0.65 && pendingState.maxThirdEvidence >= 0.30);
+
+          if (isConfirmed) {
+            const prev = committedChord;
+            committedChord = pendingState.chord;
+
+            // Retroactively commit final chords from startUnit to u
+            for (let k = pendingState.startUnit; k <= u; k++) {
+              finalChords[k] = committedChord;
+              if (timelineEntries[k]) {
+                timelineEntries[k].finalChord = committedChord;
+                timelineEntries[k].pending = "no";
+              }
+            }
+
+            const diag: TransitionDiagnostic = {
+              timeSec: pendingState.startTime,
+              previousChord: prev,
+              candidateChord: committedChord,
+              duration: unit.endTime - pendingState.startTime,
+              durationBeats: Number(((unit.endTime - pendingState.startTime) / beatIntervalSec).toFixed(2)),
+              candidateScore: Number(avgScore.toFixed(2)),
+              runnerUpScore: runnerUp ? runnerUp.score : 0,
+              scoreMargin: pendingState.peakMargin,
+              rootEvidence: pendingState.maxRootEvidence,
+              thirdEvidence: pendingState.maxThirdEvidence,
+              bassEvidence: targetCandidate.bassEvidence,
+              neighborSupport: pendingState.neighborSupport,
+              transitionCost: 0,
+              persistenceScore: targetCandidate.persistenceScore ?? 0,
+              commitDecision: "ACCEPTED",
+              rejectionReason: "None (Genuine harmonic change confirmed by evidence accumulation)"
+            };
+            diagnosticsList.push(diag);
+            console.log(`[CHORD DIAGNOSTIC]\n${formatTransitionDiagnostic(diag)}\n`);
+            pendingState = null;
+
+            timelineEntries.push({
+              timeSec: unit.startTime,
+              rawCandidate: rawWinner.chord,
+              currentChord: committedChord,
+              score: rawWinner.score,
+              margin,
+              rootEvidence: rootEv,
+              neighborSupport: neighborSup,
+              pending: "no",
+              finalChord: committedChord
+            });
+          } else {
+            finalChords[u] = committedChord;
+            timelineEntries.push({
+              timeSec: unit.startTime,
+              rawCandidate: rawWinner.chord,
+              currentChord: committedChord,
+              score: rawWinner.score,
+              margin,
+              rootEvidence: rootEv,
+              neighborSupport: neighborSup,
+              pending: "yes",
+              finalChord: committedChord
+            });
+          }
+        }
+      }
     }
   }
+
+  // Flush any valid pending chord that extends to the end of the sequence
+  if (pendingState !== null && (pendingState as any).chord !== committedChord) {
+    const avgScore = (pendingState as any).accumulatedScore / (pendingState as any).unitsCount;
+    if (avgScore >= 0.65 && ((pendingState as any).peakMargin >= 0.08 || (pendingState as any).maxThirdEvidence >= 0.25)) {
+      const finalPending = (pendingState as any).chord;
+      for (let k = (pendingState as any).startUnit; k < K; k++) {
+        finalChords[k] = finalPending;
+        if (timelineEntries[k]) {
+          timelineEntries[k].finalChord = finalPending;
+          timelineEntries[k].pending = "no";
+        }
+      }
+    }
+  }
+
+  // Update units selectedCandidate with confirmed finalChords
+  for (let u = 0; u < K; u++) {
+    const chordName = finalChords[u];
+    const cand = units[u].candidates.find(c => c.chord === chordName) || {
+      ...units[u].selectedCandidate!,
+      chord: chordName
+    };
+    units[u].selectedCandidate = cand;
+  }
+
+  const formattedTimelineTable = formatDiagnosticTimelineTable(timelineEntries);
 
   // Merge consecutive identical beat units into unified ChordSegments
   const rawSegments: ChordSegment[] = [];
@@ -584,7 +811,10 @@ export function optimizeChordSequence(
         endTime: segEndTime,
         confidence: Math.round(avgScore * 100),
         stability: Math.round(avgScore * 90 + 10),
-        diagnostics: currentSeg.candidate.diagnostics
+        diagnostics: {
+          ...currentSeg.candidate.diagnostics,
+          confirmedByPendingEngine: true
+        }
       });
 
       currentSeg = {
@@ -612,11 +842,19 @@ export function optimizeChordSequence(
       endTime: segEndTime,
       confidence: Math.round(avgScore * 100),
       stability: Math.round(avgScore * 90 + 10),
-      diagnostics: currentSeg.candidate.diagnostics
+      diagnostics: {
+        ...currentSeg.candidate.diagnostics,
+        confirmedByPendingEngine: true
+      }
     });
   }
 
-  return { segments: rawSegments, diagnostics: diagnosticsList };
+  return {
+    segments: rawSegments,
+    diagnostics: diagnosticsList,
+    diagnosticTimeline: timelineEntries,
+    formattedTimelineTable
+  };
 }
 
 /**
@@ -673,6 +911,8 @@ export function analyzeBeatSynchronousHarmonics(
   isHighResolutionMode: boolean;
   beatUnits: BeatUnit[];
   transitionDiagnostics: TransitionDiagnostic[];
+  diagnosticTimeline: DiagnosticTimelineEntry[];
+  formattedTimelineTable: string;
 } {
   const keyProfile = parseDiatonicProfile(config.estimatedKey);
 
@@ -747,11 +987,17 @@ export function analyzeBeatSynchronousHarmonics(
       cand.persistenceScore = Number(persistence.toFixed(3));
       cand.diagnostics.neighborSupport = neighborSupport;
       cand.diagnostics.persistenceScore = cand.persistenceScore;
+      cand.diagnostics.scoreMargin = cand.scoreMargin;
     }
   }
 
   // 5. Sequence Optimization across beat units with soft priors & diagnostics
-  const { segments: rawSegments, diagnostics: transitionDiagnostics } = optimizeChordSequence(
+  const {
+    segments: rawSegments,
+    diagnostics: transitionDiagnostics,
+    diagnosticTimeline,
+    formattedTimelineTable
+  } = optimizeChordSequence(
     units,
     keyProfile,
     isHighResolutionMode,
@@ -763,6 +1009,8 @@ export function analyzeBeatSynchronousHarmonics(
     isFastMode: isHighResolutionMode,
     isHighResolutionMode,
     beatUnits: units,
-    transitionDiagnostics
+    transitionDiagnostics,
+    diagnosticTimeline,
+    formattedTimelineTable
   };
 }

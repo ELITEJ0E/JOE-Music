@@ -438,7 +438,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
               <span className="text-[11px] font-mono font-bold tracking-wider text-zinc-400 group-hover:text-white uppercase block">
                 MY SONGS
               </span>
-              <span className="text-[10px] text-zinc-500 font-mono">Suno Playlists</span>
+              <span className="text-[10px] text-zinc-500 font-mono">Playlists & Library</span>
             </div>
           </button>
 

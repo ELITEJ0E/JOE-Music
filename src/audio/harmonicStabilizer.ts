@@ -310,19 +310,22 @@ export function stabilizeChordSegments(
       const next = i < current.length - 1 ? current[i+1] : null;
       
       if (prev && next && prev.chord === next.chord) {
-        const harmonicDist = getHarmonicDistance(seg.root, prev.root);
-        // If sandwiched and harmonically distant, penalize heavily
-        if (harmonicDist >= 2 && dur < adaptiveMinDuration * 1.5) {
-          viability -= 2.5;
-        } else if (dur <= adaptiveMinDuration * 0.8) {
-          viability -= 1.8;
+        const isConfirmedFastHarmonic = Boolean(seg.diagnostics?.confirmedByPendingEngine) || (dur >= beatIntervalSec * 0.38 && (scoreMargin >= 0.15 || thirdEvidence >= 0.38));
+        if (!isConfirmedFastHarmonic) {
+          const harmonicDist = getHarmonicDistance(seg.root, prev.root);
+          // If sandwiched and harmonically distant, penalize heavily
+          if (harmonicDist >= 2 && dur < adaptiveMinDuration * 1.5) {
+            viability -= 2.5;
+          } else if (dur <= adaptiveMinDuration * 0.8) {
+            viability -= 1.8;
+          }
         }
       }
       
-      // Penalize short passing transients (< 0.25s or < 0.75 * adaptiveMinDuration without strong margin)
-      if (dur < 0.25) {
+      // Penalize short passing transients (< 0.22s or < 0.75 * adaptiveMinDuration without strong margin)
+      if (dur < 0.22 && !seg.diagnostics?.confirmedByPendingEngine) {
         viability -= 3.0; // very short passing note
-      } else if (dur < adaptiveMinDuration * 0.85 && scoreMargin < 0.15) {
+      } else if (dur < adaptiveMinDuration * 0.85 && scoreMargin < 0.15 && !seg.diagnostics?.confirmedByPendingEngine) {
         viability -= 1.5;
       }
       

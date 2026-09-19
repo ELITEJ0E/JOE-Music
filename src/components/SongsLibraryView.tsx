@@ -183,7 +183,7 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
             setIsPlaying(true);
           }).catch(() => {
             setIsPlaying(false);
-            showToast("Audio stream unavailable. Retrying with Suno live engine...");
+            showToast("Audio stream unavailable. Retrying with live engine...");
           });
           return;
         }

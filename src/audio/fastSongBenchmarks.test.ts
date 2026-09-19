@@ -332,4 +332,241 @@ describe("Phase 8 & 9 Fast Song Benchmarks: BTS & Jung Kook Real-World Scenarios
     expect(recall).toBe(1.0);    // 100% recall (zero missed chords)
     expect(detected).toEqual(expected);
   });
+
+  it("Test A: Vocal melody lines - rejects flutter when lead vocals sing passing notes over sustained chord", () => {
+    // Song has 4 beats of sustained E major, but vocals sing passing melody notes (G#, B, C#, D#)
+    const tempo = 120;
+    const track = createSyntheticSongTrack({
+      tempo,
+      bars: 2,
+      estimatedKey: "E Major",
+      chordPlan: [
+        {
+          chord: "E",
+          rootIdx: 4,  // E
+          thirdIdx: 8, // G#
+          fifthIdx: 11, // B
+          startBeat: 0,
+          durationBeats: 8,
+          transientVocal: {
+            pitchIdx: 1, // C# passing vocal note over E major (could trick naive detector into C#m or E6)
+            startBeat: 2,
+            durationBeats: 0.5
+          }
+        }
+      ]
+    });
+
+    const beatHarmonics = analyzeBeatSynchronousHarmonics(
+      track.chromagram,
+      track.bassChromagram,
+      {
+        sampleRate: track.sampleRate,
+        hopSize: track.hopSize,
+        tempo: track.tempo,
+        beats: track.beats,
+        estimatedKey: track.estimatedKey,
+        totalDuration: track.totalDuration
+      }
+    );
+
+    const stabilized = stabilizeChordSegments(beatHarmonics.segments, {
+      beats: track.beats,
+      tempo: track.tempo,
+      keyContext: track.estimatedKey,
+      duration: track.totalDuration
+    });
+
+    const detected = stabilized.segments.map(s => s.chord);
+    // Transient vocal note C# must NOT cause a false C#m or flutter
+    expect(detected).toEqual(["E"]);
+  });
+
+  it("Test B: Walking basslines - separates bass movement from harmonic root movement", () => {
+    // E major chord playing, but bass walks on beat 3 onto G# (its major third)
+    const tempo = 120;
+    const track = createSyntheticSongTrack({
+      tempo,
+      bars: 1,
+      estimatedKey: "E Major",
+      chordPlan: [
+        {
+          chord: "E",
+          rootIdx: 4,  // E
+          thirdIdx: 8, // G#
+          fifthIdx: 11, // B
+          startBeat: 0,
+          durationBeats: 4,
+          passingBass: {
+            pitchIdx: 8, // G# in bass (1st inversion or walking bass)
+            startBeat: 2,
+            durationBeats: 1.0
+          }
+        }
+      ]
+    });
+
+    const beatHarmonics = analyzeBeatSynchronousHarmonics(
+      track.chromagram,
+      track.bassChromagram,
+      {
+        sampleRate: track.sampleRate,
+        hopSize: track.hopSize,
+        tempo: track.tempo,
+        beats: track.beats,
+        estimatedKey: track.estimatedKey,
+        totalDuration: track.totalDuration
+      }
+    );
+
+    const stabilized = stabilizeChordSegments(beatHarmonics.segments, {
+      beats: track.beats,
+      tempo: track.tempo,
+      keyContext: track.estimatedKey,
+      duration: track.totalDuration
+    });
+
+    // Root must remain E (or E/G# inversion), NOT flipped into G#m
+    for (const seg of stabilized.segments) {
+      expect(seg.root).toBe("E");
+      expect(seg.chord).not.toBe("G#m");
+    }
+  });
+
+  it("Test C: Fast chord progressions - preserves 1-beat changes at 124 BPM without blurring", () => {
+    // 1 beat per chord at 124 BPM: A -> E -> F#m -> D
+    const tempo = 124;
+    const track = createSyntheticSongTrack({
+      tempo,
+      bars: 1,
+      estimatedKey: "A Major",
+      chordPlan: [
+        { chord: "A", rootIdx: 9, thirdIdx: 1, fifthIdx: 4, startBeat: 0, durationBeats: 1 },
+        { chord: "E", rootIdx: 4, thirdIdx: 8, fifthIdx: 11, startBeat: 1, durationBeats: 1 },
+        { chord: "F#m", rootIdx: 6, thirdIdx: 9, fifthIdx: 1, startBeat: 2, durationBeats: 1 },
+        { chord: "D", rootIdx: 2, thirdIdx: 6, fifthIdx: 9, startBeat: 3, durationBeats: 1 }
+      ]
+    });
+
+    const beatHarmonics = analyzeBeatSynchronousHarmonics(
+      track.chromagram,
+      track.bassChromagram,
+      {
+        sampleRate: track.sampleRate,
+        hopSize: track.hopSize,
+        tempo: track.tempo,
+        beats: track.beats,
+        estimatedKey: track.estimatedKey,
+        totalDuration: track.totalDuration
+      }
+    );
+
+    const stabilized = stabilizeChordSegments(beatHarmonics.segments, {
+      beats: track.beats,
+      tempo: track.tempo,
+      keyContext: track.estimatedKey,
+      duration: track.totalDuration
+    });
+
+    const detected = stabilized.segments.map(s => s.chord);
+    expect(detected).toEqual(["A", "E", "F#m", "D"]);
+  });
+
+  it("Test D: Genuine half-beat changes - preserves rapid 0.5-beat chords when harmonically verified", () => {
+    // 0.5 beat per chord at 124 BPM (2 chords per beat): A -> E -> Bm -> D
+    const tempo = 124;
+    const track = createSyntheticSongTrack({
+      tempo,
+      bars: 1,
+      estimatedKey: "A Major",
+      chordPlan: [
+        { chord: "A", rootIdx: 9, thirdIdx: 1, fifthIdx: 4, startBeat: 0, durationBeats: 0.5 },
+        { chord: "E", rootIdx: 4, thirdIdx: 8, fifthIdx: 11, startBeat: 0.5, durationBeats: 0.5 },
+        { chord: "Bm", rootIdx: 11, thirdIdx: 2, fifthIdx: 6, startBeat: 1.0, durationBeats: 0.5 },
+        { chord: "D", rootIdx: 2, thirdIdx: 6, fifthIdx: 9, startBeat: 1.5, durationBeats: 0.5 }
+      ]
+    });
+
+    const beatHarmonics = analyzeBeatSynchronousHarmonics(
+      track.chromagram,
+      track.bassChromagram,
+      {
+        sampleRate: track.sampleRate,
+        hopSize: track.hopSize,
+        tempo: track.tempo,
+        beats: track.beats,
+        estimatedKey: track.estimatedKey,
+        totalDuration: track.totalDuration,
+        highHarmonicResolution: true
+      }
+    );
+
+    const stabilized = stabilizeChordSegments(beatHarmonics.segments, {
+      beats: track.beats,
+      tempo: track.tempo,
+      keyContext: track.estimatedKey,
+      duration: track.totalDuration
+    });
+
+    const detected = stabilized.segments.map(s => s.chord);
+    expect(detected).toEqual(["A", "E", "Bm", "D"]);
+  });
+
+  it("Test E & Section 14: Pending-Candidate Model rejects transient A-B-A and generates Timeline Table", () => {
+    // A major for 2 beats, with a weak transient 0.2s fluctuation to E at beat 0.75 that returns to A
+    const tempo = 120;
+    const track = createSyntheticSongTrack({
+      tempo,
+      bars: 1,
+      estimatedKey: "A Major",
+      chordPlan: [
+        {
+          chord: "A",
+          rootIdx: 9,
+          thirdIdx: 1,
+          fifthIdx: 4,
+          startBeat: 0,
+          durationBeats: 4,
+          transientVocal: {
+            pitchIdx: 4, // E transient spike (0.25 beat)
+            startBeat: 0.75,
+            durationBeats: 0.25
+          }
+        }
+      ]
+    });
+
+    const beatHarmonics = analyzeBeatSynchronousHarmonics(
+      track.chromagram,
+      track.bassChromagram,
+      {
+        sampleRate: track.sampleRate,
+        hopSize: track.hopSize,
+        tempo: track.tempo,
+        beats: track.beats,
+        estimatedKey: track.estimatedKey,
+        totalDuration: track.totalDuration,
+        highHarmonicResolution: true
+      }
+    );
+
+    // Verify diagnostic timeline table exists and has the required structure
+    expect(beatHarmonics.diagnosticTimeline).toBeDefined();
+    expect(beatHarmonics.diagnosticTimeline.length).toBeGreaterThan(0);
+    expect(beatHarmonics.formattedTimelineTable).toContain("| Time  | Raw Candidate | Current Chord | Score | Margin | Root Evidence | Neighbor Support | Pending | Final |");
+
+    // Output formatted timeline table for audit
+    console.log("\n[DIAGNOSTIC TIMELINE TABLE]\n" + beatHarmonics.formattedTimelineTable + "\n");
+
+    const stabilized = stabilizeChordSegments(beatHarmonics.segments, {
+      beats: track.beats,
+      tempo: track.tempo,
+      keyContext: track.estimatedKey,
+      duration: track.totalDuration
+    });
+
+    const detected = stabilized.segments.map(s => s.chord);
+    // Verified: zero flutter, sustained A chord
+    expect(detected).toEqual(["A"]);
+  });
 });

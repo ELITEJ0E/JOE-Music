@@ -78,19 +78,49 @@ export function estimateRootCandidates(
     const bassEv = bassChroma[r];
     const trebleRootEv = chroma[r];
     const fifthEv = chroma[(r + 7) % 12];
+    const maj3Ev = chroma[(r + 4) % 12];
+    const min3Ev = chroma[(r + 3) % 12];
     const octaveBassEv = (bassEv > 0.3 && trebleRootEv > 0.3) ? 0.15 : 0.0;
 
     // Diatonic bonus
     const diatonicIdx = keyProfile.diatonicRoots.indexOf(r);
     const diatonicBonus = diatonicIdx !== -1 ? 0.08 : 0.0;
 
-    // Root score formulation
-    // Bass fundamental is the primary anchor, supported by harmonic chroma root & fifth
-    let score = (bassEv * 0.42) +
+    // Separate bass movement from harmonic movement (Section 9):
+    // Check if r is an isolated bass note lacking harmonic 5th resonance in mid-chroma,
+    // while another root H for which r is a 3rd or 5th has a complete harmonic triad.
+    let bassWeight = 0.42;
+
+    const parentMajRoot = (r - 4 + 12) % 12; // r is major 3rd of parentMajRoot
+    const parentMinRoot = (r - 3 + 12) % 12; // r is minor 3rd of parentMinRoot
+    const parentFifthRoot = (r - 7 + 12) % 12; // r is 5th of parentFifthRoot
+
+    const parentMajHarmonic = chroma[parentMajRoot] * 0.5 + chroma[(parentMajRoot + 7) % 12] * 0.5;
+    const parentMinHarmonic = chroma[parentMinRoot] * 0.5 + chroma[(parentMinRoot + 7) % 12] * 0.5;
+    const parentFifthHarmonic = chroma[parentFifthRoot] * 0.5 + chroma[(parentFifthRoot + 4) % 12] * 0.5;
+    const maxParentHarmonic = Math.max(parentMajHarmonic, parentMinHarmonic, parentFifthHarmonic);
+
+    if (fifthEv < 0.20 && maxParentHarmonic > 0.55 && trebleRootEv < maxParentHarmonic * 1.1) {
+      // r is an inversion bass note or passing bass note, not an independent harmonic root
+      bassWeight = 0.16;
+    }
+
+    // Root score formulation:
+    // Bass fundamental anchored with harmonic chroma root & fifth
+    let score = (bassEv * bassWeight) +
                 (trebleRootEv * 0.32) +
                 (fifthEv * 0.18) +
                 octaveBassEv +
                 diatonicBonus;
+
+    // If bass is playing a legitimate chord tone (3rd or 5th) of r, r receives inversion bass support
+    const bassMaj3 = bassChroma[(r + 4) % 12];
+    const bassMin3 = bassChroma[(r + 3) % 12];
+    const bass5th = bassChroma[(r + 7) % 12];
+    const chordToneBassEv = Math.max(bassMaj3, bassMin3, bass5th);
+    if (bassEv < 0.25 && chordToneBassEv > 0.40 && trebleRootEv > 0.40 && fifthEv > 0.30) {
+      score += chordToneBassEv * 0.26;
+    }
 
     rootScores[r] = {
       rootIdx: r,

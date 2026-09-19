@@ -776,12 +776,16 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
             }
           }
 
-          if (title === "Track" || title === "Suno Track") {
+          if (title === "Track" || title === "Suno Track" || title.toLowerCase().includes("suno")) {
             try {
               const metaRes = await fetch(`/api/suno-song/${clipId}`);
               if (metaRes.ok) {
                 const meta = await metaRes.json();
-                if (meta.title && meta.title !== "Suno Track" && meta.title !== "Track") title = meta.title;
+                if (meta.title && meta.title !== "Suno Track" && meta.title !== "Track" && !meta.title.toLowerCase().includes("suno")) {
+                  title = meta.title;
+                } else {
+                  title = "Extracted Song";
+                }
                 if (meta.artist) artist = meta.artist;
                 if (meta.imageUrl) imageUrl = meta.imageUrl;
                 if (meta.audioUrl) audioUrl = meta.audioUrl;
@@ -789,7 +793,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                 if (meta.tags) tags = meta.tags;
               }
             } catch (metaErr) {
-              console.warn("Could not query /api/suno-song:", metaErr);
+              console.warn("Could not query song metadata:", metaErr);
             }
           }
 
@@ -838,7 +842,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
           setSongName("");
           return;
         } catch (err: any) {
-          console.error("Failed to analyze Suno song:", err);
+          console.error("Failed to analyze audio track:", err);
           if (err.name === "AbortError" || err.message === "Analysis cancelled by user.") {
             setAnalysisProgress(null);
             abortControllerRef.current = null;
@@ -848,11 +852,12 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
           // Fallback: analyze using AI / text harmonic analysis if audio decoding failed
           try {
             setAnalysisProgress({ message: "Analyzing harmonic progression and chords...", pct: 70 });
+            const sanitizedQuery = title && !title.toLowerCase().includes("suno") && title !== "Track" ? title : "Extracted Song";
             const response = await fetch("/api/analyze-song", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
-                songQuery: title && title !== "Suno Track" && title !== "Track" ? title : targetSunoUrl,
+                songQuery: sanitizedQuery,
                 artist,
                 genre: tags.join(", ") || "Original Composition",
               }),
@@ -865,8 +870,8 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                 sunoId: clipId,
                 sunoUrl: targetSunoUrl,
                 youtubeUrl: targetSunoUrl,
-                title: title && title !== "Suno Track" && title !== "Track" ? title : data.title || "Track",
-                artist: artist || data.artist || "ELITEJOE",
+                title: sanitizedQuery !== "Extracted Song" ? sanitizedQuery : (data.title && !data.title.toLowerCase().includes("suno") ? data.title : "Audio Track"),
+                artist: artist || data.artist || "Original Artist",
                 imageUrl,
                 key: data.key || "C Maj",
                 tempo: data.tempo || 120,
@@ -1755,18 +1760,18 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
               </div>
 
               {/* Guitar Chord Fretboard Diagram for Current Chord */}
-              <div className="flex flex-col items-center justify-center py-1">
-                <div className="bg-[#13161a] rounded-2xl p-2.5 sm:p-3 border border-white/10 shadow-xl relative w-[170px] sm:w-[195px] flex flex-col items-center">
+              <div className="flex flex-col items-center justify-center py-0.5 sm:py-1">
+                <div className="bg-[#13161a] rounded-2xl p-1.5 sm:p-2.5 border border-white/10 shadow-xl relative w-[125px] sm:w-[155px] flex flex-col items-center">
                   {/* Diagram Header */}
-                  <div className="flex items-center justify-between w-full pb-1.5 mb-1.5 border-b border-white/10 text-[10px] font-mono">
+                  <div className="flex items-center justify-between w-full pb-1 mb-1 border-b border-white/10 text-[9px] sm:text-[10px] font-mono">
                     <span className="text-zinc-400 font-bold">
                       {activeVoicingResult.voicing?.cagedShape
                         ? `${activeVoicingResult.voicing.cagedShape}-Shape`
                         : "Fretboard"}
                     </span>
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1">
                       {activeVoicingResult.voicingType === "simplified" && (
-                        <span className="px-1.5 py-0.5 rounded text-[8.5px] font-bold bg-yellow-400/10 text-yellow-400">
+                        <span className="px-1 py-0.2 rounded text-[8px] font-bold bg-yellow-400/10 text-yellow-400">
                           Playable
                         </span>
                       )}
@@ -1780,17 +1785,17 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                               capo
                             )
                           }
-                          className="p-1 rounded bg-[#a3ff12]/10 hover:bg-[#a3ff12]/20 text-[#a3ff12] transition-colors"
+                          className="p-0.5 sm:p-1 rounded bg-[#a3ff12]/10 hover:bg-[#a3ff12]/20 text-[#a3ff12] transition-colors"
                           title="Hear Chord Strum"
                         >
-                          <Play className="w-3 h-3 fill-[#a3ff12]" />
+                          <Play className="w-2.5 h-2.5 sm:w-3 sm:h-3 fill-[#a3ff12]" />
                         </button>
                       )}
                     </div>
                   </div>
 
                   {/* Chord Measure Progress Bar - GPU-accelerated sub-frame continuous interpolation with smooth transition */}
-                  <div className="w-full h-1 bg-white/10 rounded-full overflow-hidden mb-1.5 relative [overflow-anchor:none]">
+                  <div className="w-full h-1 bg-white/10 rounded-full overflow-hidden mb-1 relative [overflow-anchor:none]">
                     <div
                       className={`absolute inset-0 origin-left will-change-transform transition-[transform,colors] duration-75 ease-out ${
                         isApproachingSwitch
@@ -1804,7 +1809,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                   </div>
 
                   {activeVoicingResult.voicing ? (
-                    <div className="w-[140px] sm:w-[160px] h-[155px] sm:h-[175px] flex items-center justify-center [overflow-anchor:none] flex-shrink-0">
+                    <div className="w-[105px] sm:w-[130px] h-[108px] sm:h-[135px] flex items-center justify-center [overflow-anchor:none] flex-shrink-0">
                       <ChordDiagram
                         frets={activeVoicingResult.voicing.frets}
                         fingers={activeVoicingResult.voicing.fingers}
@@ -1813,13 +1818,14 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                         cagedShape={activeVoicingResult.voicing.cagedShape}
                         title={capo > 0 ? `${activeChord.shapeChord} (Capo ${capo})` : activeChord.transposedChord}
                         capo={capo}
-                        size="xs"
+                        size="xxs"
+                        className="scale-95 sm:scale-100 origin-center"
                       />
                     </div>
                   ) : (
-                    <div className="w-[140px] sm:w-[160px] h-[155px] sm:h-[175px] flex flex-col items-center justify-center text-center space-y-1 [overflow-anchor:none] flex-shrink-0">
-                      <span className="text-[11px] font-mono font-bold text-zinc-300">No guitar voicing</span>
-                      <span className="text-[9px] font-mono text-zinc-500 max-w-[130px]">
+                    <div className="w-[105px] sm:w-[130px] h-[108px] sm:h-[135px] flex flex-col items-center justify-center text-center space-y-0.5 [overflow-anchor:none] flex-shrink-0">
+                      <span className="text-[10px] sm:text-[11px] font-mono font-bold text-zinc-300">No guitar voicing</span>
+                      <span className="text-[8.5px] sm:text-[9px] font-mono text-zinc-500 max-w-[110px]">
                         {activeVoicingResult.simplificationReason || `No safe diagram for ${activeChord.shapeChord}`}
                       </span>
                     </div>
