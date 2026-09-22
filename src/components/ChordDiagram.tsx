@@ -103,10 +103,10 @@ export const ChordDiagramComponent: React.FC<ChordDiagramProps> = ({
   const getStringX = (sIdx: number) => startX + sIdx * stringSpacing;
 
   return (
-    <div className={`flex flex-col items-center select-none ${className}`}>
+    <div className={`flex flex-col items-center justify-center select-none ${className}`}>
       <svg
         viewBox="0 0 240 260"
-        className={`${sizeClasses} h-auto select-none ${onPluck ? "" : "pointer-events-none"}`}
+        className={`${sizeClasses} max-h-full h-auto select-none ${onPluck ? "" : "pointer-events-none"}`}
         role="img"
         aria-label={title || `Guitar chord diagram starting at fret ${startFret}`}
       >
