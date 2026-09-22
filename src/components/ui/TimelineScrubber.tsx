@@ -1,4 +1,13 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+
+export interface TimelineChordSegment {
+  id: string | number;
+  startTime: number;
+  endTime: number;
+  soundingChord: string;
+  playShape?: string;
+  hasCapoShape?: boolean;
+}
 
 export interface TimelineScrubberProps {
   currentTime: number;
@@ -6,6 +15,11 @@ export interface TimelineScrubberProps {
   min?: number;
   max?: number;
   step?: number;
+  isPlaying?: boolean;
+  playbackRate?: number;
+  audioRef?: React.RefObject<HTMLAudioElement | null>;
+  waveformPeaks?: number[];
+  chordSegments?: TimelineChordSegment[];
   onChange?: (val: number) => void;
   onScrubStart?: () => void;
   onScrubEnd?: (val: number) => void;
@@ -15,12 +29,20 @@ export interface TimelineScrubberProps {
   formatTime?: (seconds: number) => string;
 }
 
+// Fixed 48-bar waveform silhouette matching the previous aesthetic
+const DEFAULT_BAR_HEIGHTS = Array.from({ length: 48 }, (_, wIdx) => 25 + ((wIdx * 23) % 65));
+
 export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
   currentTime,
   duration,
   min = 0,
   max,
-  step = 0.05,
+  step = 0.01,
+  isPlaying = false,
+  playbackRate = 1.0,
+  audioRef,
+  waveformPeaks,
+  chordSegments,
   onChange,
   onScrubStart,
   onScrubEnd,
@@ -30,32 +52,126 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
   formatTime,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
+  const dragTooltipRef = useRef<HTMLDivElement>(null);
+  const hoverContainerRef = useRef<HTMLDivElement>(null);
+  const hoverTooltipRef = useRef<HTMLDivElement>(null);
+
   const [isDragging, setIsDragging] = useState(false);
-  const [dragTime, setDragTime] = useState<number | null>(null);
-  const [hoverTime, setHoverTime] = useState<number | null>(null);
-  const [hoverX, setHoverX] = useState<number>(0);
+  const [activeSegmentId, setActiveSegmentId] = useState<string | number | null>(null);
+
+  const isDraggingRef = useRef<boolean>(false);
+  const dragValueRef = useRef<number>(currentTime);
+  const rectCacheRef = useRef<{ left: number; width: number }>({ left: 0, width: 1 });
+  const rafIdRef = useRef<number | null>(null);
+  const pendingTimeRef = useRef<number | null>(null);
 
   const effectiveMin = min;
   const effectiveMax = max !== undefined ? max : duration > 0 ? duration : 100;
+  const safeDuration = Math.max(0.1, duration || effectiveMax);
 
   const defaultFormatTime = useCallback((seconds: number): string => {
     if (isNaN(seconds) || seconds < 0) return "0:00";
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
-    const tenths = Math.floor((seconds % 1) * 10);
-    return `${mins}:${secs.toString().padStart(2, "0")}.${tenths}`;
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
   }, []);
 
   const timeFormatter = formatTime || defaultFormatTime;
 
-  // Coordinate Normalization & Math
-  const getTimestampFromClientX = useCallback(
-    (clientX: number): number => {
-      if (!containerRef.current || effectiveMax <= effectiveMin) return effectiveMin;
-      const rect = containerRef.current.getBoundingClientRect();
-      if (rect.width <= 0) return effectiveMin;
+  // Process waveform bars: sample from peaks if provided, otherwise default heights
+  const barHeights = useMemo(() => {
+    if (waveformPeaks && waveformPeaks.length >= 32) {
+      const count = 48;
+      const step = waveformPeaks.length / count;
+      const res: number[] = [];
+      for (let i = 0; i < count; i++) {
+        const peakIdx = Math.min(waveformPeaks.length - 1, Math.floor(i * step));
+        const val = waveformPeaks[peakIdx];
+        res.push(Math.max(20, Math.min(95, Math.round(val * 100))));
+      }
+      return res;
+    }
+    return DEFAULT_BAR_HEIGHTS;
+  }, [waveformPeaks]);
 
-      const rawRatio = (clientX - rect.left) / rect.width;
+  // Synchronize CSS custom property with progress percentage
+  const setVisualProgress = useCallback(
+    (time: number) => {
+      if (!containerRef.current) return;
+      const clampedTime = Math.max(effectiveMin, Math.min(effectiveMax, time));
+      const pct =
+        effectiveMax > effectiveMin ? ((clampedTime - effectiveMin) / (effectiveMax - effectiveMin)) * 100 : 0;
+      containerRef.current.style.setProperty("--progress-pct", `${pct.toFixed(3)}%`);
+
+      // Update active chord segment id if segments exist
+      if (chordSegments && chordSegments.length > 0) {
+        const currentSeg = chordSegments.find(
+          (seg) => clampedTime >= seg.startTime && clampedTime <= seg.endTime
+        );
+        if (currentSeg && currentSeg.id !== activeSegmentId) {
+          setActiveSegmentId(currentSeg.id);
+        }
+      }
+
+      if (dragTooltipRef.current && isDraggingRef.current) {
+        dragTooltipRef.current.textContent = timeFormatter(clampedTime);
+      }
+    },
+    [effectiveMin, effectiveMax, chordSegments, activeSegmentId, timeFormatter]
+  );
+
+  // Sync external currentTime prop when NOT dragging
+  useEffect(() => {
+    if (!isDraggingRef.current) {
+      setVisualProgress(currentTime);
+    }
+  }, [currentTime, setVisualProgress]);
+
+  // High-Resolution Sub-Frame Audio Clock Interpolation during playback
+  useEffect(() => {
+    if (!isPlaying || isDraggingRef.current) return;
+
+    let animId: number;
+    let lastAudioTime = -1;
+    let basePerfTime = performance.now();
+    let baseAudioTime = currentTime;
+
+    const tick = (now: number) => {
+      if (isDraggingRef.current) return;
+
+      if (audioRef?.current && audioRef.current.src && !isNaN(audioRef.current.duration)) {
+        const curAudio = audioRef.current.currentTime;
+        if (curAudio !== lastAudioTime) {
+          lastAudioTime = curAudio;
+          baseAudioTime = curAudio;
+          basePerfTime = now;
+        }
+
+        const rate = playbackRate || audioRef.current.playbackRate || 1.0;
+        const elapsedSec = ((now - basePerfTime) / 1000) * rate;
+        const interpolated = Math.max(
+          curAudio - 0.05,
+          Math.min(curAudio + 0.12, baseAudioTime + elapsedSec)
+        );
+
+        setVisualProgress(interpolated);
+      }
+      animId = requestAnimationFrame(tick);
+    };
+
+    animId = requestAnimationFrame(tick);
+    return () => {
+      if (animId) cancelAnimationFrame(animId);
+    };
+  }, [isPlaying, audioRef, playbackRate, currentTime, setVisualProgress]);
+
+  // Coordinate normalization without forced reflows during drag
+  const calculateTimestamp = useCallback(
+    (clientX: number): number => {
+      const { left, width } = rectCacheRef.current;
+      if (width <= 0 || effectiveMax <= effectiveMin) return effectiveMin;
+
+      const rawRatio = (clientX - left) / width;
       const clampedRatio = Math.max(0, Math.min(1, rawRatio));
       let value = effectiveMin + clampedRatio * (effectiveMax - effectiveMin);
 
@@ -69,127 +185,92 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
     [effectiveMin, effectiveMax, step]
   );
 
-  // Keep track of active drag value in ref for smooth updates
-  const dragValueRef = useRef<number>(currentTime);
-  const isDraggingRef = useRef<boolean>(false);
-  isDraggingRef.current = isDragging;
+  // Pointer Events API with setPointerCapture for 100% reliable zero-lag dragging
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (disabled || (e.button !== 0 && e.pointerType === "mouse")) return;
+    const container = containerRef.current;
+    if (!container) return;
 
-  // Unified Mouse & Touch Handlers bound to window during drag
-  useEffect(() => {
-    if (!isDragging) return;
+    // Cache layout bounding box to eliminate layout thrashing (forced reflows) during drag
+    const rect = container.getBoundingClientRect();
+    rectCacheRef.current = { left: rect.left, width: rect.width };
 
-    const handleWindowMouseMove = (e: MouseEvent) => {
-      const val = getTimestampFromClientX(e.clientX);
-      dragValueRef.current = val;
-      setDragTime(val);
-      if (onChange) {
-        onChange(val);
-      }
-    };
-
-    const handleWindowMouseUp = (e: MouseEvent) => {
-      const val = getTimestampFromClientX(e.clientX);
-      setIsDragging(false);
-      setDragTime(null);
-      if (onChange) {
-        onChange(val);
-      }
-      if (onScrubEnd) {
-        onScrubEnd(val);
-      }
-    };
-
-    const handleWindowTouchMove = (e: TouchEvent) => {
-      // Prevent overscrolling, bounce, or pull-to-refresh on mobile devices
-      if (e.cancelable) {
-        e.preventDefault();
-      }
-      if (e.touches && e.touches.length > 0) {
-        const val = getTimestampFromClientX(e.touches[0].clientX);
-        dragValueRef.current = val;
-        setDragTime(val);
-        if (onChange) {
-          onChange(val);
-        }
-      }
-    };
-
-    const handleWindowTouchEnd = (e: TouchEvent) => {
-      let clientX = 0;
-      if (e.changedTouches && e.changedTouches.length > 0) {
-        clientX = e.changedTouches[0].clientX;
-      }
-      const val = clientX ? getTimestampFromClientX(clientX) : dragValueRef.current;
-      setIsDragging(false);
-      setDragTime(null);
-      if (onChange) {
-        onChange(val);
-      }
-      if (onScrubEnd) {
-        onScrubEnd(val);
-      }
-    };
-
-    window.addEventListener("mousemove", handleWindowMouseMove);
-    window.addEventListener("mouseup", handleWindowMouseUp);
-    // Attach touchmove with { passive: false } to allow e.preventDefault()
-    window.addEventListener("touchmove", handleWindowTouchMove, { passive: false });
-    window.addEventListener("touchend", handleWindowTouchEnd);
-    window.addEventListener("touchcancel", handleWindowTouchEnd);
-
-    return () => {
-      window.removeEventListener("mousemove", handleWindowMouseMove);
-      window.removeEventListener("mouseup", handleWindowMouseUp);
-      window.removeEventListener("touchmove", handleWindowTouchMove);
-      window.removeEventListener("touchend", handleWindowTouchEnd);
-      window.removeEventListener("touchcancel", handleWindowTouchEnd);
-    };
-  }, [isDragging, getTimestampFromClientX, onChange, onScrubEnd]);
-
-  // Initiation Handlers
-  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (disabled || e.button !== 0) return; // Left click only
-    e.preventDefault();
-    const val = getTimestampFromClientX(e.clientX);
-    dragValueRef.current = val;
-    setDragTime(val);
+    container.setPointerCapture(e.pointerId);
     setIsDragging(true);
-    if (onScrubStart) {
-      onScrubStart();
-    }
-    if (onChange) {
-      onChange(val);
-    }
+    isDraggingRef.current = true;
+
+    const val = calculateTimestamp(e.clientX);
+    dragValueRef.current = val;
+
+    // Immediate visual update at 0ms latency
+    setVisualProgress(val);
+
+    onScrubStart?.();
+    onChange?.(val);
   };
 
-  const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
-    if (disabled) return;
-    if (e.touches && e.touches.length > 0) {
-      const val = getTimestampFromClientX(e.touches[0].clientX);
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!containerRef.current) return;
+
+    if (isDraggingRef.current) {
+      const val = calculateTimestamp(e.clientX);
       dragValueRef.current = val;
-      setDragTime(val);
-      setIsDragging(true);
-      if (onScrubStart) {
-        onScrubStart();
+
+      // Immediate direct GPU-bound visual update
+      setVisualProgress(val);
+
+      // Coalesce onChange calls using requestAnimationFrame to prevent React render bottleneck
+      pendingTimeRef.current = val;
+      if (!rafIdRef.current) {
+        rafIdRef.current = requestAnimationFrame(() => {
+          rafIdRef.current = null;
+          if (pendingTimeRef.current !== null && onChange) {
+            onChange(pendingTimeRef.current);
+          }
+        });
       }
-      if (onChange) {
-        onChange(val);
+    } else {
+      // Hover Line & Timestamp without triggering React component re-renders
+      if (hoverContainerRef.current && hoverTooltipRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
+        const hoverX = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
+        const hoverVal = calculateTimestamp(e.clientX);
+
+        hoverContainerRef.current.style.display = "block";
+        hoverContainerRef.current.style.transform = `translateX(${hoverX}px)`;
+        hoverTooltipRef.current.textContent = timeFormatter(hoverVal);
       }
     }
   };
 
-  // Hover preview handling on desktop
-  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (disabled || isDragging || !containerRef.current) return;
-    const rect = containerRef.current.getBoundingClientRect();
-    const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
-    const val = getTimestampFromClientX(e.clientX);
-    setHoverX(x);
-    setHoverTime(val);
+  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    const container = containerRef.current;
+    if (container && container.hasPointerCapture(e.pointerId)) {
+      container.releasePointerCapture(e.pointerId);
+    }
+
+    if (isDraggingRef.current) {
+      if (rafIdRef.current) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
+
+      const finalVal = calculateTimestamp(e.clientX);
+      isDraggingRef.current = false;
+      setIsDragging(false);
+      dragValueRef.current = finalVal;
+
+      setVisualProgress(finalVal);
+
+      onChange?.(finalVal);
+      onScrubEnd?.(finalVal);
+    }
   };
 
-  const handleMouseLeave = () => {
-    setHoverTime(null);
+  const handlePointerLeave = () => {
+    if (!isDraggingRef.current && hoverContainerRef.current) {
+      hoverContainerRef.current.style.display = "none";
+    }
   };
 
   // Keyboard accessibility
@@ -212,21 +293,15 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
 
     if (nextVal !== null) {
       e.preventDefault();
-      if (onChange) {
-        onChange(nextVal);
-      }
-      if (onScrubEnd) {
-        onScrubEnd(nextVal);
-      }
+      setVisualProgress(nextVal);
+      onChange?.(nextVal);
+      onScrubEnd?.(nextVal);
     }
   };
 
-  const activeDisplayTime = isDragging && dragTime !== null ? dragTime : currentTime;
-
-  const progressPct =
-    effectiveMax > effectiveMin
-      ? Math.min(100, Math.max(0, ((activeDisplayTime - effectiveMin) / (effectiveMax - effectiveMin)) * 100))
-      : 0;
+  const activeDisplayTime = isDragging ? dragValueRef.current : currentTime;
+  const initialPct =
+    effectiveMax > effectiveMin ? ((currentTime - effectiveMin) / (effectiveMax - effectiveMin)) * 100 : 0;
 
   return (
     <div
@@ -237,12 +312,14 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
       aria-valuemin={effectiveMin}
       aria-valuemax={effectiveMax}
       aria-valuenow={activeDisplayTime}
-      onMouseDown={handleMouseDown}
-      onTouchStart={handleTouchStart}
-      onMouseMove={handleMouseMove}
-      onMouseLeave={handleMouseLeave}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp}
+      onPointerLeave={handlePointerLeave}
       onKeyDown={handleKeyDown}
-      className={`relative min-h-[44px] flex items-center select-none touch-none cursor-ew-resize focus:outline-none focus-visible:ring-2 focus-visible:ring-[#a3ff12] rounded-xl transition-all ${
+      style={{ "--progress-pct": `${initialPct.toFixed(3)}%` } as React.CSSProperties}
+      className={`relative min-h-[44px] sm:min-h-[52px] flex items-center select-none touch-none cursor-ew-resize focus:outline-none focus-visible:ring-2 focus-visible:ring-[#a3ff12] rounded-xl transition-all [contain:layout_style] ${
         isDragging ? "ring-2 ring-[#a3ff12]/50 bg-white/[0.09]" : ""
       } ${className}`}
     >
@@ -250,31 +327,99 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
       <div className="absolute inset-0 bg-white/5 hover:bg-white/[0.08] rounded-xl border border-white/10 overflow-hidden pointer-events-none">
         {/* Elapsed Progress Fill - GPU accelerated */}
         <div
-          className="absolute inset-y-0 left-0 w-full bg-gradient-to-r from-[#a3ff12]/15 to-[#a3ff12]/25 origin-left will-change-transform pointer-events-none"
-          style={{ transform: `scaleX(${progressPct / 100})` }}
+          className="absolute inset-y-0 left-0 bg-gradient-to-r from-[#a3ff12]/15 to-[#a3ff12]/25 pointer-events-none will-change-[width]"
+          style={{ width: "var(--progress-pct, 0%)" }}
         />
-        {/* Children (e.g. Waveforms, Chord Split Markers) */}
+
+        {/* Natively Rendered Waveform & Chord Markers for 120fps performance */}
+        {chordSegments || waveformPeaks ? (
+          <>
+            {/* Waveform vertical bars with high-performance GPU clip-path overlay */}
+            <div className="absolute inset-0 px-2 flex items-center justify-between pointer-events-none z-0">
+              {/* Base inactive bars */}
+              {barHeights.map((h, wIdx) => (
+                <div
+                  key={`base-${wIdx}`}
+                  className="w-1 rounded-full bg-zinc-700/80 pointer-events-none"
+                  style={{ height: `${h}%` }}
+                />
+              ))}
+
+              {/* Active highlighted bars clipped smoothly by audio progress */}
+              <div
+                className="absolute inset-0 px-2 flex items-center justify-between pointer-events-none will-change-[clip-path]"
+                style={{
+                  clipPath: "inset(0 calc(100% - var(--progress-pct, 0%)) 0 0)",
+                }}
+              >
+                {barHeights.map((h, wIdx) => (
+                  <div
+                    key={`act-${wIdx}`}
+                    className="w-1 rounded-full bg-[#a3ff12] pointer-events-none"
+                    style={{ height: `${h}%` }}
+                  />
+                ))}
+              </div>
+            </div>
+
+            {/* Chord split markers and labels */}
+            {chordSegments && chordSegments.length > 0 && (
+              <div className="absolute inset-0 flex pointer-events-none z-10">
+                {chordSegments.map((seg, idx) => {
+                  const leftPct = safeDuration > 0 ? (seg.startTime / safeDuration) * 100 : 0;
+                  const isCurrentSeg = seg.id === activeSegmentId;
+                  return (
+                    <div
+                      key={seg.id || idx}
+                      className={`absolute h-full border-l flex flex-col justify-end pb-0.5 pl-1 text-[9px] font-mono transition-colors ${
+                        isCurrentSeg
+                          ? "border-[#a3ff12]/60 text-[#a3ff12] font-bold"
+                          : "border-white/10 text-zinc-400"
+                      }`}
+                      style={{ left: `${leftPct}%` }}
+                    >
+                      <span className="bg-[#0b0e12] border border-white/10 px-1 py-0.5 rounded flex items-center gap-1 shadow-sm">
+                        <span className={isCurrentSeg ? "text-[#a3ff12]" : "text-zinc-200"}>
+                          {seg.soundingChord}
+                        </span>
+                        {seg.hasCapoShape && seg.playShape && (
+                          <span className="text-[8px] text-sky-400 font-semibold opacity-90">
+                            ({seg.playShape})
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </>
+        ) : null}
+
+        {/* Fallback to custom children if passed */}
         {typeof children === "function" ? children(activeDisplayTime, isDragging) : children}
       </div>
 
-      {/* Hover Scrubber Line & Timestamp Tooltip (Desktop) */}
-      {hoverTime !== null && !isDragging && effectiveMax > 0 && (
+      {/* Hover Scrubber Line & Timestamp Tooltip (Desktop) - Direct DOM position without React state reflow */}
+      <div
+        ref={hoverContainerRef}
+        style={{ display: "none" }}
+        className="absolute top-0 bottom-0 pointer-events-none z-20 will-change-transform"
+      >
+        <div className="w-px h-full bg-white/50 border-l border-dashed border-white/70 -translate-x-1/2" />
         <div
-          className="absolute top-0 bottom-0 pointer-events-none z-20"
-          style={{ left: `${hoverX}px` }}
+          ref={hoverTooltipRef}
+          className="absolute -top-7 -translate-x-1/2 bg-zinc-900/95 border border-white/20 px-2 py-0.5 rounded text-[10px] font-mono text-zinc-100 shadow-lg whitespace-nowrap"
         >
-          <div className="w-px h-full bg-white/50 border-l border-dashed border-white/70 -translate-x-1/2" />
-          <div className="absolute -top-7 -translate-x-1/2 bg-zinc-900/95 border border-white/20 px-2 py-0.5 rounded text-[10px] font-mono text-zinc-100 shadow-lg whitespace-nowrap">
-            {timeFormatter(hoverTime)}
-          </div>
+          {timeFormatter(currentTime)}
         </div>
-      )}
+      </div>
 
-      {/* Playhead Laser Line & Drag Handle */}
+      {/* Playhead Laser Line & Scrubber Thumb Handle */}
       {effectiveMax > 0 && (
         <div
-          className="absolute top-0 bottom-0 pointer-events-none z-30"
-          style={{ left: `${progressPct}%` }}
+          className="absolute top-0 bottom-0 pointer-events-none z-30 will-change-[left]"
+          style={{ left: "var(--progress-pct, 0%)" }}
         >
           {/* Vertical Playhead Needle */}
           <div className="w-[2px] h-full bg-[#a3ff12] -translate-x-1/2 shadow-[0_0_10px_#a3ff12]" />
@@ -285,11 +430,14 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
           </div>
 
           {/* Active Drag Floating Tooltip */}
-          {isDragging && (
-            <div className="absolute -top-8 -translate-x-1/2 bg-[#a3ff12] text-black font-bold font-mono px-2 py-0.5 rounded text-[10px] shadow-[0_0_12px_rgba(163,255,18,0.5)] whitespace-nowrap">
-              {timeFormatter(activeDisplayTime)}
-            </div>
-          )}
+          <div
+            ref={dragTooltipRef}
+            className={`absolute -top-8 -translate-x-1/2 bg-[#a3ff12] text-black font-bold font-mono px-2 py-0.5 rounded text-[10px] shadow-[0_0_12px_rgba(163,255,18,0.5)] whitespace-nowrap transition-opacity duration-150 ${
+              isDragging ? "opacity-100" : "opacity-0 pointer-events-none"
+            }`}
+          >
+            {timeFormatter(activeDisplayTime)}
+          </div>
         </div>
       )}
     </div>
