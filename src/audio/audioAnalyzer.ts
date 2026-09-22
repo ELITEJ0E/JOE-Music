@@ -1,6 +1,7 @@
 import { audioEngine } from "./audioContext";
 import { SongAnalysis } from "../types";
 import { CURRENT_ANALYSIS_VERSION } from "./analysisVersion";
+import { extractWaveformPeaks } from "./wavEncoder";
 import AnalyzerWorker from "./analyzerWorker?worker";
 
 /**
@@ -63,6 +64,7 @@ export async function analyzeAudioFile(
   const sampleRate = audioBuffer.sampleRate;
   const numChannels = audioBuffer.numberOfChannels;
   const length = audioBuffer.length;
+  const waveformPeaks = extractWaveformPeaks(audioBuffer, 600);
 
   // Extract Mid ((L+R)/2) and Side ((L-R)/2) channels for stereo-aware MIR analysis.
   // Audio playback remains full pristine stereo; mid/side extraction ensures wide-panned
@@ -128,6 +130,7 @@ export async function analyzeAudioFile(
           tuningDeviation: analysis.tuningDeviationCents,
           sections: analysis.sections,
           beats: analysis.beats,
+          waveformPeaks: waveformPeaks,
           confidence: analysis.overallConfidence,
           tips: "Extracted using high-resolution STFT chromagrams with Viterbi decoding and beat-synchronous harmonic stabilization.",
           audioBlob: sourceBlob,

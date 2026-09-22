@@ -101,6 +101,7 @@ export interface SongAnalysis {
   tuningDeviation?: number; // Estimated cents deviation from A=440
   sections: SongSection[];
   beats?: number[]; // Timestamps of detected beats
+  waveformPeaks?: number[]; // High-precision waveform visual amplitudes
   tips?: string;
   youtubeUrl?: string;
   sunoUrl?: string;

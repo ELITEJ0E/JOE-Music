@@ -33,6 +33,8 @@ import { liveChordDetector, LiveChordResult } from "../audio/liveChordDetector";
 import { ChordDiagram } from "./ChordDiagram";
 import { CustomConfirmDialog } from "./ui/CustomConfirmDialog";
 import { TimelineScrubber } from "./ui/TimelineScrubber";
+import { WaveformTimelineCanvas } from "./ui/WaveformTimelineCanvas";
+import { VideoSlider } from "./ui/VideoSlider";
 import { SunoSong } from "./SongsLibraryView";
 import { fetchDecryptedAudioFile } from "../utils/sunoAudioResolver";
 import { SUNO_CATALOG_MASTER } from "../lib/suno-catalog-data";
@@ -390,6 +392,22 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
   }, [activeSong]);
 
   const duration = activeSong?.duration || (segments.length > 0 ? segments[segments.length - 1].endTime : 1);
+
+  const canvasChordMarkers = useMemo(() => {
+    return segments.map((seg, idx) => {
+      const segState = resolveChordFinderState(seg.chord, transpose, capo, activeSong?.key);
+      const displayLabel = segState.transposedChord + (capo > 0 && segState.isValid ? ` (${segState.shapeChord})` : "");
+      return {
+        id: seg.id || `seg-${idx}`,
+        chord: seg.chord,
+        startTime: seg.startTime,
+        endTime: seg.endTime,
+        displayChord: displayLabel,
+        shapeChord: segState.shapeChord,
+        capo,
+      };
+    });
+  }, [segments, transpose, capo, activeSong?.key]);
 
   // Playhead update loop (continuous high-resolution audio clock with sub-frame interpolation)
   useEffect(() => {
@@ -1831,100 +1849,57 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                 )}
               </div>
 
-              {/* Draggable Audio Waveform Timeline Scrubber & Transport Controls */}
-              <div className="space-y-2.5 bg-black/20 p-3 sm:p-4 rounded-2xl border border-white/5">
-                <div className="flex items-center justify-between text-[10px] sm:text-[11px] font-mono text-zinc-400">
-                  <span className="flex items-center gap-1.5 text-zinc-300">
-                    <GripVertical className="w-3.5 h-3.5 text-[#a3ff12]" />
-                    <span>TIMELINE</span>
-                  </span>
-                  <span className="text-[#a3ff12] font-bold">
-                    {formatTime(displayTime)} / {formatTime(duration)}
-                  </span>
-                </div>
-
-                {/* High-Performance Ultra-Smooth Timeline Scrubber */}
-                <TimelineScrubber
-                  currentTime={currentTime}
+              {/* Ultra-Smooth High-Precision DAW Waveform Timeline & Scrubbing Engine */}
+              <div className="space-y-3 bg-black/25 p-3 sm:p-4 rounded-2xl border border-white/10 [contain:paint]">
+                {/* 60fps/120fps Viewport-Clipped Waveform Canvas with Dynamic Zoom, Chord Pin Markers & Zero-Lag Drag */}
+                <WaveformTimelineCanvas
+                  currentTime={displayTime}
                   duration={duration}
-                  step={0.01}
-                  formatTime={formatTime}
+                  isPlaying={isPlaying}
+                  playbackRate={slowDown ? 0.75 : 1.0}
+                  audioRef={audioRef}
+                  waveformPeaks={activeSong?.waveformPeaks}
+                  chordSegments={canvasChordMarkers}
+                  beats={activeSong?.beats}
+                  tempo={activeSong?.tempo || 120}
+                  onSeek={(val) => {
+                    setDragTargetTime(val);
+                    seekToTime(val);
+                  }}
                   onScrubStart={() => {
                     setIsDraggingTimeline(true);
                   }}
-                  onChange={(val) => {
-                    // Instant visual drag update without touching audio element
-                    setDragTargetTime(val);
-                  }}
                   onScrubEnd={(val) => {
-                    // Only commits audio seek when user releases/lets go of drag
                     setIsDraggingTimeline(false);
                     setDragTargetTime(null);
                     seekToTime(val);
                   }}
-                  className="h-12 sm:h-14"
-                >
-                  {(activeDisplayTime) => (
-                    <>
-                      {/* Waveform vertical bars with high-performance GPU clip-path overlay */}
-                      <div className="absolute inset-0 px-2 flex items-center justify-between pointer-events-none z-0">
-                        {/* Base inactive bars */}
-                        {WAVEFORM_BAR_HEIGHTS.map((h, wIdx) => (
-                          <div
-                            key={`base-${wIdx}`}
-                            className="w-1 rounded-full bg-zinc-700/80 pointer-events-none"
-                            style={{ height: `${h}%` }}
-                          />
-                        ))}
+                  formatTime={formatTime}
+                  height={88}
+                  showControls={true}
+                  showMiniMap={true}
+                />
 
-                        {/* Active highlighted bars clipped smoothly by audio progress */}
-                        <div
-                          className="absolute inset-0 px-2 flex items-center justify-between pointer-events-none will-change-[clip-path]"
-                          style={{
-                            clipPath: `inset(0 ${Math.max(0, Math.min(100, 100 - (duration > 0 ? (activeDisplayTime / duration) * 100 : 0)))}% 0 0)`,
-                          }}
-                        >
-                          {WAVEFORM_BAR_HEIGHTS.map((h, wIdx) => (
-                            <div
-                              key={`act-${wIdx}`}
-                              className="w-1 rounded-full bg-[#a3ff12] pointer-events-none"
-                              style={{ height: `${h}%` }}
-                            />
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Chord split markers and labels */}
-                      <div className="absolute inset-0 flex pointer-events-none z-10">
-                        {segments.map((seg, idx) => {
-                          const leftPct = duration > 0 ? (seg.startTime / duration) * 100 : 0;
-                          const isCurrentSeg = activeDisplayTime >= seg.startTime && activeDisplayTime <= seg.endTime;
-                          const segState = resolveChordFinderState(seg.chord, transpose, capo, activeSong?.key);
-                          const soundingChord = segState.transposedChord;
-                          const playShape = segState.shapeChord;
-                          return (
-                            <div
-                              key={seg.id || idx}
-                              className={`absolute h-full border-l flex flex-col justify-end pb-0.5 pl-1 text-[9px] font-mono transition-colors ${
-                                isCurrentSeg
-                                  ? "border-[#a3ff12]/60 text-[#a3ff12] font-bold"
-                                  : "border-white/10 text-zinc-400"
-                              }`}
-                              style={{ left: `${leftPct}%` }}
-                            >
-                              <span className="bg-[#0b0e12] border border-white/10 px-1 py-0.5 rounded flex items-center gap-1 shadow-sm">
-                                <span className={isCurrentSeg ? "text-[#a3ff12]" : "text-zinc-200"}>{soundingChord}</span>
-                                {capo > 0 && segState.isValid && (
-                                  <span className="text-[8px] text-sky-400 font-semibold opacity-90">({playShape})</span>
-                                )}
-                              </span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </>
-                  )}
-                </TimelineScrubber>
+                {/* Companion Ultra-Smooth Fast Scrubber with Hover Tooltips & Buffered Progress */}
+                <div className="px-1">
+                  <VideoSlider
+                    value={displayTime}
+                    duration={duration}
+                    onChange={(val) => {
+                      setDragTargetTime(val);
+                      seekToTime(val);
+                    }}
+                    onScrubStart={() => {
+                      setIsDraggingTimeline(true);
+                    }}
+                    onScrubEnd={(val) => {
+                      setIsDraggingTimeline(false);
+                      setDragTargetTime(null);
+                      seekToTime(val);
+                    }}
+                    formatTime={formatTime}
+                  />
+                </div>
 
                 {/* Transport controls: Repeat, |<<, ▶, >>| */}
                 <div className="flex items-center justify-between sm:justify-center sm:gap-6 pt-0.5">
