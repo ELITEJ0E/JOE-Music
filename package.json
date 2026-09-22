@@ -13,6 +13,7 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
+    "@breezystack/lamejs": "^1.2.7",
     "@google/genai": "^2.4.0",
     "@radix-ui/react-dialog": "^1.1.23",
     "@radix-ui/react-select": "^2.3.7",

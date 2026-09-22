@@ -17,6 +17,8 @@ import {
 } from "lucide-react";
 import { looperEngine } from "../audio/looperEngine";
 import { audioEngine } from "../audio/audioContext";
+import { midiManager } from "../audio/midiManager";
+import { MidiControllerBar } from "./ui/MidiControllerBar";
 import { LooperTrack, DAWProject, WorkstationMode } from "../types";
 import { saveProjectToDB, saveLooperSessionToDB } from "../utils/storage";
 import { CustomConfirmDialog } from "./ui/CustomConfirmDialog";
@@ -64,6 +66,88 @@ export const LooperStation: React.FC<LooperStationProps> = ({ onSelectMode, onCo
       audioEngine.releaseInput("looper-input");
     };
   }, []);
+
+  // Hardware MIDI Controller Integration for Looper
+  useEffect(() => {
+    // 1. Record / Overdub Footswitch (CC 64 Sustain / FS 1)
+    const unsubRec = midiManager.onAction("looper:record_overdub", () => {
+      if (status.isRecording) {
+        looperEngine.stopRecord();
+        showToast("MIDI: Stopped recording / Loop playing");
+      } else {
+        looperEngine.startRecord();
+        showToast("MIDI: Started recording / Overdubbing");
+      }
+    });
+
+    // 2. Play / Stop Footswitch (CC 80 / FS 2)
+    const unsubPlay = midiManager.onAction("looper:play_stop", () => {
+      const isNowPlaying = looperEngine.togglePlay();
+      showToast(isNowPlaying ? "MIDI: Play all loops" : "MIDI: Stopped all loops");
+    });
+
+    // 3. Undo Last Take (CC 81 / FS 3)
+    const unsubUndo = midiManager.onAction("looper:undo", () => {
+      const activeIdx = looperEngine.getActiveTrackIndex();
+      looperEngine.undo(activeIdx);
+      showToast(`MIDI: Undid last take on Layer ${activeIdx + 1}`);
+    });
+
+    // 4. Clear Active Track Layer (CC 82 / FS 4)
+    const unsubClearAct = midiManager.onAction("looper:clear_active", () => {
+      const activeIdx = looperEngine.getActiveTrackIndex();
+      looperEngine.clearTrack(activeIdx);
+      showToast(`MIDI: Cleared Layer ${activeIdx + 1}`);
+    });
+
+    // 5. Clear All Layers (CC 83 / FS 5)
+    const unsubClearAll = midiManager.onAction("looper:clear_all", () => {
+      looperEngine.clearAll();
+      showToast("MIDI: Cleared All Loop Layers");
+    });
+
+    // 6. Next / Prev Track Layer
+    const unsubNextTrack = midiManager.onAction("looper:track_next", () => {
+      const current = looperEngine.getActiveTrackIndex();
+      const next = (current + 1) % 4;
+      looperEngine.setActiveTrackIndex(next);
+      showToast(`MIDI: Selected Layer ${next + 1}`);
+    });
+
+    const unsubPrevTrack = midiManager.onAction("looper:track_prev", () => {
+      const current = looperEngine.getActiveTrackIndex();
+      const prev = (current - 1 + 4) % 4;
+      looperEngine.setActiveTrackIndex(prev);
+      showToast(`MIDI: Selected Layer ${prev + 1}`);
+    });
+
+    // 7. Track Mutes 1-4
+    const unsubMutes = [0, 1, 2, 3].map((idx) =>
+      midiManager.onAction(`looper:track_${idx + 1}_toggle`, () => {
+        looperEngine.toggleMute(idx);
+        showToast(`MIDI: Toggled Mute Layer ${idx + 1}`);
+      })
+    );
+
+    // 8. Looper Master Volume
+    const unsubVol = midiManager.onAction("looper:volume_master", (evt) => {
+      if (evt.value !== undefined) {
+        audioEngine.setMasterVolume(evt.value);
+      }
+    });
+
+    return () => {
+      unsubRec();
+      unsubPlay();
+      unsubUndo();
+      unsubClearAct();
+      unsubClearAll();
+      unsubNextTrack();
+      unsubPrevTrack();
+      unsubMutes.forEach((u) => u());
+      unsubVol();
+    };
+  }, [status.isRecording, status.isPlaying]);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -271,6 +355,9 @@ export const LooperStation: React.FC<LooperStationProps> = ({ onSelectMode, onCo
           >
             <Trash2 className="w-4 h-4" />
           </button>
+
+          {/* External Hardware MIDI Controller Status & Mapping */}
+          <MidiControllerBar category="looper" />
         </div>
       </div>
 

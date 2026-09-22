@@ -89,6 +89,7 @@ import { AudioClipView } from "./daw/AudioClipView";
 import { TrackHeader } from "./daw/TrackHeader";
 import { ClipInspector } from "./daw/ClipInspector";
 import { ProjectsModal } from "./daw/ProjectsModal";
+import { SessionExportModal } from "./daw/SessionExportModal";
 import { LooperStation } from "./LooperStation";
 import { DrumMetronome } from "./DrumMetronome";
 import { CustomConfirmDialog } from "./ui/CustomConfirmDialog";
@@ -152,6 +153,7 @@ export const MultiTrackStudio: React.FC<MultiTrackStudioProps> = ({ initialSong 
 
   const [savedProjects, setSavedProjects] = useState<DAWProject[]>([]);
   const [isProjectsModalOpen, setIsProjectsModalOpen] = useState<boolean>(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState<boolean>(false);
   const [armedTrackId, setArmedTrackId] = useState<string | null>(null);
   const [selectedTrackId, setSelectedTrackId] = useState<string>("trk-1");
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
@@ -1439,7 +1441,7 @@ export const MultiTrackStudio: React.FC<MultiTrackStudioProps> = ({ initialSong 
           <div className="flex md:hidden items-center gap-2">
             {/* Mobile quick actions */}
             <button onClick={() => setIsProjectsModalOpen(true)} className="p-1.5 bg-white/5 rounded text-zinc-300"><FolderOpen className="w-4 h-4" /></button>
-            <button onClick={handleExportMixdown} disabled={isExportingMix} className="p-1.5 bg-[#a3ff12]/20 text-[#a3ff12] rounded"><Download className="w-4 h-4" /></button>
+            <button onClick={() => setIsExportModalOpen(true)} className="p-1.5 bg-[#a3ff12]/20 text-[#a3ff12] rounded cursor-pointer" title="Export Session (WAV/MP3)"><Download className="w-4 h-4" /></button>
           </div>
         </div>
 
@@ -1493,8 +1495,8 @@ export const MultiTrackStudio: React.FC<MultiTrackStudioProps> = ({ initialSong 
           <button onClick={() => setIsProjectsModalOpen(true)} className="px-3 py-1.5 bg-white/5 hover:bg-white/10 text-zinc-200 text-xs font-mono font-bold rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer">
             <FolderOpen className="w-3.5 h-3.5" /> Projects
           </button>
-          <button onClick={handleExportMixdown} disabled={isExportingMix} className="px-3 py-1.5 bg-[#a3ff12]/20 hover:bg-[#a3ff12]/30 text-[#a3ff12] text-xs font-mono font-bold rounded-lg flex items-center gap-1.5 transition-all cursor-pointer">
-            <Download className="w-3.5 h-3.5" /> {isExportingMix ? "Wait..." : "Export"}
+          <button onClick={() => setIsExportModalOpen(true)} className="px-3 py-1.5 bg-[#a3ff12]/20 hover:bg-[#a3ff12]/30 text-[#a3ff12] text-xs font-mono font-bold rounded-lg flex items-center gap-1.5 transition-all cursor-pointer" title="Export Master Mixdown or Stems (WAV/MP3)">
+            <Download className="w-3.5 h-3.5" /> Export
           </button>
         </div>
       </div>
@@ -1772,6 +1774,13 @@ export const MultiTrackStudio: React.FC<MultiTrackStudioProps> = ({ initialSong 
           </div>
         </div>
       )}
+
+      {/* High-Quality WAV & MP3 Studio Session & Stem Exporter */}
+      <SessionExportModal
+        isOpen={isExportModalOpen}
+        onClose={() => setIsExportModalOpen(false)}
+        project={project}
+      />
     </div>
   );
 };

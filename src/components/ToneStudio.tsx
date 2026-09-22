@@ -22,6 +22,8 @@ import {
 } from "lucide-react";
 import { pedalboardDsp } from "../audio/pedalboardDsp";
 import { audioEngine } from "../audio/audioContext";
+import { midiManager } from "../audio/midiManager";
+import { MidiControllerBar } from "./ui/MidiControllerBar";
 import { DEFAULT_TONE_PRESETS } from "../data/presetsDatabase";
 import { TonePreset, PedalConfig } from "../types";
 import { savePresetToDB, loadPresetsFromDB } from "../utils/storage";
@@ -101,6 +103,130 @@ export const ToneStudio: React.FC = () => {
   useEffect(() => {
     pedalboardDsp.applyPedalConfig(pedals);
   }, [pedals]);
+
+  // Hardware MIDI Controller Integration for Tone Studio
+  useEffect(() => {
+    // Pedal Toggles 0-7
+    const unsubPedals = [0, 1, 2, 3, 4, 5, 6, 7].map((idx) =>
+      midiManager.onAction(`tone:pedal_toggle:${idx}`, () => {
+        setPedals((prev) => {
+          if (prev.length > idx) {
+            const updated = [...prev];
+            updated[idx] = { ...updated[idx], enabled: !updated[idx].enabled };
+            return updated;
+          }
+          return prev;
+        });
+      })
+    );
+
+    // Preset Up / Next
+    const unsubPresetNext = midiManager.onAction("tone:preset_next", () => {
+      setPresets((currentPresets) => {
+        setActivePreset((currentActive) => {
+          const idx = currentPresets.findIndex((p) => p.id === currentActive.id);
+          const nextIdx = (idx + 1) % currentPresets.length;
+          const nextPreset = currentPresets[nextIdx];
+          setPedals(JSON.parse(JSON.stringify(nextPreset.pedals)));
+          if (nextPreset.pedals.length > 0) setActivePedalId(nextPreset.pedals[0].id);
+          return nextPreset;
+        });
+        return currentPresets;
+      });
+    });
+
+    // Preset Down / Prev
+    const unsubPresetPrev = midiManager.onAction("tone:preset_prev", () => {
+      setPresets((currentPresets) => {
+        setActivePreset((currentActive) => {
+          const idx = currentPresets.findIndex((p) => p.id === currentActive.id);
+          const prevIdx = (idx - 1 + currentPresets.length) % currentPresets.length;
+          const prevPreset = currentPresets[prevIdx];
+          setPedals(JSON.parse(JSON.stringify(prevPreset.pedals)));
+          if (prevPreset.pedals.length > 0) setActivePedalId(prevPreset.pedals[0].id);
+          return prevPreset;
+        });
+        return currentPresets;
+      });
+    });
+
+    // Direct Program Change Selection
+    const unsubPC = midiManager.onAction("tone:program_change", (evt) => {
+      if (evt.program !== undefined) {
+        setPresets((currentPresets) => {
+          const targetIndex = evt.program! % currentPresets.length;
+          const target = currentPresets[targetIndex];
+          setActivePreset(target);
+          setPedals(JSON.parse(JSON.stringify(target.pedals)));
+          if (target.pedals.length > 0) setActivePedalId(target.pedals[0].id);
+          return currentPresets;
+        });
+      }
+    });
+
+    // Master FX Bypass
+    const unsubBypass = midiManager.onAction("tone:master_bypass", () => {
+      setPedals((prev) => {
+        const anyEnabled = prev.some((p) => p.enabled);
+        return prev.map((p) => ({ ...p, enabled: !anyEnabled }));
+      });
+    });
+
+    // Live Mic / Guitar In Toggle
+    const unsubMicToggle = midiManager.onAction("tone:live_mic_toggle", () => {
+      toggleLiveMic();
+    });
+
+    // Expression Pedal (Wah / Primary active knob)
+    const unsubExp = midiManager.onAction("tone:expression_wah", (evt) => {
+      if (evt.value !== undefined) {
+        setPedals((prev) =>
+          prev.map((p) => {
+            if (p.id === activePedalId) {
+              const keys = Object.keys(p.params);
+              if (keys.length > 0) {
+                const primaryKey = keys.includes("frequency")
+                  ? "frequency"
+                  : keys.includes("gain")
+                  ? "gain"
+                  : keys.includes("drive")
+                  ? "drive"
+                  : keys.includes("mix")
+                  ? "mix"
+                  : keys[0];
+                return {
+                  ...p,
+                  params: {
+                    ...p.params,
+                    [primaryKey]: Math.round(evt.value! * 100),
+                  },
+                };
+              }
+            }
+            return p;
+          })
+        );
+      }
+    });
+
+    // Master Volume via Expression Pedal
+    const unsubVol = midiManager.onAction("tone:master_volume", (evt) => {
+      if (evt.value !== undefined) {
+        handleMasterVolChange(Math.round(evt.value * 100));
+      }
+    });
+
+    return () => {
+      unsubPedals.forEach((u) => u());
+      unsubPresetNext();
+      unsubPresetPrev();
+      unsubPC();
+      unsubBypass();
+      unsubMicToggle();
+      unsubExp();
+      unsubVol();
+    };
+  }, [activePedalId, isLiveMic, isMonitoring]);
 
   // Audio visualizer and real-time dB meters loop
   useEffect(() => {
@@ -376,6 +502,9 @@ export const ToneStudio: React.FC = () => {
             {saveSuccess ? <Check className="w-4 h-4 text-[#a3ff12]" /> : <Save className="w-4 h-4" />}
             <span>{saveSuccess ? "SAVED!" : "SAVE RIG"}</span>
           </button>
+
+          {/* External Hardware MIDI Controller Status & Mapping */}
+          <MidiControllerBar category="tone" />
         </div>
       </div>
 
