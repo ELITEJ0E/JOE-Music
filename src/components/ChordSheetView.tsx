@@ -22,6 +22,7 @@ import {
   Edit3,
   Layers,
   ExternalLink,
+  FileCode,
 } from "lucide-react";
 import { ChordSegment, SavedSong, SongAnalysis } from "../types";
 import { ChordDiagram } from "./ChordDiagram";
@@ -977,6 +978,159 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
     return text;
   };
 
+  // Generate Microsoft Word (.doc) formatted document
+  const generateWordDocSheet = (): string => {
+    const songTitle = song.title || "Untitled Song";
+    const songArtist = song.artist || "Unknown Artist";
+
+    let sectionsHtml = "";
+    sections.forEach((sec) => {
+      const cellsArray = sec.items.map(({ seg }) => {
+        const state = resolveChordFinderState(seg.chord, transpose, capo, song.key);
+        const chordLabel = capo > 0 && state.isValid ? state.shapeChord : state.transposedChord;
+        const sounding = capo > 0 && state.isValid ? `<div style="font-size: 8pt; color: #4b5563;">Sounding: ${state.transposedChord}</div>` : "";
+        const dur = (seg.endTime - seg.startTime).toFixed(1);
+        return `
+          <td style="border: 1pt solid #cbd5e1; padding: 8pt 10pt; vertical-align: top; width: 25%; background: #ffffff;">
+            <div style="font-size: 14pt; font-weight: bold; color: #0f172a; font-family: Consolas, monospace;">${chordLabel}</div>
+            ${sounding}
+            <div style="font-size: 8.5pt; color: #64748b; font-family: Consolas, monospace; margin-top: 3pt;">
+              ${formatTime(seg.startTime)} • ${dur}s
+            </div>
+          </td>
+        `;
+      });
+
+      let rowsHtml = "";
+      for (let i = 0; i < cellsArray.length; i += 4) {
+        const chunk = cellsArray.slice(i, i + 4);
+        while (chunk.length < 4) {
+          chunk.push(`<td style="border: 1pt solid #e2e8f0; padding: 8pt 10pt; width: 25%; background: #f8fafc;">&nbsp;</td>`);
+        }
+        rowsHtml += `<tr>${chunk.join("")}</tr>`;
+      }
+
+      sectionsHtml += `
+        <div style="margin-top: 16pt; margin-bottom: 8pt;">
+          <div style="font-size: 12pt; font-weight: bold; color: #0f172a; background: #f1f5f9; padding: 6pt 10pt; border-left: 4pt solid #16a34a;">
+            ${sec.name.toUpperCase()} <span style="font-size: 9.5pt; font-weight: normal; color: #64748b; margin-left: 8pt;">(${formatTime(sec.startTime)} - ${formatTime(sec.endTime)})</span>
+          </div>
+          <table style="width: 100%; border-collapse: collapse; margin-top: 6pt; margin-bottom: 12pt;">
+            ${rowsHtml}
+          </table>
+        </div>
+      `;
+    });
+
+    const voicingsHtml = uniqueChordVoicings.map((v) => `
+      <tr>
+        <td style="border: 1pt solid #e2e8f0; padding: 6pt 10pt; font-weight: bold; font-family: Consolas, monospace; font-size: 11pt;">${v.targetShape}</td>
+        <td style="border: 1pt solid #e2e8f0; padding: 6pt 10pt; font-family: Consolas, monospace; font-size: 10pt;">${v.voicingResult.voicing?.frets.join(" ") || "N/A"}</td>
+        <td style="border: 1pt solid #e2e8f0; padding: 6pt 10pt; font-family: Consolas, monospace; font-size: 10pt;">${v.voicingResult.voicing?.fingers?.join(" ") || "-"}</td>
+        <td style="border: 1pt solid #e2e8f0; padding: 6pt 10pt; font-size: 9.5pt;">${v.voicingResult.voicing?.barre ? `Fret ${v.voicingResult.voicing.barre}` : "Open"}</td>
+      </tr>
+    `).join("");
+
+    return `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+<head>
+  <meta charset='utf-8'>
+  <title>${songTitle} - Guitar Lead Sheet</title>
+  <!--[if gte mso 9]>
+  <xml>
+    <w:WordDocument>
+      <w:View>Print</w:View>
+      <w:Zoom>100</w:Zoom>
+      <w:DoNotOptimizeForBrowser/>
+    </w:WordDocument>
+  </xml>
+  <![endif]-->
+  <style>
+    @page {
+      size: 8.5in 11.0in;
+      margin: 0.8in 0.8in 0.8in 0.8in;
+    }
+    body {
+      font-family: 'Calibri', 'Segoe UI', Arial, sans-serif;
+      font-size: 11pt;
+      line-height: 1.4;
+      color: #0f172a;
+      background: #ffffff;
+    }
+    h1 {
+      font-size: 22pt;
+      font-weight: bold;
+      color: #0f172a;
+      margin: 0 0 2pt 0;
+    }
+    .subtitle {
+      font-size: 12pt;
+      color: #475569;
+      margin: 0 0 14pt 0;
+    }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+    }
+  </style>
+</head>
+<body>
+  <div>
+    <h1>${songTitle}</h1>
+    <div class="subtitle">${songArtist} • Guitar Lead Chord Sheet</div>
+
+    <table style="width: 100%; border-collapse: collapse; margin-bottom: 16pt; background: #f8fafc; border: 1pt solid #cbd5e1;">
+      <tr>
+        <td style="border: 1pt solid #cbd5e1; padding: 6pt 10pt; font-size: 9.5pt;"><strong>KEY:</strong> ${song.key || "C"}</td>
+        <td style="border: 1pt solid #cbd5e1; padding: 6pt 10pt; font-size: 9.5pt;"><strong>TEMPO:</strong> ${song.tempo || 120} BPM</td>
+        <td style="border: 1pt solid #cbd5e1; padding: 6pt 10pt; font-size: 9.5pt;"><strong>CAPO:</strong> ${capo > 0 ? `Fret ${capo}` : "None"}</td>
+      </tr>
+      <tr>
+        <td style="border: 1pt solid #cbd5e1; padding: 6pt 10pt; font-size: 9.5pt;"><strong>TUNING:</strong> ${song.tuning || "Standard E A D G B E"}</td>
+        <td style="border: 1pt solid #cbd5e1; padding: 6pt 10pt; font-size: 9.5pt;"><strong>TIME:</strong> ${song.timeSignature || "4/4"}</td>
+        <td style="border: 1pt solid #cbd5e1; padding: 6pt 10pt; font-size: 9.5pt;"><strong>DURATION:</strong> ${formatTime(duration)}</td>
+      </tr>
+    </table>
+
+    <div style="font-weight: bold; font-size: 11pt; color: #334155; margin-bottom: 4pt; text-transform: uppercase;">
+      Chord Voicings Reference (${uniqueChordVoicings.length} Unique Chords)
+    </div>
+    <table style="width: 100%; border-collapse: collapse; margin-bottom: 18pt;">
+      <thead>
+        <tr style="background: #f1f5f9; font-weight: bold; font-size: 9.5pt;">
+          <th style="border: 1pt solid #cbd5e1; padding: 5pt 10pt; text-align: left;">Chord Shape</th>
+          <th style="border: 1pt solid #cbd5e1; padding: 5pt 10pt; text-align: left;">Frets (E A D G B e)</th>
+          <th style="border: 1pt solid #cbd5e1; padding: 5pt 10pt; text-align: left;">Finger Placement</th>
+          <th style="border: 1pt solid #cbd5e1; padding: 5pt 10pt; text-align: left;">Barre Fret</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${voicingsHtml}
+      </tbody>
+    </table>
+
+    <div style="font-weight: bold; font-size: 12pt; color: #0f172a; margin-top: 14pt; margin-bottom: 6pt; text-transform: uppercase;">
+      Song Progression
+    </div>
+    ${sectionsHtml}
+  </div>
+</body>
+</html>`;
+  };
+
+  const handleDownloadWordDoc = () => {
+    const docHtml = generateWordDocSheet();
+    const blob = new Blob([docHtml], { type: "application/msword;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${(song.title || "chord-sheet").toLowerCase().replace(/[^a-z0-9]/g, "-")}-lead-sheet.doc`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    showToast("Word Document (.doc) downloaded!");
+  };
+
   const handleCopyText = async () => {
     try {
       await navigator.clipboard.writeText(generateTextSheet());
@@ -1050,7 +1204,7 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
         It sits at the top in normal/relative flow so it scrolls off naturally as the user scrolls down!
       */}
       <header className="relative max-w-4xl mx-auto flex items-center justify-between gap-1.5 sm:gap-2 mb-3 bg-[#151922] border border-white/10 rounded-2xl px-2.5 py-1.5 sm:px-4 sm:py-2.5 text-white shadow-md print:hidden">
-        {/* Left: Back to Studio & Sheet View badge */}
+        {/* Left: Back button */}
         <div className="flex items-center gap-1.5 sm:gap-3 min-w-0">
           <button
             onClick={onClose}
@@ -1058,20 +1212,11 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
             title="Return to standard studio"
           >
             <ArrowLeft className="w-3.5 h-3.5 text-[#a3ff12]" />
-            <span>Back to Studio</span>
+            <span>Back</span>
           </button>
-
-          <div className="h-4 w-px bg-white/10 shrink-0 hidden sm:block" />
-
-          <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
-            <span className="px-2.5 py-1 rounded-xl bg-white/5 border border-white/10 text-zinc-300 font-mono text-[10.5px] sm:text-xs font-bold shrink-0 flex items-center gap-1.5">
-              <FileText className="w-3.5 h-3.5 text-[#a3ff12]" />
-              <span>Sheet View</span>
-            </span>
-          </div>
         </div>
 
-        {/* Right: Actions (Undo, Follow Music, Export, Print Sheet) */}
+        {/* Right: Actions (Undo, Follow Music, External, Export, Print) */}
         <div className="flex items-center gap-1 sm:gap-2 shrink-0">
           {undoStack.length > 0 && (
             <button
@@ -1106,27 +1251,17 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
             title="Open full chord sheet in an external web page / new tab"
           >
             <ExternalLink className="w-3 h-3 text-sky-400" />
-            <span className="hidden sm:inline">External</span> Page
+            <span>External</span>
           </button>
 
-          {/* Export button */}
+          {/* Export Button (Consolidated prominent button opening export formats: HTML, PDF, Word Doc) */}
           <button
             onClick={() => setShowExportModal(true)}
-            className="px-2 py-1 sm:px-2.5 sm:py-1 rounded-xl bg-white/5 hover:bg-white/10 text-white border border-white/10 text-[10.5px] sm:text-[11px] font-mono font-bold flex items-center gap-1 transition-all cursor-pointer"
-            title="Export / Share Chords"
-          >
-            <Download className="w-3 h-3 text-sky-400" />
-            <span>Export</span>
-          </button>
-
-          {/* Print Sheet Button (Vibrant neon green matching user image) */}
-          <button
-            onClick={handlePrint}
             className="px-2.5 py-1 sm:px-3 sm:py-1 rounded-xl bg-[#a3ff12] hover:bg-[#92eb10] text-black font-mono font-extrabold text-[10.5px] sm:text-[11px] flex items-center gap-1.5 shadow-sm transition-all cursor-pointer active:scale-95"
-            title="Print multi-page lead sheet or save as PDF"
+            title="Export sheet in HTML, PDF, or Word Doc formats"
           >
-            <Printer className="w-3.5 h-3.5" />
-            <span>Print Sheet</span>
+            <Download className="w-3.5 h-3.5" />
+            <span>Export</span>
           </button>
         </div>
       </header>
@@ -1799,142 +1934,91 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
             </p>
 
             <div className="space-y-2.5">
-              {/* Option 1: Open in External Web Page (New Tab) */}
-              <button
-                onClick={() => {
-                  setShowExportModal(false);
-                  setTimeout(() => handleOpenExternalPage(), 100);
-                }}
-                className="w-full p-2.5 sm:p-3 rounded-2xl bg-white/5 hover:bg-white/10 border border-sky-500/30 flex items-center justify-between text-left transition-all cursor-pointer group"
-              >
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-xl bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-400">
-                    <ExternalLink className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h4 className="text-xs font-bold font-mono text-white group-hover:text-sky-300 flex items-center gap-1.5">
-                      <span>Open External Web Page</span>
-                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-300 font-extrabold uppercase">Full Sheet</span>
-                    </h4>
-                    <p className="text-[10px] font-mono text-zinc-400">
-                      View full interactive lead sheet with diagrams in a separate browser tab
-                    </p>
-                  </div>
-                </div>
-                <span className="text-xs font-mono text-sky-400">&rarr;</span>
-              </button>
-
-              {/* Option 2: Download Standalone HTML (.html) */}
+              {/* Option 1: HTML Document (.html) */}
               <button
                 onClick={() => {
                   setShowExportModal(false);
                   setTimeout(() => handleDownloadHtml(), 100);
                 }}
-                className="w-full p-2.5 sm:p-3 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-between text-left transition-all cursor-pointer group"
+                className="w-full p-3 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 hover:border-amber-400/40 flex items-center justify-between text-left transition-all cursor-pointer group"
               >
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
-                    <Download className="w-4 h-4" />
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 group-hover:scale-105 transition-transform">
+                    <FileCode className="w-4 h-4" />
                   </div>
                   <div>
-                    <h4 className="text-xs font-bold font-mono text-white group-hover:text-amber-300">
-                      Download Standalone HTML (.html)
-                    </h4>
-                    <p className="text-[10px] font-mono text-zinc-400">
-                      Self-contained offline webpage file with chords & diagrams
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-xs font-bold font-mono text-white group-hover:text-amber-300">
+                        HTML Format
+                      </h4>
+                      <span className="text-[9.5px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono font-bold uppercase">
+                        .html
+                      </span>
+                    </div>
+                    <p className="text-[10.5px] font-mono text-zinc-400 mt-0.5">
+                      Standalone interactive sheet with playable chords & miniature diagrams
                     </p>
                   </div>
                 </div>
-                <span className="text-xs font-mono text-zinc-400">&rarr;</span>
+                <span className="text-xs font-mono text-zinc-400 group-hover:text-amber-400 transition-colors">&rarr;</span>
               </button>
 
-              {/* Option 3: Print / PDF Document (Pure Multi-Page Lead Sheet) */}
+              {/* Option 2: PDF Document (.pdf) */}
               <button
                 onClick={() => {
                   setShowExportModal(false);
                   setTimeout(() => handlePrint(), 200);
                 }}
-                className="w-full p-2.5 sm:p-3 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-between text-left transition-all cursor-pointer group"
+                className="w-full p-3 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 hover:border-purple-400/40 flex items-center justify-between text-left transition-all cursor-pointer group"
               >
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400 group-hover:scale-105 transition-transform">
                     <Printer className="w-4 h-4" />
                   </div>
                   <div>
-                    <h4 className="text-xs font-bold font-mono text-white group-hover:text-purple-300">
-                      Print / PDF Multi-Page Document
-                    </h4>
-                    <p className="text-[10px] font-mono text-zinc-400">
-                      Clean lead sheet with all playable chords & diagrams across pages
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-xs font-bold font-mono text-white group-hover:text-purple-300">
+                        PDF Format
+                      </h4>
+                      <span className="text-[9.5px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 font-mono font-bold uppercase">
+                        .pdf / print
+                      </span>
+                    </div>
+                    <p className="text-[10.5px] font-mono text-zinc-400 mt-0.5">
+                      Clean multi-page printable sheet with chord voicings & diagrams
                     </p>
                   </div>
                 </div>
-                <span className="text-xs font-mono text-zinc-400">&rarr;</span>
+                <span className="text-xs font-mono text-zinc-400 group-hover:text-purple-400 transition-colors">&rarr;</span>
               </button>
 
-              {/* Option 2: Copy to Clipboard */}
+              {/* Option 3: Word Document (.doc) */}
               <button
-                onClick={handleCopyText}
-                className="w-full p-2.5 sm:p-3 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-between text-left transition-all cursor-pointer group"
+                onClick={() => {
+                  setShowExportModal(false);
+                  setTimeout(() => handleDownloadWordDoc(), 100);
+                }}
+                className="w-full p-3 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 hover:border-sky-400/40 flex items-center justify-between text-left transition-all cursor-pointer group"
               >
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
-                    <Copy className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h4 className="text-xs font-bold font-mono text-white group-hover:text-emerald-300">
-                      {copiedText ? "Copied!" : "Copy Formatted Text"}
-                    </h4>
-                    <p className="text-[10px] font-mono text-zinc-400">
-                      Copy structured sections & timestamps to clipboard
-                    </p>
-                  </div>
-                </div>
-                <span className="text-xs font-mono text-[#a3ff12]">
-                  {copiedText ? <Check className="w-4 h-4 text-[#a3ff12]" /> : "&rarr;"}
-                </span>
-              </button>
-
-              {/* Option 3: Download .txt */}
-              <button
-                onClick={handleDownloadText}
-                className="w-full p-2.5 sm:p-3 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-between text-left transition-all cursor-pointer group"
-              >
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-xl bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-400">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-400 group-hover:scale-105 transition-transform">
                     <FileText className="w-4 h-4" />
                   </div>
                   <div>
-                    <h4 className="text-xs font-bold font-mono text-white group-hover:text-sky-300">
-                      Download Plain Text (.txt)
-                    </h4>
-                    <p className="text-[10px] font-mono text-zinc-400">
-                      Standard text chord chart format for guitarists
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-xs font-bold font-mono text-white group-hover:text-sky-300">
+                        Word Doc Format
+                      </h4>
+                      <span className="text-[9.5px] px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-300 font-mono font-bold uppercase">
+                        .doc
+                      </span>
+                    </div>
+                    <p className="text-[10.5px] font-mono text-zinc-400 mt-0.5">
+                      Structured chord chart for Microsoft Word, Google Docs & Apple Pages
                     </p>
                   </div>
                 </div>
-                <span className="text-xs font-mono text-zinc-400">&rarr;</span>
-              </button>
-
-              {/* Option 4: Download JSON */}
-              <button
-                onClick={handleDownloadJSON}
-                className="w-full p-2.5 sm:p-3 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-between text-left transition-all cursor-pointer group"
-              >
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
-                    <Download className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h4 className="text-xs font-bold font-mono text-white group-hover:text-amber-300">
-                      Download JSON Data (.json)
-                    </h4>
-                    <p className="text-[10px] font-mono text-zinc-400">
-                      Full structured timestamps, chords, and section tags
-                    </p>
-                  </div>
-                </div>
-                <span className="text-xs font-mono text-zinc-400">&rarr;</span>
+                <span className="text-xs font-mono text-zinc-400 group-hover:text-sky-400 transition-colors">&rarr;</span>
               </button>
             </div>
 
