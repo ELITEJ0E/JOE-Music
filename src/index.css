@@ -209,6 +209,8 @@ input[type="range"] {
   button,
   .print-hidden,
   .no-print,
+  .editor-instruction-footer,
+  [data-footer-instruction],
   [aria-label="Playback Controls"],
   [aria-label="Sheet Controls"] {
     display: none !important;

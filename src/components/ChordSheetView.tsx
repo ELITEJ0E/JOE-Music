@@ -21,6 +21,7 @@ import {
   Tag,
   Edit3,
   Layers,
+  ExternalLink,
 } from "lucide-react";
 import { ChordSegment, SavedSong, SongAnalysis } from "../types";
 import { ChordDiagram } from "./ChordDiagram";
@@ -223,16 +224,32 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
     return map;
   }, [uniqueChordVoicings]);
 
-  // Smooth auto-scroll to the currently active chord
+  // Smooth auto-scroll to the currently active chord positioned near the top of the screen
   useEffect(() => {
-    if (!autoScroll) return;
+    if (!autoScroll || activeSegmentIdx === -1) return;
 
-    // Smoothly scroll active chord into view near the top of the screen
     if (activeChordRef.current) {
-      activeChordRef.current.scrollIntoView({
-        behavior: "smooth",
-        block: "start",
-      });
+      const el = activeChordRef.current;
+      const container = el.closest("main");
+      if (container) {
+        const containerRect = container.getBoundingClientRect();
+        const elRect = el.getBoundingClientRect();
+        const offsetFromTop = elRect.top - containerRect.top;
+
+        // Position active chord near the top (~70px to 95px below container top)
+        // If it's already in the comfortable upper band (between 45px and 210px), avoid jumping
+        if (offsetFromTop < 45 || offsetFromTop > 210) {
+          container.scrollTo({
+            top: Math.max(0, container.scrollTop + offsetFromTop - 85),
+            behavior: "smooth",
+          });
+        }
+      } else {
+        el.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+      }
     }
   }, [activeSegmentIdx, autoScroll]);
 
@@ -485,10 +502,10 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
       return;
     }
 
-    // Clone the printable sheet content and strip interactive UI buttons
+    // Clone the printable sheet content and strip interactive UI buttons, edit hints, and footers
     const clone = printableArea.cloneNode(true) as HTMLElement;
     clone.querySelectorAll("button").forEach((b) => b.remove());
-    clone.querySelectorAll(".print\\:hidden, .print-hidden, [role='button']").forEach((el) => el.remove());
+    clone.querySelectorAll(".print\\:hidden, .print-hidden, [role='button'], .editor-instruction-footer, [data-footer-instruction]").forEach((el) => el.remove());
 
     iframeDoc.open();
     iframeDoc.write(`
@@ -565,7 +582,7 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
               height: auto !important;
             }
 
-            button, .print-hidden {
+            button, .print-hidden, .editor-instruction-footer, [data-footer-instruction] {
               display: none !important;
             }
           </style>
@@ -591,6 +608,343 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
         }, 3000);
       }
     }, 250);
+  };
+
+  // Generate full standalone HTML lead sheet with embedded styling & SVG diagrams
+  const generateFullHtmlSheet = (): string => {
+    const printableArea = document.getElementById("chord-sheet-printable");
+    if (!printableArea) return "";
+
+    const clone = printableArea.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll("button, .print\\:hidden, .print-hidden, [role='button'], .editor-instruction-footer, [data-footer-instruction]").forEach((el) => el.remove());
+
+    const songTitle = song.title || "Untitled Song";
+    const songArtist = song.artist || "Unknown Artist";
+
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${songTitle} - Guitar Lead Sheet</title>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --paper: #ffffff;
+      --text: #0f172a;
+      --text-muted: #64748b;
+      --border: #e2e8f0;
+      --accent: #15803d;
+      --accent-light: #f0fdf4;
+    }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      padding: 0 0 60px 0;
+    }
+    .font-mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+
+    /* Top Floating Navigation Toolbar (Screen Only) */
+    .top-toolbar {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(15, 23, 42, 0.95);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 10px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      color: #ffffff;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+    }
+    .top-toolbar .logo-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+    .top-toolbar .badge {
+      background: #a3ff12;
+      color: #000;
+      font-weight: 800;
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-family: ui-monospace, monospace;
+      letter-spacing: 0.5px;
+      flex-shrink: 0;
+    }
+    .top-toolbar .song-heading {
+      font-size: 13px;
+      font-weight: 600;
+      color: #e2e8f0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 380px;
+    }
+    .top-toolbar .actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 14px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 700;
+      font-family: ui-monospace, monospace;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: all 0.15s ease;
+      text-decoration: none;
+    }
+    .btn-primary {
+      background: #a3ff12;
+      color: #000;
+    }
+    .btn-primary:hover {
+      background: #8de30c;
+    }
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.1);
+      color: #fff;
+      border-color: rgba(255, 255, 255, 0.15);
+    }
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+
+    /* Paper Lead Sheet Container */
+    .sheet-wrapper {
+      max-width: 960px;
+      margin: 24px auto;
+      padding: 0 16px;
+    }
+    #chord-sheet-printable {
+      background: var(--paper) !important;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 32px 36px;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.06);
+    }
+
+    /* Lead sheet typography */
+    h1, h2, h3, h4 {
+      color: #0f172a;
+    }
+    .uppercase { text-transform: uppercase; }
+    .font-bold { font-weight: 700; }
+    .font-black { font-weight: 900; }
+
+    /* Chord Diagrams Grid */
+    .grid {
+      display: grid !important;
+      gap: 10px !important;
+    }
+    @media (min-width: 768px) {
+      .grid {
+        grid-template-columns: repeat(4, 1fr) !important;
+      }
+    }
+    @media (max-width: 767px) {
+      .grid {
+        grid-template-columns: repeat(3, 1fr) !important;
+      }
+    }
+
+    /* Chord Boxes */
+    .group {
+      border: 1px solid #e2e8f0 !important;
+      border-radius: 10px !important;
+      padding: 8px !important;
+      background: #ffffff !important;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      break-inside: avoid !important;
+      page-break-inside: avoid !important;
+    }
+
+    /* SVG diagrams */
+    svg {
+      max-width: 100% !important;
+      height: auto !important;
+      display: block;
+      margin: 0 auto;
+    }
+
+    /* Sections */
+    section, .section-block, [aria-label="Chord Voicings"] {
+      margin-bottom: 24px;
+      break-inside: avoid !important;
+      page-break-inside: avoid !important;
+    }
+
+    .clean-footer {
+      text-align: center;
+      font-size: 11px;
+      color: #94a3b8;
+      font-family: ui-monospace, monospace;
+      padding-top: 24px;
+      margin-top: 32px;
+      border-top: 1px solid #e2e8f0;
+    }
+
+    /* Print Styles */
+    @media print {
+      body {
+        background: #ffffff !important;
+        padding: 0 !important;
+        margin: 0 !important;
+      }
+      .top-toolbar {
+        display: none !important;
+      }
+      .sheet-wrapper {
+        max-width: 100% !important;
+        margin: 0 !important;
+        padding: 0 !important;
+      }
+      #chord-sheet-printable {
+        border: none !important;
+        box-shadow: none !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        width: 100% !important;
+      }
+      @page {
+        size: auto;
+        margin: 12mm 14mm;
+      }
+      .group {
+        border: 1px solid #cbd5e1 !important;
+      }
+      .clean-footer {
+        display: block !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <!-- Screen Navigation Bar -->
+  <header class="top-toolbar">
+    <div class="logo-group">
+      <span class="badge">LEAD SHEET</span>
+      <span class="song-heading">${songTitle} &bull; ${songArtist}</span>
+    </div>
+    <div class="actions">
+      <button class="btn btn-primary" onclick="window.print()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+        Print / Save PDF
+      </button>
+      <button class="btn btn-secondary" onclick="window.close()">
+        Close
+      </button>
+    </div>
+  </header>
+
+  <main class="sheet-wrapper">
+    ${clone.outerHTML}
+    <div class="clean-footer">
+      Guitar Studio AI &bull; ${songTitle} &bull; Full Lead Chord Sheet
+    </div>
+  </main>
+</body>
+</html>`;
+  };
+
+  // Open full chord sheet in an external web page / new browser tab
+  const handleOpenExternalPage = async () => {
+    const html = generateFullHtmlSheet();
+    if (!html) {
+      showToast("Unable to generate chord sheet HTML.");
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/external-sheet", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          html,
+          title: `${song.title || "Chord Sheet"} - Guitar Studio AI`,
+          id: `sheet-${(song.title || "chords").toLowerCase().replace(/[^a-z0-9]/g, "-")}-${Date.now().toString(36)}`,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.url) {
+          const newWin = window.open(data.url, "_blank", "noopener,noreferrer");
+          if (!newWin) {
+            const a = document.createElement("a");
+            a.href = data.url;
+            a.target = "_blank";
+            a.rel = "noopener noreferrer";
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+          }
+          showToast("Opened full chord sheet in external page!");
+          return;
+        }
+      }
+    } catch {
+      // Fallback to Blob URL below
+    }
+
+    // Client-side Blob URL fallback
+    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+    const blobUrl = URL.createObjectURL(blob);
+    const win = window.open(blobUrl, "_blank", "noopener,noreferrer");
+    if (!win) {
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+    showToast("Opened full chord sheet in external page!");
+  };
+
+  // Download standalone .html document
+  const handleDownloadHtml = () => {
+    const html = generateFullHtmlSheet();
+    if (!html) {
+      showToast("Unable to generate chord sheet HTML.");
+      return;
+    }
+    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${(song.title || "chord-sheet").toLowerCase().replace(/[^a-z0-9]/g, "-")}-lead-sheet.html`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    showToast("Standalone HTML chord sheet downloaded!");
   };
 
   // Generate plain text / ChordPro sheet format with section tags
@@ -743,6 +1097,16 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
             <Clock className="w-3 h-3" />
             <span className="hidden md:inline">Follow Music:</span>
             <span>{autoScroll ? "ON" : "OFF"}</span>
+          </button>
+
+          {/* External Page button */}
+          <button
+            onClick={handleOpenExternalPage}
+            className="px-2 py-1 sm:px-2.5 sm:py-1 rounded-xl bg-white/5 hover:bg-white/10 text-white border border-white/10 text-[10.5px] sm:text-[11px] font-mono font-bold flex items-center gap-1.5 transition-all cursor-pointer"
+            title="Open full chord sheet in an external web page / new tab"
+          >
+            <ExternalLink className="w-3 h-3 text-sky-400" />
+            <span className="hidden sm:inline">External</span> Page
           </button>
 
           {/* Export button */}
@@ -1101,7 +1465,7 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
                           key={seg.id || `chord-${originalIndex}-${seg.startTime}`}
                           ref={isActive ? activeChordRef : null}
                           onClick={() => onSeek(seg.startTime)}
-                          className={`group relative rounded-xl p-1.5 sm:p-2 border transition-all duration-150 cursor-pointer flex flex-col justify-between select-none scroll-mt-14 sm:scroll-mt-16 print-break-inside-avoid ${
+                          className={`group relative rounded-xl p-1.5 sm:p-2 border transition-all duration-150 cursor-pointer flex flex-col justify-between select-none scroll-mt-24 sm:scroll-mt-28 md:scroll-mt-32 print-break-inside-avoid ${
                             isActive
                               ? "bg-[#ecfccb] border-2 border-[#84cc16] ring-2 ring-[#84cc16]/40 shadow-md scale-[1.02] text-zinc-950"
                               : "bg-white hover:bg-zinc-50 border border-zinc-200/90 text-zinc-800 shadow-xs"
@@ -1213,8 +1577,11 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
           })}
         </section>
 
-        {/* Lead Sheet Footer Note */}
-        <div className="pt-3 border-t border-zinc-200 flex flex-col sm:flex-row items-center justify-between text-[11px] font-mono text-zinc-500 gap-1.5 print:text-zinc-400">
+        {/* Lead Sheet Footer Note (Hidden on Print, PDF export, and external sheet) */}
+        <div
+          data-footer-instruction="true"
+          className="pt-3 border-t border-zinc-200 flex flex-col sm:flex-row items-center justify-between text-[11px] font-mono text-zinc-400 gap-1.5 print:hidden print-hidden editor-instruction-footer"
+        >
           <span>Guitar Studio AI • Lead Chord Sheet</span>
           <span>Click any chord to seek • Tap tag to split sections • Tap trash to remove</span>
         </div>
@@ -1432,7 +1799,56 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
             </p>
 
             <div className="space-y-2.5">
-              {/* Option 1: Print / PDF Document (Pure Multi-Page Lead Sheet) */}
+              {/* Option 1: Open in External Web Page (New Tab) */}
+              <button
+                onClick={() => {
+                  setShowExportModal(false);
+                  setTimeout(() => handleOpenExternalPage(), 100);
+                }}
+                className="w-full p-2.5 sm:p-3 rounded-2xl bg-white/5 hover:bg-white/10 border border-sky-500/30 flex items-center justify-between text-left transition-all cursor-pointer group"
+              >
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-400">
+                    <ExternalLink className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold font-mono text-white group-hover:text-sky-300 flex items-center gap-1.5">
+                      <span>Open External Web Page</span>
+                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-300 font-extrabold uppercase">Full Sheet</span>
+                    </h4>
+                    <p className="text-[10px] font-mono text-zinc-400">
+                      View full interactive lead sheet with diagrams in a separate browser tab
+                    </p>
+                  </div>
+                </div>
+                <span className="text-xs font-mono text-sky-400">&rarr;</span>
+              </button>
+
+              {/* Option 2: Download Standalone HTML (.html) */}
+              <button
+                onClick={() => {
+                  setShowExportModal(false);
+                  setTimeout(() => handleDownloadHtml(), 100);
+                }}
+                className="w-full p-2.5 sm:p-3 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-between text-left transition-all cursor-pointer group"
+              >
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
+                    <Download className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold font-mono text-white group-hover:text-amber-300">
+                      Download Standalone HTML (.html)
+                    </h4>
+                    <p className="text-[10px] font-mono text-zinc-400">
+                      Self-contained offline webpage file with chords & diagrams
+                    </p>
+                  </div>
+                </div>
+                <span className="text-xs font-mono text-zinc-400">&rarr;</span>
+              </button>
+
+              {/* Option 3: Print / PDF Document (Pure Multi-Page Lead Sheet) */}
               <button
                 onClick={() => {
                   setShowExportModal(false);

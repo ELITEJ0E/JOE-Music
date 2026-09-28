@@ -35,6 +35,69 @@ async function startServer() {
     });
   });
 
+  // In-memory store for standalone external chord sheets
+  const externalSheetsMap = new Map<string, { html: string; title: string; createdAt: number }>();
+
+  // API to save external sheet HTML and generate standalone view URL
+  app.post("/api/external-sheet", (req, res) => {
+    try {
+      const { html, id, title } = req.body;
+      if (!html) {
+        return res.status(400).json({ error: "Missing HTML content" });
+      }
+      const sheetId = id || `sheet-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      externalSheetsMap.set(sheetId, {
+        html,
+        title: title || "Guitar Lead Sheet",
+        createdAt: Date.now(),
+      });
+
+      // Cleanup sheets older than 7 days
+      if (externalSheetsMap.size > 200) {
+        const now = Date.now();
+        for (const [key, val] of externalSheetsMap.entries()) {
+          if (now - val.createdAt > 7 * 24 * 60 * 60 * 1000) {
+            externalSheetsMap.delete(key);
+          }
+        }
+      }
+
+      return res.json({ success: true, sheetId, url: `/sheet/${sheetId}` });
+    } catch (err: any) {
+      return res.status(500).json({ error: "Failed to store external sheet", message: err?.message });
+    }
+  });
+
+  // Dedicated external standalone webpage endpoint for chord sheets
+  app.get("/sheet/:sheetId", (req, res) => {
+    const item = externalSheetsMap.get(req.params.sheetId);
+    if (item) {
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      return res.send(item.html);
+    }
+    return res.status(404).send(`
+      <!DOCTYPE html>
+      <html lang="en">
+        <head>
+          <meta charset="utf-8">
+          <title>Chord Sheet Not Found</title>
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0c0e12; color: #fff; text-align: center; padding: 60px 20px; }
+            h2 { color: #f87171; margin-bottom: 8px; }
+            p { color: #94a3b8; font-size: 14px; margin-bottom: 24px; }
+            a { display: inline-block; padding: 10px 20px; background: #a3ff12; color: #000; text-decoration: none; border-radius: 10px; font-weight: bold; font-family: monospace; }
+          </style>
+        </head>
+        <body>
+          <h2>Chord Sheet Expired or Not Found</h2>
+          <p>Please open or re-export the chord sheet from Guitar Studio AI.</p>
+          <a href="/">Return to Guitar Studio</a>
+        </body>
+      </html>
+    `);
+  });
+
   // AI Chord Lookup & Song Progression Analyzer (with YouTube oEmbed metadata resolver)
   app.post("/api/analyze-song", async (req, res) => {
     try {
