@@ -1496,7 +1496,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                 <button
                   onClick={() => setIsSheetViewOpen(true)}
                   className="px-2.5 py-1 rounded-xl bg-white/10 hover:bg-white/15 text-white border border-white/15 transition-all flex items-center gap-1.5 cursor-pointer text-[11px] shadow-sm font-semibold"
-                  title="Open White Sheet Lead Sheet with chord diagrams, progression, and export options"
+                  title="Open Chord Sheet with tagged sections, progression, and export options"
                 >
                   <FileText className="w-3 h-3 text-[#a3ff12]" />
                   <span>Chord Sheet</span>
@@ -1707,7 +1707,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
             <button
               onClick={() => setIsSheetViewOpen(true)}
               className="px-2.5 py-0.5 sm:px-3 sm:py-1 bg-white/10 hover:bg-white/20 border border-white/20 rounded-full text-[11px] sm:text-xs font-bold text-white transition-all cursor-pointer flex items-center gap-1.5 shadow-sm"
-              title="Open White Sheet View with chord diagrams and timestamps"
+              title="Open Chord Sheet with tagged sections and timeline progression"
             >
               <FileText className="w-3.5 h-3.5 text-[#a3ff12]" />
               <span>Chord Sheet</span>

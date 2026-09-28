@@ -6,23 +6,21 @@ import {
   Copy,
   Trash2,
   Undo2,
-  RotateCcw,
   Play,
   Pause,
   SkipBack,
   SkipForward,
-  Volume2,
   Sparkles,
   Check,
   X,
-  Eye,
-  Sliders,
-  ArrowLeft,
-  Music,
   Clock,
-  Key,
-  Flame,
-  HelpCircle,
+  Music,
+  ArrowLeft,
+  ChevronDown,
+  ChevronUp,
+  Tag,
+  Edit3,
+  Layers,
 } from "lucide-react";
 import { ChordSegment, SavedSong, SongAnalysis } from "../types";
 import { ChordDiagram } from "./ChordDiagram";
@@ -48,6 +46,79 @@ interface ChordSheetViewProps {
   audioRef?: React.RefObject<HTMLAudioElement | null>;
 }
 
+// Preset section tags
+const PRESET_SECTION_TAGS = [
+  "Intro",
+  "Verse 1",
+  "Verse 2",
+  "Pre-Chorus",
+  "Chorus",
+  "Bridge",
+  "Solo",
+  "Outro",
+  "Interlude",
+  "Hook",
+];
+
+// Color mapping for common section tags in clean paper lead sheet styling
+const getSectionBadgeStyle = (name: string) => {
+  const lower = name.toLowerCase();
+  if (lower.includes("chorus") || lower.includes("hook")) {
+    return {
+      badgeBg: "bg-amber-100 text-amber-900 border-amber-300",
+      accentBorder: "border-l-amber-500",
+      dot: "bg-amber-500",
+      headerBg: "bg-amber-50/60",
+    };
+  }
+  if (lower.includes("verse")) {
+    return {
+      badgeBg: "bg-emerald-100 text-emerald-900 border-emerald-300",
+      accentBorder: "border-l-emerald-500",
+      dot: "bg-emerald-600",
+      headerBg: "bg-emerald-50/60",
+    };
+  }
+  if (lower.includes("bridge")) {
+    return {
+      badgeBg: "bg-purple-100 text-purple-900 border-purple-300",
+      accentBorder: "border-l-purple-500",
+      dot: "bg-purple-500",
+      headerBg: "bg-purple-50/60",
+    };
+  }
+  if (lower.includes("intro")) {
+    return {
+      badgeBg: "bg-sky-100 text-sky-900 border-sky-300",
+      accentBorder: "border-l-sky-500",
+      dot: "bg-sky-500",
+      headerBg: "bg-sky-50/60",
+    };
+  }
+  if (lower.includes("outro")) {
+    return {
+      badgeBg: "bg-rose-100 text-rose-900 border-rose-300",
+      accentBorder: "border-l-rose-500",
+      dot: "bg-rose-500",
+      headerBg: "bg-rose-50/60",
+    };
+  }
+  if (lower.includes("solo") || lower.includes("interlude")) {
+    return {
+      badgeBg: "bg-cyan-100 text-cyan-900 border-cyan-300",
+      accentBorder: "border-l-cyan-500",
+      dot: "bg-cyan-600",
+      headerBg: "bg-cyan-50/60",
+    };
+  }
+  return {
+    badgeBg: "bg-zinc-100 text-zinc-900 border-zinc-300",
+    accentBorder: "border-l-zinc-700",
+    dot: "bg-zinc-700",
+    headerBg: "bg-zinc-50/70",
+  };
+};
+
 export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
   song,
   segments,
@@ -62,14 +133,22 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
   onCapoChange,
   onClose,
   onUpdateSongSegments,
-  onRestoreOriginalChords,
 }) => {
   const [autoScroll, setAutoScroll] = useState<boolean>(true);
   const [showExportModal, setShowExportModal] = useState<boolean>(false);
+  const [showDiagrams, setShowDiagrams] = useState<boolean>(false);
   const [copiedText, setCopiedText] = useState<boolean>(false);
-  const [undoStack, setUndoStack] = useState<{ segments: ChordSegment[]; deletedChord: string; time: string }[]>([]);
+  const [undoStack, setUndoStack] = useState<{
+    segments: ChordSegment[];
+    description: string;
+  }[]>([]);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
+
+  // Tag modal & inline prompt state
+  const [tagModalChordIdx, setTagModalChordIdx] = useState<number | null>(null);
+  const [customTagName, setCustomTagName] = useState<string>("");
+  const [editingSectionIdx, setEditingSectionIdx] = useState<number | null>(null);
+  const [editSectionNameInput, setEditSectionNameInput] = useState<string>("");
 
   const activeChordRef = useRef<HTMLDivElement | null>(null);
   const toastTimeoutRef = useRef<number | null>(null);
@@ -145,6 +224,63 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
     });
   }, [uniqueChordSymbols, transpose, capo, song.key]);
 
+  // Group segments into sections based on `seg.section`
+  interface SectionGroup {
+    name: string;
+    startIndex: number;
+    endIndex: number;
+    startTime: number;
+    endTime: number;
+    items: { seg: ChordSegment; originalIndex: number }[];
+  }
+
+  const sections: SectionGroup[] = useMemo(() => {
+    if (!segments || segments.length === 0) return [];
+
+    const groups: SectionGroup[] = [];
+    let currentGroup: SectionGroup = {
+      name: segments[0].section || "Verse 1",
+      startIndex: 0,
+      endIndex: 0,
+      startTime: segments[0].startTime,
+      endTime: segments[0].endTime,
+      items: [{ seg: segments[0], originalIndex: 0 }],
+    };
+
+    for (let i = 1; i < segments.length; i++) {
+      const seg = segments[i];
+      if (seg.section) {
+        groups.push(currentGroup);
+        currentGroup = {
+          name: seg.section,
+          startIndex: i,
+          endIndex: i,
+          startTime: seg.startTime,
+          endTime: seg.endTime,
+          items: [{ seg, originalIndex: i }],
+        };
+      } else {
+        currentGroup.endIndex = i;
+        currentGroup.endTime = seg.endTime;
+        currentGroup.items.push({ seg, originalIndex: i });
+      }
+    }
+    groups.push(currentGroup);
+    return groups;
+  }, [segments]);
+
+  // Determine which section is currently playing
+  const activeSectionIdx = useMemo(() => {
+    if (activeSegmentIdx === -1) return -1;
+    for (let s = 0; s < sections.length; s++) {
+      const sec = sections[s];
+      if (activeSegmentIdx >= sec.startIndex && activeSegmentIdx <= sec.endIndex) {
+        return s;
+      }
+    }
+    return 0;
+  }, [activeSegmentIdx, sections]);
+
   // Show a temporary toast
   const showToast = (msg: string) => {
     if (toastTimeoutRef.current) {
@@ -153,7 +289,7 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
     setToastMessage(msg);
     toastTimeoutRef.current = window.setTimeout(() => {
       setToastMessage(null);
-    }, 4500);
+    }, 4000);
   };
 
   // Remove a specific chord segment
@@ -164,11 +300,6 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
     }
 
     const removed = segments[indexToRemove];
-    const prevSeg = segments[indexToRemove - 1];
-    const nextSeg = segments[indexToRemove + 1];
-
-    // Bridge the gap musically: stretch previous chord to cover removed segment,
-    // or if the first segment is removed, stretch the next chord backward to 0.
     const newSegments: ChordSegment[] = [];
 
     for (let i = 0; i < segments.length; i++) {
@@ -176,36 +307,144 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
       const seg = { ...segments[i] };
 
       if (i === indexToRemove - 1) {
-        // Extend previous chord through the removed segment's end time
         seg.endTime = removed.endTime;
       } else if (indexToRemove === 0 && i === 1) {
-        // If first segment was deleted, extend next chord backward to 0
         seg.startTime = 0;
+        if (removed.section && !seg.section) {
+          seg.section = removed.section;
+        }
       }
       newSegments.push(seg);
     }
 
-    // Save to undo stack
     setUndoStack((prev) => [
       ...prev,
       {
         segments: [...segments],
-        deletedChord: removed.chord,
-        time: formatTime(removed.startTime),
+        description: `Removed chord ${removed.chord}`,
       },
     ]);
 
     await onUpdateSongSegments(newSegments);
-    showToast(`Removed chord ${removed.chord} at ${formatTime(removed.startTime)}. Saved.`);
+    showToast(`Removed chord ${removed.chord} at ${formatTime(removed.startTime)}.`);
   };
 
-  // Undo the last removal
+  // Add / Change section tag for a specific chord index
+  const handleSetSectionTag = async (chordIndex: number, tagName: string) => {
+    const cleanName = tagName.trim();
+    if (!cleanName) return;
+
+    const newSegments = segments.map((seg, idx) => {
+      if (idx === chordIndex) {
+        return { ...seg, section: cleanName };
+      }
+      return seg;
+    });
+
+    setUndoStack((prev) => [
+      ...prev,
+      {
+        segments: [...segments],
+        description: `Tagged section "${cleanName}"`,
+      },
+    ]);
+
+    await onUpdateSongSegments(newSegments);
+    setTagModalChordIdx(null);
+    setCustomTagName("");
+    showToast(`Added section tag "${cleanName}" at ${formatTime(segments[chordIndex].startTime)}.`);
+  };
+
+  // Remove section tag (merge section into previous)
+  const handleRemoveSectionTag = async (sectionIndex: number) => {
+    const targetSection = sections[sectionIndex];
+    if (!targetSection) return;
+
+    const chordIdx = targetSection.startIndex;
+    const newSegments = segments.map((seg, idx) => {
+      if (idx === chordIdx) {
+        const { section, ...rest } = seg;
+        return rest as ChordSegment;
+      }
+      return seg;
+    });
+
+    setUndoStack((prev) => [
+      ...prev,
+      {
+        segments: [...segments],
+        description: `Removed section tag "${targetSection.name}"`,
+      },
+    ]);
+
+    await onUpdateSongSegments(newSegments);
+    showToast(`Merged section "${targetSection.name}".`);
+  };
+
+  // Rename a section
+  const handleRenameSection = async (sectionIndex: number, newName: string) => {
+    const targetSection = sections[sectionIndex];
+    if (!targetSection) return;
+    const cleanName = newName.trim();
+    if (!cleanName) return;
+
+    const chordIdx = targetSection.startIndex;
+    const newSegments = segments.map((seg, idx) => {
+      if (idx === chordIdx) {
+        return { ...seg, section: cleanName };
+      }
+      return seg;
+    });
+
+    await onUpdateSongSegments(newSegments);
+    setEditingSectionIdx(null);
+    showToast(`Renamed section to "${cleanName}".`);
+  };
+
+  // Auto-template sections (Verse 1, Chorus, Verse 2, Bridge)
+  const handleApplyPresetSections = async () => {
+    if (segments.length < 4) {
+      showToast("Song is too short for auto-template sections.");
+      return;
+    }
+
+    const count = segments.length;
+    const newSegments = [...segments];
+
+    newSegments[0] = { ...newSegments[0], section: "Verse 1" };
+
+    if (count >= 16) {
+      const q1 = Math.floor(count * 0.25);
+      const q2 = Math.floor(count * 0.5);
+      const q3 = Math.floor(count * 0.75);
+
+      newSegments[q1] = { ...newSegments[q1], section: "Chorus" };
+      newSegments[q2] = { ...newSegments[q2], section: "Verse 2" };
+      newSegments[q3] = { ...newSegments[q3], section: "Bridge" };
+    } else if (count >= 8) {
+      const mid = Math.floor(count * 0.5);
+      newSegments[mid] = { ...newSegments[mid], section: "Chorus" };
+    }
+
+    setUndoStack((prev) => [
+      ...prev,
+      {
+        segments: [...segments],
+        description: "Applied section template",
+      },
+    ]);
+
+    await onUpdateSongSegments(newSegments);
+    showToast("Template sections added! You can rename or customize tags anytime.");
+  };
+
+  // Undo the last removal or section change
   const handleUndo = async () => {
     if (undoStack.length === 0) return;
     const lastAction = undoStack[undoStack.length - 1];
     setUndoStack((prev) => prev.slice(0, prev.length - 1));
     await onUpdateSongSegments(lastAction.segments);
-    showToast(`Restored chord ${lastAction.deletedChord} at ${lastAction.time}.`);
+    showToast(`Undone: ${lastAction.description}.`);
   };
 
   // Print sheet music
@@ -213,7 +452,7 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
     window.print();
   };
 
-  // Generate plain text / ChordPro sheet format
+  // Generate plain text / ChordPro sheet format with section tags
   const generateTextSheet = () => {
     let text = `${song.title || "Untitled Song"} - ${song.artist || "Unknown Artist"}\n`;
     text += `==========================================================\n`;
@@ -226,14 +465,19 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
       const frets = v.voicingResult.voicing?.frets.join(" ") || "N/A";
       text += `  * ${v.targetShape.padEnd(8)} (Frets: ${frets})\n`;
     });
-    text += `\nCHORD PROGRESSION TIMELINE:\n`;
-    segments.forEach((seg, idx) => {
-      const state = resolveChordFinderState(seg.chord, transpose, capo, song.key);
-      const chordLabel = capo > 0 && state.isValid ? state.shapeChord : state.transposedChord;
-      const sounding = capo > 0 && state.isValid ? `(Sounding: ${state.transposedChord})` : "";
-      const dur = (seg.endTime - seg.startTime).toFixed(1);
-      text += `  [${formatTime(seg.startTime)}]  ${chordLabel.padEnd(10)} ${sounding.padEnd(20)} [${dur}s]\n`;
+    text += `\nCHORD PROGRESSION & SECTIONS:\n`;
+
+    sections.forEach((sec) => {
+      text += `\n[${sec.name.toUpperCase()}] (${formatTime(sec.startTime)} - ${formatTime(sec.endTime)})\n`;
+      sec.items.forEach(({ seg }) => {
+        const state = resolveChordFinderState(seg.chord, transpose, capo, song.key);
+        const chordLabel = capo > 0 && state.isValid ? state.shapeChord : state.transposedChord;
+        const sounding = capo > 0 && state.isValid ? `(Sounding: ${state.transposedChord})` : "";
+        const dur = (seg.endTime - seg.startTime).toFixed(1);
+        text += `  [${formatTime(seg.startTime)}]  ${chordLabel.padEnd(8)} ${sounding.padEnd(18)} [${dur}s]\n`;
+      });
     });
+
     text += `\nGenerated with Guitar Studio AI Chord Finder\n`;
     return text;
   };
@@ -274,8 +518,15 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
       tuning: song.tuning,
       duration,
       uniqueChords: uniqueChordSymbols,
+      sections: sections.map((sec) => ({
+        name: sec.name,
+        startTime: sec.startTime,
+        endTime: sec.endTime,
+        chords: sec.items.map((i) => i.seg.chord),
+      })),
       progression: segments.map((s) => ({
         chord: s.chord,
+        section: s.section,
         startTime: s.startTime,
         endTime: s.endTime,
         duration: +(s.endTime - s.startTime).toFixed(2),
@@ -294,85 +545,96 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
   };
 
   return (
-    <div className="min-h-screen bg-[#090b0e] text-white pb-28 pt-2 px-2 sm:px-6 relative print:bg-white print:p-0 print:m-0 print:text-black">
-      {/* Top Navigation & Toolbar (hidden during print) */}
-      <div className="max-w-5xl mx-auto flex flex-wrap items-center justify-between gap-3 mb-6 bg-[#13161c]/90 border border-white/10 rounded-2xl p-3 sm:p-4 backdrop-blur-md sticky top-2 z-30 shadow-xl print:hidden">
-        {/* Left: Back button & Title */}
-        <div className="flex items-center gap-3">
+    <div className="min-h-screen bg-[#0c0e12] pb-52 sm:pb-40 pt-1 px-1.5 sm:px-4 md:px-6 relative print:bg-white print:p-0 print:m-0 print:text-black">
+      {/* ========================================================================= */}
+      {/* COMPACT & RESPONSIVE STICKY TOP NAVIGATION BAR                            */}
+      {/* ========================================================================= */}
+      <header className="max-w-4xl mx-auto flex items-center justify-between gap-1.5 sm:gap-2 mb-3 bg-[#151922]/95 border border-white/10 rounded-2xl px-2.5 py-1.5 sm:px-4 sm:py-2.5 backdrop-blur-md sticky top-1 z-30 shadow-xl print:hidden text-white">
+        {/* Left: Back & White Sheet Badge */}
+        <div className="flex items-center gap-1.5 sm:gap-3 min-w-0">
           <button
             onClick={onClose}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white border border-white/10 text-xs font-mono font-bold transition-all cursor-pointer"
+            className="flex items-center gap-1 sm:gap-1.5 px-2 py-1 sm:px-2.5 sm:py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white border border-white/10 text-xs font-mono font-bold transition-all cursor-pointer shrink-0"
+            title="Return to standard studio"
           >
             <ArrowLeft className="w-3.5 h-3.5 text-[#a3ff12]" />
-            <span>Back to Studio</span>
+            <span className="hidden sm:inline">Back</span>
           </button>
 
-          <div className="h-4 w-px bg-white/10 hidden sm:block" />
+          <div className="h-4 w-px bg-white/10 shrink-0" />
 
-          <div className="flex items-center gap-2">
-            <span className="px-2.5 py-0.5 rounded-full bg-white/10 text-white font-mono text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5">
-              <FileText className="w-3 h-3 text-[#a3ff12]" />
-              White Sheet View
+          <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
+            <span className="px-2 py-0.5 rounded-md bg-white text-zinc-900 font-mono text-[10px] font-black uppercase tracking-wider shrink-0 flex items-center gap-1 shadow-sm">
+              <FileText className="w-3 h-3 text-emerald-600" />
+              <span>White Sheet</span>
             </span>
-            {undoStack.length > 0 && (
-              <button
-                onClick={handleUndo}
-                className="px-2 py-0.5 rounded-lg bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 text-[10px] font-mono font-bold flex items-center gap-1 transition-colors cursor-pointer"
-                title="Undo last removed chord"
-              >
-                <Undo2 className="w-3 h-3" />
-                <span>Undo ({undoStack.length})</span>
-              </button>
-            )}
+            <div className="min-w-0 truncate">
+              <span className="text-xs sm:text-sm font-bold text-white truncate block">
+                {song.title || "Song Sheet"}
+              </span>
+            </div>
           </div>
         </div>
 
-        {/* Right: Actions (Auto-scroll, Export, Print) */}
-        <div className="flex items-center gap-2 sm:gap-2.5">
+        {/* Right: Actions (Undo, Follow Music, Export, Print) */}
+        <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+          {undoStack.length > 0 && (
+            <button
+              onClick={handleUndo}
+              className="px-2 py-1 rounded-xl bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 text-[10px] font-mono font-bold flex items-center gap-1 transition-colors cursor-pointer"
+              title="Undo last change"
+            >
+              <Undo2 className="w-3 h-3" />
+              <span className="hidden sm:inline">Undo</span>
+            </button>
+          )}
+
           {/* Auto-scroll toggle */}
           <button
             onClick={() => setAutoScroll(!autoScroll)}
-            className={`px-2.5 py-1.5 rounded-xl border text-xs font-mono font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+            className={`px-2 py-1 rounded-xl border text-[10.5px] sm:text-[11px] font-mono font-bold flex items-center gap-1 transition-all cursor-pointer ${
               autoScroll
                 ? "bg-[#a3ff12]/15 border-[#a3ff12]/40 text-[#a3ff12]"
                 : "bg-white/5 border-white/10 text-zinc-400 hover:text-white"
             }`}
             title="Auto-scroll to currently playing chord"
           >
-            <Clock className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Follow Music:</span>
-            <span className="font-bold">{autoScroll ? "ON" : "OFF"}</span>
+            <Clock className="w-3 h-3" />
+            <span className="hidden md:inline">Follow:</span>
+            <span>{autoScroll ? "ON" : "OFF"}</span>
           </button>
 
           {/* Export button */}
           <button
             onClick={() => setShowExportModal(true)}
-            className="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-white border border-white/10 text-xs font-mono font-bold flex items-center gap-1.5 transition-all cursor-pointer"
+            className="px-2 py-1 sm:px-2.5 sm:py-1 rounded-xl bg-white/5 hover:bg-white/10 text-white border border-white/10 text-[10.5px] sm:text-[11px] font-mono font-bold flex items-center gap-1 transition-all cursor-pointer"
+            title="Export / Share Chords"
           >
-            <Download className="w-3.5 h-3.5 text-sky-400" />
-            <span>Export</span>
+            <Download className="w-3 h-3 text-sky-400" />
+            <span className="hidden sm:inline">Export</span>
           </button>
 
           {/* Print button */}
           <button
             onClick={handlePrint}
-            className="px-3 py-1.5 rounded-xl bg-[#a3ff12] hover:bg-[#92eb10] text-black font-mono font-bold text-xs flex items-center gap-1.5 transition-all shadow-[0_0_15px_rgba(163,255,18,0.25)] cursor-pointer"
+            className="px-2 py-1 sm:px-2.5 sm:py-1 rounded-xl bg-white/5 hover:bg-white/10 text-zinc-200 hover:text-white border border-white/10 font-mono font-bold text-[10.5px] sm:text-[11px] flex items-center gap-1 transition-all cursor-pointer"
+            title="Print lead sheet"
           >
-            <Printer className="w-3.5 h-3.5" />
-            <span>Print Sheet</span>
+            <Printer className="w-3 h-3 text-emerald-400" />
+            <span className="hidden sm:inline">Print</span>
           </button>
         </div>
-      </div>
+      </header>
 
       {/* Toast Notification */}
       {toastMessage && (
-        <div className="fixed top-20 right-6 z-50 bg-[#181c24] text-white border border-[#a3ff12]/40 shadow-2xl rounded-2xl px-4 py-2.5 flex items-center gap-3 animate-in fade-in slide-in-from-top-2 duration-200 text-xs font-mono">
-          <Sparkles className="w-4 h-4 text-[#a3ff12] shrink-0" />
-          <span>{toastMessage}</span>
+        <div className="fixed top-14 right-3 sm:right-6 z-50 bg-[#161a22] text-white border border-[#a3ff12]/40 shadow-2xl rounded-2xl px-3.5 py-2 flex items-center gap-2.5 animate-in fade-in slide-in-from-top-2 duration-200 text-xs font-mono max-w-xs sm:max-w-sm">
+          <Sparkles className="w-3.5 h-3.5 text-[#a3ff12] shrink-0" />
+          <span className="truncate flex-1">{toastMessage}</span>
           {undoStack.length > 0 && (
             <button
               onClick={handleUndo}
-              className="text-[#a3ff12] underline font-bold hover:text-white ml-1 cursor-pointer"
+              className="text-[#a3ff12] underline font-bold hover:text-white shrink-0 cursor-pointer text-[11px]"
             >
               Undo
             </button>
@@ -381,270 +643,398 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
       )}
 
       {/* ========================================================================= */}
-      {/* THE WHITE SHEET OF PAPER (Real Music Lead Sheet / Songbook Presentation) */}
+      {/* THE WHITE SHEET (Crisp Music Paper Lead Sheet with Responsive Layout)     */}
       {/* ========================================================================= */}
-      <div className="max-w-4xl mx-auto bg-white text-zinc-900 rounded-3xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.6)] border border-zinc-200/90 p-6 sm:p-10 my-4 print:shadow-none print:border-none print:p-0 print:m-0 print:rounded-none">
-        {/* Paper Header */}
-        <div className="border-b-2 border-zinc-900 pb-5 mb-6">
+      <main className="max-w-4xl mx-auto bg-white rounded-2xl sm:rounded-3xl border border-zinc-200/90 shadow-2xl shadow-black/40 p-3 sm:p-6 md:p-8 space-y-4 sm:space-y-5 text-zinc-900 print:shadow-none print:border-none print:p-0 print:m-0 print:rounded-none">
+        
+        {/* Lead Sheet Title Header & Metadata Strip */}
+        <section aria-label="Song Header" className="border-b-2 border-zinc-900 pb-3 sm:pb-4">
           <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-2">
-            <div>
-              <h1 className="text-3xl sm:text-4xl font-black text-zinc-950 tracking-tight font-serif">
-                {song.title || "Untitled Lead Sheet"}
+            <div className="min-w-0">
+              <h1 className="text-xl sm:text-2xl md:text-3xl font-black text-zinc-900 tracking-tight font-mono truncate">
+                {song.title || "Untitled Song"}
               </h1>
-              <p className="text-sm sm:text-base font-semibold text-zinc-600 mt-1">
-                {song.artist ? `Arranged for Guitar • ${song.artist}` : "Guitar Chord Lead Sheet"}
-              </p>
+              {song.artist && (
+                <p className="text-xs sm:text-sm font-mono text-zinc-600 font-medium truncate mt-0.5">
+                  {song.artist}
+                </p>
+              )}
             </div>
-            <div className="text-left sm:text-right shrink-0">
-              <span className="text-[11px] font-mono uppercase tracking-wider text-zinc-400 font-bold block">
-                Standard Lead Sheet
+
+            {/* Quick Metadata Badges Strip (Clean Paper Lead Sheet Style) */}
+            <div className="flex items-center gap-1.5 flex-wrap text-[11px] font-mono">
+              <span className="px-2 py-0.5 rounded-md bg-zinc-100 border border-zinc-300 text-zinc-800 font-bold">
+                Key: <strong className="text-zinc-950">{song.key || "C"}</strong>
               </span>
-              <span className="text-xs font-mono font-bold text-zinc-700">
+              <span className="px-2 py-0.5 rounded-md bg-zinc-100 border border-zinc-300 text-zinc-800 font-bold">
+                {song.tempo || 120} BPM
+              </span>
+              {capo > 0 && (
+                <span className="px-2 py-0.5 rounded-md bg-sky-50 border border-sky-300 text-sky-800 font-extrabold">
+                  Capo {capo}
+                </span>
+              )}
+              <span className="px-2 py-0.5 rounded-md bg-zinc-100 border border-zinc-200 text-zinc-600 hidden sm:inline">
+                {song.timeSignature || "4/4"}
+              </span>
+              <span className="px-2 py-0.5 rounded-md bg-zinc-100 border border-zinc-200 text-zinc-600">
                 {segments.length} Chords • {formatTime(duration)}
               </span>
             </div>
           </div>
-
-          {/* Song Metadata Specs Bar */}
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mt-4 pt-3 border-t border-zinc-200 text-xs font-mono">
-            <div className="bg-zinc-50 border border-zinc-200 rounded-lg p-2">
-              <span className="text-[10px] text-zinc-400 block font-bold uppercase">Key</span>
-              <span className="text-sm font-extrabold text-zinc-900">{song.key || "C Major"}</span>
-            </div>
-            <div className="bg-zinc-50 border border-zinc-200 rounded-lg p-2">
-              <span className="text-[10px] text-zinc-400 block font-bold uppercase">Tempo</span>
-              <span className="text-sm font-extrabold text-zinc-900">{song.tempo || 120} BPM</span>
-            </div>
-            <div className="bg-zinc-50 border border-zinc-200 rounded-lg p-2">
-              <span className="text-[10px] text-zinc-400 block font-bold uppercase">Capo</span>
-              <span className={`text-sm font-extrabold ${capo > 0 ? "text-sky-600" : "text-zinc-900"}`}>
-                {capo > 0 ? `Fret ${capo}` : "No Capo"}
-              </span>
-            </div>
-            <div className="bg-zinc-50 border border-zinc-200 rounded-lg p-2">
-              <span className="text-[10px] text-zinc-400 block font-bold uppercase">Tuning</span>
-              <span className="text-sm font-extrabold text-zinc-900">{song.tuning || "Standard"}</span>
-            </div>
-            <div className="bg-zinc-50 border border-zinc-200 rounded-lg p-2 col-span-2 sm:col-span-1">
-              <span className="text-[10px] text-zinc-400 block font-bold uppercase">Time Sig</span>
-              <span className="text-sm font-extrabold text-zinc-900">{song.timeSignature || "4/4"}</span>
-            </div>
-          </div>
-        </div>
+        </section>
 
         {/* =================================================================== */}
-        {/* CHORD DIAGRAMS ABOVE: Unique Chord Voicings Gallery on the White Page */}
+        {/* CHORD VOICINGS DIAGRAMS GALLERY (Rendered with light theme on sheet) */}
         {/* =================================================================== */}
-        <div className="mb-8 bg-zinc-50/80 border border-zinc-200 rounded-2xl p-4 sm:p-5">
-          <div className="flex items-center justify-between mb-3 border-b border-zinc-200 pb-2">
+        <section aria-label="Chord Voicings" className="bg-zinc-50 border border-zinc-200 rounded-2xl overflow-hidden print:border-zinc-300">
+          <div
+            onClick={() => setShowDiagrams(!showDiagrams)}
+            className="flex items-center justify-between px-3.5 py-2.5 cursor-pointer hover:bg-zinc-100 transition-colors select-none"
+          >
             <div className="flex items-center gap-2">
-              <Music className="w-4 h-4 text-zinc-800" />
-              <h2 className="text-xs font-mono font-black uppercase tracking-wider text-zinc-900">
+              <Music className="w-4 h-4 text-emerald-700" />
+              <h2 className="text-xs font-mono font-bold uppercase tracking-wider text-zinc-800">
                 Chord Diagrams ({uniqueChordVoicings.length} Unique)
               </h2>
             </div>
-            <span className="text-[10px] font-mono text-zinc-500 hidden sm:inline">
-              Click any diagram to hear strum preview
-            </span>
+            <div className="flex items-center gap-2 text-xs font-mono text-zinc-600">
+              <span className="text-[11px] hidden sm:inline">
+                {showDiagrams ? "Hide diagrams" : "View diagrams"}
+              </span>
+              {showDiagrams ? (
+                <ChevronUp className="w-4 h-4 text-zinc-600" />
+              ) : (
+                <ChevronDown className="w-4 h-4 text-zinc-600" />
+              )}
+            </div>
           </div>
 
-          {/* Chord Diagrams Row */}
-          <div className="flex flex-wrap items-stretch gap-3 sm:gap-4 overflow-x-auto pb-1">
-            {uniqueChordVoicings.map(({ rawChord, targetShape, transposedChord, voicingResult }) => {
-              const isCurrentlyPlaying =
-                activeResolvedChord?.isValid &&
-                (capo > 0
-                  ? activeResolvedChord.shapeChord === targetShape
-                  : activeResolvedChord.transposedChord === targetShape);
+          {/* Collapsible Diagrams Strip */}
+          {showDiagrams && (
+            <div className="p-3 sm:p-4 border-t border-zinc-200 bg-white animate-in fade-in duration-150">
+              <div className="flex items-center gap-3 overflow-x-auto pb-2 scrollbar-thin">
+                {uniqueChordVoicings.map(({ rawChord, targetShape, voicingResult }) => {
+                  const isCurrentlyPlaying =
+                    activeResolvedChord?.isValid &&
+                    (capo > 0
+                      ? activeResolvedChord.shapeChord === targetShape
+                      : activeResolvedChord.transposedChord === targetShape);
 
-              return (
-                <div
-                  key={rawChord}
-                  onClick={() => {
-                    if (voicingResult.voicing) {
-                      guitarSynth.strumChord(voicingResult.voicing.frets, "down", 24, capo);
-                    }
-                  }}
-                  className={`group relative rounded-xl p-2.5 sm:p-3 transition-all duration-200 cursor-pointer flex flex-col items-center justify-between border ${
-                    isCurrentlyPlaying
-                      ? "bg-emerald-50 border-emerald-500 shadow-md ring-2 ring-emerald-500/20 scale-[1.03]"
-                      : "bg-white hover:bg-zinc-100/80 border-zinc-200 shadow-sm"
-                  } min-w-[125px] sm:min-w-[140px]`}
-                  title={`Click to hear ${targetShape} strum`}
-                >
-                  {/* Top Badge: Chord Name */}
-                  <div className="flex items-center justify-between w-full mb-1 text-center">
-                    <span
-                      className={`text-base sm:text-lg font-black font-mono transition-colors ${
-                        isCurrentlyPlaying ? "text-emerald-700" : "text-zinc-900 group-hover:text-zinc-950"
-                      }`}
+                  return (
+                    <div
+                      key={rawChord}
+                      onClick={() => {
+                        if (voicingResult.voicing) {
+                          guitarSynth.strumChord(voicingResult.voicing.frets, "down", 24, capo);
+                        }
+                      }}
+                      className={`group relative rounded-xl p-2 transition-all duration-150 cursor-pointer flex flex-col items-center justify-between border shrink-0 ${
+                        isCurrentlyPlaying
+                          ? "bg-lime-50 border-lime-500 shadow-md ring-1 ring-lime-400 scale-[1.02]"
+                          : "bg-white hover:bg-zinc-50 border-zinc-200"
+                      } min-w-[110px] sm:min-w-[125px]`}
+                      title={`Hear ${targetShape} guitar strum`}
                     >
-                      {targetShape}
-                    </span>
-                    {isCurrentlyPlaying && (
-                      <span className="px-1.5 py-0.5 rounded bg-emerald-600 text-white text-[8px] font-mono font-bold tracking-wider animate-pulse">
-                        NOW PLAYING
-                      </span>
-                    )}
-                  </div>
+                      <div className="flex items-center justify-between w-full mb-1">
+                        <span
+                          className={`text-sm sm:text-base font-black font-mono ${
+                            isCurrentlyPlaying ? "text-lime-800" : "text-zinc-900"
+                          }`}
+                        >
+                          {targetShape}
+                        </span>
+                        {isCurrentlyPlaying && (
+                          <span className="w-2 h-2 rounded-full bg-lime-500 animate-ping" />
+                        )}
+                      </div>
 
-                  {/* Sounding pitch if capo */}
-                  {capo > 0 && transposedChord !== targetShape && (
-                    <span className="text-[9px] font-mono font-medium text-sky-700 mb-1">
-                      Sounding: {transposedChord}
-                    </span>
-                  )}
+                      {/* Light Theme Chord Diagram for Crisp Sheet Paper Reading */}
+                      <div className="w-full flex items-center justify-center h-[115px] sm:h-[130px]">
+                        {voicingResult.voicing ? (
+                          <ChordDiagram
+                            frets={voicingResult.voicing.frets}
+                            fingers={voicingResult.voicing.fingers}
+                            barre={voicingResult.voicing.barre}
+                            position={voicingResult.voicing.baseFret}
+                            cagedShape={voicingResult.voicing.cagedShape}
+                            capo={capo}
+                            size="xs"
+                            theme="light"
+                            className="max-h-full max-w-full"
+                          />
+                        ) : (
+                          <div className="text-[10px] font-mono text-zinc-400 text-center py-4">
+                            No diagram
+                          </div>
+                        )}
+                      </div>
 
-                  {/* Chord Diagram with theme="light" */}
-                  <div className="w-full flex items-center justify-center h-[130px] sm:h-[145px]">
-                    {voicingResult.voicing ? (
-                      <ChordDiagram
-                        frets={voicingResult.voicing.frets}
-                        fingers={voicingResult.voicing.fingers}
-                        barre={voicingResult.voicing.barre}
-                        position={voicingResult.voicing.baseFret}
-                        cagedShape={voicingResult.voicing.cagedShape}
-                        capo={capo}
-                        size="xs"
-                        theme="light"
-                        className="max-h-full max-w-full"
-                      />
+                      <div className="mt-1 flex items-center gap-1 text-[9px] font-mono text-zinc-500 group-hover:text-emerald-700 transition-colors">
+                        <Play className="w-2 h-2 fill-current" />
+                        <span>Preview</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </section>
+
+        {/* =================================================================== */}
+        {/* SECTIONS & CHORDS PROGRESSION VIEW ON WHITE SHEET                   */}
+        {/* =================================================================== */}
+        <section aria-label="Progression Timeline" className="space-y-4">
+          {/* Section Toolbar / Helper */}
+          <div className="flex items-center justify-between gap-2 px-1">
+            <div className="flex items-center gap-1.5 text-xs font-mono text-zinc-700 font-bold">
+              <Layers className="w-4 h-4 text-emerald-700" />
+              <span>SONG SECTIONS ({sections.length})</span>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              {sections.length === 1 && (
+                <button
+                  onClick={handleApplyPresetSections}
+                  className="px-2.5 py-1 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-zinc-800 border border-zinc-300 text-[10px] font-mono font-bold flex items-center gap-1 transition-all cursor-pointer"
+                  title="Auto-detect and divide into Verse/Chorus template"
+                >
+                  <Sparkles className="w-3 h-3 text-emerald-600" />
+                  <span>Auto-Template Sections</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Render Song Sections on the Sheet */}
+          {sections.map((section, sIdx) => {
+            const isSectionActive = sIdx === activeSectionIdx;
+            const style = getSectionBadgeStyle(section.name);
+
+            return (
+              <div
+                key={`section-${sIdx}-${section.name}-${section.startIndex}`}
+                className={`rounded-2xl border transition-all duration-200 overflow-hidden ${
+                  isSectionActive
+                    ? "border-emerald-400 shadow-md ring-1 ring-emerald-200"
+                    : "border-zinc-200 hover:border-zinc-300"
+                } bg-white`}
+              >
+                {/* SECTION HEADER BANNER (Paper style) */}
+                <div className={`px-3 sm:px-4 py-2.5 flex items-center justify-between gap-2 border-b border-zinc-200 ${style.headerBg} border-l-4 ${style.accentBorder}`}>
+                  <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+                    {/* Section Tag Badge / Editable input */}
+                    {editingSectionIdx === sIdx ? (
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="text"
+                          value={editSectionNameInput}
+                          onChange={(e) => setEditSectionNameInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") handleRenameSection(sIdx, editSectionNameInput);
+                            if (e.key === "Escape") setEditingSectionIdx(null);
+                          }}
+                          className="bg-white text-zinc-900 font-mono font-bold text-xs px-2 py-0.5 rounded border border-emerald-500 focus:outline-none w-28 sm:w-36 shadow-xs"
+                          autoFocus
+                        />
+                        <button
+                          onClick={() => handleRenameSection(sIdx, editSectionNameInput)}
+                          className="p-1 rounded bg-emerald-600 text-white hover:bg-emerald-700 text-[10px] font-bold"
+                          title="Save section name"
+                        >
+                          <Check className="w-3 h-3" />
+                        </button>
+                        <button
+                          onClick={() => setEditingSectionIdx(null)}
+                          className="p-1 rounded bg-zinc-200 text-zinc-600 hover:text-zinc-900 text-[10px]"
+                          title="Cancel"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
                     ) : (
-                      <div className="text-[10px] font-mono text-zinc-400 text-center py-6">
-                        No diagram
+                      <div className="flex items-center gap-1.5">
+                        <span
+                          onClick={() => {
+                            setEditingSectionIdx(sIdx);
+                            setEditSectionNameInput(section.name);
+                          }}
+                          className={`px-2.5 py-0.5 rounded-lg border font-mono font-extrabold text-xs flex items-center gap-1.5 cursor-pointer hover:opacity-85 transition-opacity ${style.badgeBg}`}
+                          title="Click to rename this section"
+                        >
+                          <span className={`w-1.5 h-1.5 rounded-full ${style.dot}`} />
+                          <span>{section.name}</span>
+                          <Edit3 className="w-2.5 h-2.5 opacity-60 ml-0.5" />
+                        </span>
+
+                        {isSectionActive && (
+                          <span className="px-1.5 py-0.5 rounded bg-emerald-100 border border-emerald-300 text-emerald-800 text-[9px] font-mono font-bold tracking-wider animate-pulse hidden sm:inline">
+                            NOW PLAYING
+                          </span>
+                        )}
                       </div>
                     )}
-                  </div>
 
-                  {/* Subtle strum icon hint */}
-                  <div className="mt-1 flex items-center gap-1 text-[9px] font-mono text-zinc-500 group-hover:text-zinc-900 transition-colors">
-                    <Play className="w-2.5 h-2.5 fill-current" />
-                    <span>Preview</span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* =================================================================== */}
-        {/* CHORD PROGRESSION & TIMESTAMPS: Real-time Synchronized Lead Sheet   */}
-        {/* =================================================================== */}
-        <div className="space-y-4">
-          <div className="flex items-center justify-between border-b border-zinc-200 pb-2">
-            <div className="flex items-center gap-2">
-              <Clock className="w-4 h-4 text-zinc-800" />
-              <h2 className="text-xs font-mono font-black uppercase tracking-wider text-zinc-900">
-                Timeline Progression ({segments.length} chord segments)
-              </h2>
-            </div>
-            <span className="text-[10px] font-mono text-zinc-500">
-              Click any chord to seek audio • Hover to remove
-            </span>
-          </div>
-
-          {/* Grid of Chord Tiles with Timestamps */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5 sm:gap-3">
-            {segments.map((seg, idx) => {
-              const state = resolveChordFinderState(seg.chord, transpose, capo, song.key);
-              const chordLabel = capo > 0 && state.isValid ? state.shapeChord : state.transposedChord;
-              const isActive = idx === activeSegmentIdx;
-              const segDuration = (seg.endTime - seg.startTime).toFixed(1);
-
-              return (
-                <div
-                  key={seg.id || `chord-${idx}-${seg.startTime}`}
-                  ref={isActive ? activeChordRef : null}
-                  onMouseEnter={() => setHoveredIdx(idx)}
-                  onMouseLeave={() => setHoveredIdx(null)}
-                  onClick={() => onSeek(seg.startTime)}
-                  className={`group relative rounded-xl p-3 border transition-all duration-150 cursor-pointer flex flex-col justify-between ${
-                    isActive
-                      ? "bg-amber-100/90 border-amber-600 shadow-md ring-2 ring-amber-500/30 scale-[1.02] text-zinc-950 font-black"
-                      : "bg-zinc-50/70 hover:bg-zinc-100/90 border-zinc-200/90 text-zinc-800"
-                  }`}
-                  title={`Jump to ${chordLabel} at ${formatTime(seg.startTime)}`}
-                >
-                  {/* Top Bar: Timestamp and Duration */}
-                  <div className="flex items-center justify-between text-[10px] font-mono text-zinc-500 mb-1">
-                    <span
-                      className={`px-1.5 py-0.5 rounded font-bold ${
-                        isActive
-                          ? "bg-amber-600 text-white font-mono"
-                          : "bg-zinc-200 text-zinc-700"
-                      }`}
-                    >
-                      {formatTime(seg.startTime)}
+                    {/* Section Time Span */}
+                    <span className="text-[10px] font-mono text-zinc-500 shrink-0">
+                      {formatTime(section.startTime)} - {formatTime(section.endTime)} ({section.items.length} chords)
                     </span>
-                    <span className="text-[9.5px] font-mono font-medium">{segDuration}s</span>
                   </div>
 
-                  {/* Center: Bold Chord Symbol */}
-                  <div className="py-1 text-center">
-                    <span
-                      className={`text-2xl sm:text-3xl font-mono font-black tracking-tight transition-transform ${
-                        isActive ? "text-amber-950 scale-105 inline-block" : "text-zinc-900"
-                      }`}
+                  {/* Right: Section Actions */}
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {/* Play from section start */}
+                    <button
+                      onClick={() => {
+                        onSeek(section.startTime);
+                        if (!isPlaying) onPlayPause();
+                      }}
+                      className="px-2 py-1 rounded-lg bg-white hover:bg-zinc-100 text-zinc-800 border border-zinc-300 text-[10px] font-mono font-bold flex items-center gap-1 transition-all cursor-pointer shadow-xs"
+                      title={`Play from beginning of ${section.name}`}
                     >
-                      {chordLabel}
-                    </span>
-                    {capo > 0 && state.isValid && state.shapeChord !== state.transposedChord && (
-                      <span className="block text-[9.5px] font-mono font-semibold text-sky-700 truncate">
-                        Sounding: {state.transposedChord}
-                      </span>
+                      <Play className="w-2.5 h-2.5 text-emerald-600 fill-current" />
+                      <span className="hidden sm:inline">Play</span>
+                    </button>
+
+                    {/* Remove section tag if more than 1 section */}
+                    {sections.length > 1 && sIdx > 0 && (
+                      <button
+                        onClick={() => handleRemoveSectionTag(sIdx)}
+                        className="p-1 rounded-lg hover:bg-red-50 text-zinc-400 hover:text-red-600 transition-colors cursor-pointer"
+                        title="Merge this section into previous section"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
                     )}
                   </div>
+                </div>
 
-                  {/* Bottom: Play Indicator or Remove Button */}
-                  <div className="flex items-center justify-between pt-1 border-t border-zinc-200/60 mt-1">
-                    <span
-                      className={`text-[9.5px] font-mono flex items-center gap-1 ${
-                        isActive ? "text-amber-800 font-bold" : "text-zinc-400 group-hover:text-zinc-600"
-                      }`}
-                    >
-                      {isActive ? (
-                        <>
-                          <Play className="w-2.5 h-2.5 fill-current text-amber-800 animate-pulse" />
-                          <span>PLAYING</span>
-                        </>
-                      ) : (
-                        <span>Seek</span>
-                      )}
-                    </span>
+                {/* CHORDS GRID UNDER THIS SECTION (Responsive 2-col on mobile, 3-4 on tablet/desktop) */}
+                <div className="p-2 sm:p-3.5 bg-white">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 sm:gap-2.5">
+                    {section.items.map(({ seg, originalIndex }) => {
+                      const state = resolveChordFinderState(seg.chord, transpose, capo, song.key);
+                      const chordLabel = capo > 0 && state.isValid ? state.shapeChord : state.transposedChord;
+                      const isActive = originalIndex === activeSegmentIdx;
+                      const segDuration = (seg.endTime - seg.startTime).toFixed(1);
 
-                    {/* Remove Chord Button (visible on hover or print:hidden) */}
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleRemoveSegment(idx);
-                      }}
-                      className="opacity-0 group-hover:opacity-100 p-1 rounded-md hover:bg-red-50 text-zinc-400 hover:text-red-600 transition-all cursor-pointer print:hidden"
-                      title="Remove this chord from song (saves automatically)"
-                      aria-label="Remove chord"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                      return (
+                        <div
+                          key={seg.id || `chord-${originalIndex}-${seg.startTime}`}
+                          ref={isActive ? activeChordRef : null}
+                          onClick={() => onSeek(seg.startTime)}
+                          className={`group relative rounded-xl p-2 sm:p-2.5 border transition-all duration-150 cursor-pointer flex flex-col justify-between select-none ${
+                            isActive
+                              ? "bg-[#ecfccb] border-[#84cc16] ring-2 ring-[#84cc16] shadow-md scale-[1.02] text-zinc-950"
+                              : "bg-zinc-50/80 hover:bg-zinc-100 border-zinc-200 text-zinc-800 shadow-xs"
+                          }`}
+                          title={`Jump to ${chordLabel} at ${formatTime(seg.startTime)}`}
+                        >
+                          {/* Top: Timestamp & Duration */}
+                          <div className="flex items-center justify-between text-[10px] font-mono text-zinc-500 mb-0.5">
+                            <span
+                              className={`px-1.5 py-0.5 rounded font-bold ${
+                                isActive
+                                  ? "bg-[#84cc16] text-black font-extrabold"
+                                  : "bg-zinc-200/80 text-zinc-700"
+                              }`}
+                            >
+                              {formatTime(seg.startTime)}
+                            </span>
+                            <span className="text-[9.5px] font-mono text-zinc-400">{segDuration}s</span>
+                          </div>
+
+                          {/* Center: Chord Symbol */}
+                          <div className="py-1 text-center">
+                            <span
+                              className={`text-2xl sm:text-3xl font-mono font-black tracking-tight transition-transform ${
+                                isActive ? "text-[#365314] scale-105 inline-block" : "text-zinc-900"
+                              }`}
+                            >
+                              {chordLabel}
+                            </span>
+                            {capo > 0 && state.isValid && state.shapeChord !== state.transposedChord && (
+                              <span className="block text-[9.5px] font-mono font-bold text-sky-700 truncate">
+                                Sounding: {state.transposedChord}
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Bottom Row: Actions (Play status, Tag section, Remove) */}
+                          <div className="flex items-center justify-between pt-1 border-t border-zinc-200/60 mt-0.5">
+                            <span
+                              className={`text-[9.5px] font-mono flex items-center gap-1 ${
+                                isActive ? "text-[#365314] font-bold" : "text-zinc-400 group-hover:text-zinc-600"
+                              }`}
+                            >
+                              {isActive ? (
+                                <>
+                                  <Play className="w-2.5 h-2.5 fill-current text-[#4d7c0f] animate-pulse" />
+                                  <span>PLAYING</span>
+                                </>
+                              ) : (
+                                <span>Seek</span>
+                              )}
+                            </span>
+
+                            <div className="flex items-center gap-1 print:hidden">
+                              {/* Add / Split section tag button */}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setTagModalChordIdx(originalIndex);
+                                  setCustomTagName("");
+                                }}
+                                className="p-1 rounded hover:bg-zinc-200 text-zinc-500 hover:text-emerald-700 transition-colors cursor-pointer"
+                                title="Split and start a new section tag here"
+                              >
+                                <Tag className="w-3 h-3" />
+                              </button>
+
+                              {/* Remove Chord Segment */}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleRemoveSegment(originalIndex);
+                                }}
+                                className="p-1 rounded hover:bg-red-100 text-zinc-400 hover:text-red-600 transition-colors cursor-pointer"
+                                title="Remove chord segment"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
-              );
-            })}
-          </div>
-        </div>
+              </div>
+            );
+          })}
+        </section>
 
-        {/* Paper Footer Note */}
-        <div className="mt-10 pt-4 border-t border-zinc-200 flex flex-col sm:flex-row items-center justify-between text-[11px] font-mono text-zinc-500 gap-2">
-          <span>Generated with Guitar Studio • Real-Time AI Chord Recognition</span>
-          <span>Press Space to Play/Pause • Click any chord to seek</span>
+        {/* Lead Sheet Footer Note */}
+        <div className="pt-3 border-t border-zinc-200 flex flex-col sm:flex-row items-center justify-between text-[11px] font-mono text-zinc-500 gap-1.5">
+          <span>Guitar Studio AI • Lead Chord Sheet</span>
+          <span>Click any chord to seek • Tap tag to split sections • Tap trash to remove</span>
         </div>
-      </div>
+      </main>
 
       {/* ========================================================================= */}
-      {/* FLOATING PLAYBACK DOCK (Pinned at Bottom, hidden on print)               */}
+      {/* FLOATING PLAYBACK DOCK (Pinned Safely ABOVE Mobile Bottom Navigation)     */}
       {/* ========================================================================= */}
-      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 w-[95%] max-w-2xl bg-[#0d1015]/95 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl p-3 flex flex-col gap-2 text-white print:hidden">
+      {/*
+        Notice: MobileBottomNav has h-16 (64px) + z-40.
+        By setting `bottom-[74px] md:bottom-5 z-50`, this player dock floats
+        comfortably and cleanly above the mobile bottom nav on phone screens,
+        and at the regular bottom-5 on desktop!
+      */}
+      <aside aria-label="Playback Controls" className="fixed bottom-[74px] md:bottom-5 left-1/2 -translate-x-1/2 z-50 w-[95%] max-w-2xl bg-[#0f121a]/95 backdrop-blur-xl border border-white/15 rounded-2xl shadow-2xl p-2.5 sm:p-3 flex flex-col gap-2 text-white print:hidden">
         {/* Scrubber track */}
-        <div className="flex items-center gap-3">
-          <span className="text-[11px] font-mono text-zinc-400 w-10 text-right shrink-0">
+        <div className="flex items-center gap-2 sm:gap-3">
+          <span className="text-[10px] sm:text-[11px] font-mono text-zinc-400 w-9 text-right shrink-0">
             {formatTime(currentTime)}
           </span>
           <input
@@ -655,51 +1045,56 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
             value={Math.min(duration || 1, Math.max(0, currentTime))}
             onChange={(e) => onSeek(parseFloat(e.target.value))}
             className="flex-1 accent-[#a3ff12] h-1.5 bg-white/10 rounded-lg cursor-pointer"
+            aria-label="Seek timeline"
           />
-          <span className="text-[11px] font-mono text-zinc-400 w-10 text-left shrink-0">
+          <span className="text-[10px] sm:text-[11px] font-mono text-zinc-400 w-9 text-left shrink-0">
             {formatTime(duration)}
           </span>
         </div>
 
         {/* Playback Controls & Transpose/Capo Quick Controls */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-1.5">
           {/* Left: Quick Transpose & Capo */}
-          <div className="flex items-center gap-2 text-xs font-mono">
+          <div className="flex items-center gap-1 sm:gap-1.5 text-xs font-mono">
             {/* Transpose button */}
-            <div className="flex items-center bg-white/5 border border-white/10 rounded-lg px-2 py-1 gap-1.5">
-              <span className="text-[10px] text-zinc-400 font-bold uppercase">Trans:</span>
+            <div className="flex items-center bg-white/5 border border-white/10 rounded-lg px-1.5 py-0.5 sm:px-2 sm:py-1 gap-1">
+              <span className="text-[9.5px] sm:text-[10px] text-zinc-400 font-bold uppercase">T:</span>
               <button
                 onClick={() => onTransposeChange((t) => Math.max(-12, t - 1))}
-                className="w-4 h-4 rounded bg-white/10 hover:bg-white/20 flex items-center justify-center font-bold text-[11px] cursor-pointer"
+                className="w-4 h-4 rounded bg-white/10 hover:bg-white/20 flex items-center justify-center font-bold text-[10px] cursor-pointer"
+                title="Transpose down"
               >
                 -
               </button>
-              <span className={`font-bold ${transpose !== 0 ? "text-[#a3ff12]" : "text-white"}`}>
+              <span className={`font-bold text-[11px] ${transpose !== 0 ? "text-[#a3ff12]" : "text-white"}`}>
                 {transpose > 0 ? `+${transpose}` : transpose}
               </span>
               <button
                 onClick={() => onTransposeChange((t) => Math.min(12, t + 1))}
-                className="w-4 h-4 rounded bg-white/10 hover:bg-white/20 flex items-center justify-center font-bold text-[11px] cursor-pointer"
+                className="w-4 h-4 rounded bg-white/10 hover:bg-white/20 flex items-center justify-center font-bold text-[10px] cursor-pointer"
+                title="Transpose up"
               >
                 +
               </button>
             </div>
 
             {/* Capo button */}
-            <div className="flex items-center bg-white/5 border border-white/10 rounded-lg px-2 py-1 gap-1.5">
-              <span className="text-[10px] text-zinc-400 font-bold uppercase">Capo:</span>
+            <div className="flex items-center bg-white/5 border border-white/10 rounded-lg px-1.5 py-0.5 sm:px-2 sm:py-1 gap-1">
+              <span className="text-[9.5px] sm:text-[10px] text-zinc-400 font-bold uppercase">C:</span>
               <button
                 onClick={() => onCapoChange((c) => Math.max(0, c - 1))}
-                className="w-4 h-4 rounded bg-white/10 hover:bg-white/20 flex items-center justify-center font-bold text-[11px] cursor-pointer"
+                className="w-4 h-4 rounded bg-white/10 hover:bg-white/20 flex items-center justify-center font-bold text-[10px] cursor-pointer"
+                title="Capo down"
               >
                 -
               </button>
-              <span className={`font-bold ${capo > 0 ? "text-sky-400" : "text-white"}`}>
+              <span className={`font-bold text-[11px] ${capo > 0 ? "text-sky-400" : "text-white"}`}>
                 {capo > 0 ? capo : 0}
               </span>
               <button
                 onClick={() => onCapoChange((c) => Math.min(12, c + 1))}
-                className="w-4 h-4 rounded bg-white/10 hover:bg-white/20 flex items-center justify-center font-bold text-[11px] cursor-pointer"
+                className="w-4 h-4 rounded bg-white/10 hover:bg-white/20 flex items-center justify-center font-bold text-[10px] cursor-pointer"
+                title="Capo up"
               >
                 +
               </button>
@@ -707,36 +1102,36 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
           </div>
 
           {/* Center: Transport Play/Pause, Rewind, Fast-Forward */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2">
             <button
               onClick={() => onSeek(Math.max(0, currentTime - 4))}
-              className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center text-zinc-300 hover:text-white transition-colors cursor-pointer"
+              className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center text-zinc-300 hover:text-white transition-colors cursor-pointer"
               title="Rewind 4s"
             >
-              <SkipBack className="w-4 h-4" />
+              <SkipBack className="w-3.5 h-3.5" />
             </button>
 
             <button
               onClick={onPlayPause}
-              className="w-10 h-10 rounded-xl bg-[#a3ff12] hover:bg-[#92eb10] text-black flex items-center justify-center shadow-[0_0_15px_rgba(163,255,18,0.4)] transition-all cursor-pointer"
+              className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-[#a3ff12] hover:bg-[#92eb10] text-black flex items-center justify-center shadow-[0_0_15px_rgba(163,255,18,0.4)] transition-all cursor-pointer"
               title={isPlaying ? "Pause (Space)" : "Play (Space)"}
             >
-              {isPlaying ? <Pause className="w-5 h-5 fill-black" /> : <Play className="w-5 h-5 fill-black ml-0.5" />}
+              {isPlaying ? <Pause className="w-4 h-4 sm:w-5 sm:h-5 fill-black" /> : <Play className="w-4 h-4 sm:w-5 sm:h-5 fill-black ml-0.5" />}
             </button>
 
             <button
               onClick={() => onSeek(Math.min(duration, currentTime + 4))}
-              className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center text-zinc-300 hover:text-white transition-colors cursor-pointer"
+              className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center text-zinc-300 hover:text-white transition-colors cursor-pointer"
               title="Forward 4s"
             >
-              <SkipForward className="w-4 h-4" />
+              <SkipForward className="w-3.5 h-3.5" />
             </button>
           </div>
 
           {/* Right: Active chord badge */}
           <div className="text-right">
             {activeResolvedChord && activeResolvedChord.isValid ? (
-              <span className="px-2.5 py-1 rounded-lg bg-[#a3ff12]/20 border border-[#a3ff12]/30 text-[#a3ff12] font-mono font-bold text-xs">
+              <span className="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg bg-[#a3ff12] text-black font-mono font-black text-xs shadow-sm">
                 {capo > 0 ? activeResolvedChord.shapeChord : activeResolvedChord.transposedChord}
               </span>
             ) : (
@@ -744,18 +1139,87 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
             )}
           </div>
         </div>
-      </div>
+      </aside>
+
+      {/* ========================================================================= */}
+      {/* SECTION TAGGING MODAL / PICKER                                            */}
+      {/* ========================================================================= */}
+      {tagModalChordIdx !== null && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-3">
+          <div className="bg-[#14171e] border border-white/15 rounded-3xl p-5 max-w-sm w-full shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b border-white/10 pb-2.5">
+              <div className="flex items-center gap-2">
+                <Tag className="w-4 h-4 text-[#a3ff12]" />
+                <h3 className="text-sm font-bold font-mono text-white">Tag Section Here</h3>
+              </div>
+              <button
+                onClick={() => setTagModalChordIdx(null)}
+                className="w-6 h-6 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center text-zinc-400 hover:text-white cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            <p className="text-xs font-mono text-zinc-400">
+              Split the chord progression at chord{" "}
+              <strong className="text-white">
+                {segments[tagModalChordIdx]?.chord}
+              </strong>{" "}
+              ({formatTime(segments[tagModalChordIdx]?.startTime)}) into a labeled section:
+            </p>
+
+            {/* Common Preset Tags */}
+            <div className="flex flex-wrap gap-1.5">
+              {PRESET_SECTION_TAGS.map((tag) => (
+                <button
+                  key={tag}
+                  onClick={() => handleSetSectionTag(tagModalChordIdx, tag)}
+                  className="px-2.5 py-1 rounded-xl bg-white/5 hover:bg-[#a3ff12]/20 hover:border-[#a3ff12]/40 hover:text-[#a3ff12] border border-white/10 text-xs font-mono font-bold text-zinc-300 transition-all cursor-pointer"
+                >
+                  {tag}
+                </button>
+              ))}
+            </div>
+
+            {/* Custom Tag Input */}
+            <div className="pt-2 border-t border-white/10 space-y-2">
+              <label className="text-[11px] font-mono text-zinc-400 block font-bold">
+                Or custom tag name:
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  placeholder="e.g. Acoustic Break, Drop..."
+                  value={customTagName}
+                  onChange={(e) => setCustomTagName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleSetSectionTag(tagModalChordIdx, customTagName);
+                  }}
+                  className="flex-1 bg-white/5 text-xs font-mono text-white rounded-xl px-3 py-2 border border-white/10 focus:border-[#a3ff12]/50 focus:outline-none"
+                />
+                <button
+                  onClick={() => handleSetSectionTag(tagModalChordIdx, customTagName)}
+                  disabled={!customTagName.trim()}
+                  className="px-3 py-2 bg-[#a3ff12] hover:bg-[#92eb10] disabled:opacity-40 text-black font-extrabold text-xs rounded-xl font-mono cursor-pointer transition-all"
+                >
+                  Save
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ========================================================================= */}
       {/* EXPORT MODAL                                                             */}
       {/* ========================================================================= */}
       {showExportModal && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-[#13161c] border border-white/15 rounded-3xl p-6 max-w-lg w-full shadow-2xl space-y-5 animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-3">
+          <div className="bg-[#14171e] border border-white/15 rounded-3xl p-5 sm:p-6 max-w-md w-full shadow-2xl space-y-4 animate-in fade-in duration-150">
             <div className="flex items-center justify-between border-b border-white/10 pb-3">
               <div className="flex items-center gap-2">
-                <Download className="w-5 h-5 text-[#a3ff12]" />
-                <h3 className="text-base font-bold font-mono text-white">Export Chords & Sheet</h3>
+                <Download className="w-4 h-4 text-[#a3ff12]" />
+                <h3 className="text-sm sm:text-base font-bold font-mono text-white">Export Chords & Sheet</h3>
               </div>
               <button
                 onClick={() => setShowExportModal(false)}
@@ -766,64 +1230,64 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
             </div>
 
             <p className="text-xs font-mono text-zinc-400">
-              Export your custom chord progression for <strong>{song.title}</strong> in print-ready, text, or data formats.
+              Export your customized chord progression and tagged sections for <strong>{song.title}</strong>:
             </p>
 
-            <div className="space-y-3">
+            <div className="space-y-2.5">
               {/* Option 1: Print / PDF */}
               <button
                 onClick={() => {
                   setShowExportModal(false);
                   setTimeout(() => window.print(), 200);
                 }}
-                className="w-full p-3 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-between text-left transition-all cursor-pointer group"
+                className="w-full p-2.5 sm:p-3 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-between text-left transition-all cursor-pointer group"
               >
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400">
                     <Printer className="w-4 h-4" />
                   </div>
                   <div>
                     <h4 className="text-xs font-bold font-mono text-white group-hover:text-purple-300">
-                      Print / Save as PDF
+                      Print / PDF Document
                     </h4>
                     <p className="text-[10px] font-mono text-zinc-400">
-                      Print the crisp white sheet or save as a digital PDF
+                      Print crisp lead sheet or save as digital PDF
                     </p>
                   </div>
                 </div>
-                <span className="text-xs font-mono text-zinc-400">Print &rarr;</span>
+                <span className="text-xs font-mono text-zinc-400">&rarr;</span>
               </button>
 
               {/* Option 2: Copy to Clipboard */}
               <button
                 onClick={handleCopyText}
-                className="w-full p-3 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-between text-left transition-all cursor-pointer group"
+                className="w-full p-2.5 sm:p-3 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-between text-left transition-all cursor-pointer group"
               >
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
                     <Copy className="w-4 h-4" />
                   </div>
                   <div>
                     <h4 className="text-xs font-bold font-mono text-white group-hover:text-emerald-300">
-                      {copiedText ? "Copied!" : "Copy as Text Sheet"}
+                      {copiedText ? "Copied!" : "Copy Formatted Text"}
                     </h4>
                     <p className="text-[10px] font-mono text-zinc-400">
-                      Copy formatted timestamps and chord chart to clipboard
+                      Copy structured sections & timestamps to clipboard
                     </p>
                   </div>
                 </div>
                 <span className="text-xs font-mono text-[#a3ff12]">
-                  {copiedText ? <Check className="w-4 h-4 text-[#a3ff12]" /> : "Copy &rarr;"}
+                  {copiedText ? <Check className="w-4 h-4 text-[#a3ff12]" /> : "&rarr;"}
                 </span>
               </button>
 
               {/* Option 3: Download .txt */}
               <button
                 onClick={handleDownloadText}
-                className="w-full p-3 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-between text-left transition-all cursor-pointer group"
+                className="w-full p-2.5 sm:p-3 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-between text-left transition-all cursor-pointer group"
               >
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-xl bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-400">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-400">
                     <FileText className="w-4 h-4" />
                   </div>
                   <div>
@@ -831,20 +1295,20 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
                       Download Plain Text (.txt)
                     </h4>
                     <p className="text-[10px] font-mono text-zinc-400">
-                      Standard ChordPro style text file for guitarists
+                      Standard text chord chart format for guitarists
                     </p>
                   </div>
                 </div>
-                <span className="text-xs font-mono text-zinc-400">.txt &rarr;</span>
+                <span className="text-xs font-mono text-zinc-400">&rarr;</span>
               </button>
 
               {/* Option 4: Download JSON */}
               <button
                 onClick={handleDownloadJSON}
-                className="w-full p-3 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-between text-left transition-all cursor-pointer group"
+                className="w-full p-2.5 sm:p-3 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-between text-left transition-all cursor-pointer group"
               >
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
                     <Download className="w-4 h-4" />
                   </div>
                   <div>
@@ -852,18 +1316,18 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
                       Download JSON Data (.json)
                     </h4>
                     <p className="text-[10px] font-mono text-zinc-400">
-                      Structured timestamps and musical chords dataset
+                      Full structured timestamps, chords, and section tags
                     </p>
                   </div>
                 </div>
-                <span className="text-xs font-mono text-zinc-400">.json &rarr;</span>
+                <span className="text-xs font-mono text-zinc-400">&rarr;</span>
               </button>
             </div>
 
             <div className="pt-2 flex justify-end">
               <button
                 onClick={() => setShowExportModal(false)}
-                className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white font-mono text-xs font-bold cursor-pointer"
+                className="px-4 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-mono text-xs font-bold cursor-pointer"
               >
                 Close
               </button>

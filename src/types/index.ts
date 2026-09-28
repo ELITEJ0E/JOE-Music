@@ -82,6 +82,7 @@ export interface ChordSegment {
   voicingType?: "exact" | "simplified" | "generated" | "none";
   simplificationReason?: string;
   voicing?: ChordVoicing | null;
+  section?: string;
   diagnostics?: any;
 }
 
