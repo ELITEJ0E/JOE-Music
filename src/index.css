@@ -176,3 +176,52 @@ input[type="range"] {
   }
 }
 
+/* ========================================================================= */
+/* GLOBAL MULTI-PAGE PRINT STYLES                                            */
+/* ========================================================================= */
+@media print {
+  /* Reset all fixed-height app wrappers so multi-page printing works */
+  html,
+  body,
+  #root,
+  #root > div,
+  .h-screen,
+  .w-screen,
+  .overflow-hidden,
+  .overflow-y-auto,
+  main {
+    height: auto !important;
+    min-height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    position: static !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* Completely hide surrounding studio chrome and controls */
+  #btn-mobile-header-pwa,
+  header,
+  nav,
+  aside,
+  button,
+  .print-hidden,
+  .no-print,
+  [aria-label="Playback Controls"],
+  [aria-label="Sheet Controls"] {
+    display: none !important;
+  }
+
+  @page {
+    size: auto;
+    margin: 12mm 15mm;
+  }
+
+  .print-break-inside-avoid {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+}
+

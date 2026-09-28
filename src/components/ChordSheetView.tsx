@@ -136,7 +136,7 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
 }) => {
   const [autoScroll, setAutoScroll] = useState<boolean>(true);
   const [showExportModal, setShowExportModal] = useState<boolean>(false);
-  const [showDiagrams, setShowDiagrams] = useState<boolean>(false);
+  const [showDiagrams, setShowDiagrams] = useState<boolean>(true);
   const [copiedText, setCopiedText] = useState<boolean>(false);
   const [undoStack, setUndoStack] = useState<{
     segments: ChordSegment[];
@@ -151,6 +151,7 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
   const [editSectionNameInput, setEditSectionNameInput] = useState<string>("");
 
   const activeChordRef = useRef<HTMLDivElement | null>(null);
+  const activeDiagramCardRef = useRef<HTMLDivElement | null>(null);
   const toastTimeoutRef = useRef<number | null>(null);
 
   // Format seconds to mm:ss
@@ -178,17 +179,6 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
     if (!activeSegment) return null;
     return resolveChordFinderState(activeSegment.chord, transpose, capo, song.key);
   }, [activeSegment, transpose, capo, song.key]);
-
-  // Smooth auto-scroll to the currently active chord
-  useEffect(() => {
-    if (autoScroll && activeChordRef.current) {
-      activeChordRef.current.scrollIntoView({
-        behavior: "smooth",
-        block: "nearest",
-        inline: "nearest",
-      });
-    }
-  }, [activeSegmentIdx, autoScroll]);
 
   // Unique chords present in the current progression
   const uniqueChordSymbols = useMemo(() => {
@@ -223,6 +213,39 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
       };
     });
   }, [uniqueChordSymbols, transpose, capo, song.key]);
+
+  // Map for fast O(1) lookup of resolved voicings by raw chord string
+  const chordVoicingMap = useMemo(() => {
+    const map = new Map<string, GuitarVoicingResult>();
+    uniqueChordVoicings.forEach((v) => {
+      map.set(v.rawChord, v.voicingResult);
+    });
+    return map;
+  }, [uniqueChordVoicings]);
+
+  // Smooth auto-scroll to the currently active chord
+  useEffect(() => {
+    if (!autoScroll) return;
+
+    // 1. In top unique diagram gallery, scroll the active unique card into view if needed
+    if (activeDiagramCardRef.current) {
+      activeDiagramCardRef.current.scrollIntoView({
+        behavior: "smooth",
+        inline: "center",
+        block: "nearest",
+      });
+    }
+
+    // 2. In sheet progression:
+    // Smoothly scroll active chord into view
+    if (activeChordRef.current) {
+      activeChordRef.current.scrollIntoView({
+        behavior: "smooth",
+        block: "nearest",
+        inline: "nearest",
+      });
+    }
+  }, [activeSegmentIdx, autoScroll]);
 
   // Group segments into sections based on `seg.section`
   interface SectionGroup {
@@ -447,9 +470,138 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
     showToast(`Undone: ${lastAction.description}.`);
   };
 
-  // Print sheet music
+  // Print pristine lead sheet across multiple pages without webpage UI
   const handlePrint = () => {
-    window.print();
+    const printableArea = document.getElementById("chord-sheet-printable");
+    if (!printableArea) {
+      window.print();
+      return;
+    }
+
+    // Create an isolated hidden iframe for printing clean multi-page document
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("id", "print-lead-sheet-iframe");
+    iframe.style.position = "fixed";
+    iframe.style.right = "0";
+    iframe.style.bottom = "0";
+    iframe.style.width = "0";
+    iframe.style.height = "0";
+    iframe.style.border = "none";
+    iframe.style.visibility = "hidden";
+    document.body.appendChild(iframe);
+
+    const iframeDoc = iframe.contentWindow?.document;
+    if (!iframeDoc) {
+      window.print();
+      return;
+    }
+
+    // Clone the printable sheet content and strip interactive UI buttons
+    const clone = printableArea.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll("button").forEach((b) => b.remove());
+    clone.querySelectorAll(".print\\:hidden, .print-hidden, [role='button']").forEach((el) => el.remove());
+
+    iframeDoc.open();
+    iframeDoc.write(`
+      <!DOCTYPE html>
+      <html lang="en">
+        <head>
+          <meta charset="utf-8" />
+          <title>${song.title || "Chord Sheet"} - Guitar Lead Sheet</title>
+          <style>
+            @page {
+              size: auto;
+              margin: 14mm 16mm;
+            }
+            * {
+              box-sizing: border-box;
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+            }
+            body {
+              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+              background: #ffffff !important;
+              color: #111827 !important;
+              margin: 0;
+              padding: 0;
+              font-size: 12px;
+            }
+            h1, h2, h3, p {
+              margin: 0;
+              color: #000000;
+            }
+            .font-mono {
+              font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            }
+            .font-bold { font-weight: 700; }
+            .font-black { font-weight: 900; }
+            .uppercase { text-transform: uppercase; }
+
+            /* Break rules to prevent breaking elements across page cuts */
+            section, .section-block, [aria-label="Chord Voicings"] {
+              page-break-inside: avoid !important;
+              break-inside: avoid !important;
+              margin-bottom: 20px;
+            }
+
+            /* Container resets */
+            #chord-sheet-printable {
+              box-shadow: none !important;
+              border: none !important;
+              padding: 0 !important;
+              margin: 0 !important;
+              max-width: 100% !important;
+              width: 100% !important;
+            }
+
+            /* Chords layout for print */
+            .grid {
+              display: grid !important;
+              grid-template-columns: repeat(4, 1fr) !important;
+              gap: 10px !important;
+            }
+
+            .group {
+              page-break-inside: avoid !important;
+              break-inside: avoid !important;
+              border: 1px solid #d1d5db !important;
+              border-radius: 8px !important;
+              padding: 8px !important;
+              background: #ffffff !important;
+            }
+
+            /* Diagrams sizing */
+            svg {
+              max-width: 100% !important;
+              height: auto !important;
+            }
+
+            button, .print-hidden {
+              display: none !important;
+            }
+          </style>
+        </head>
+        <body>
+          ${clone.outerHTML}
+        </body>
+      </html>
+    `);
+    iframeDoc.close();
+
+    setTimeout(() => {
+      try {
+        iframe.contentWindow?.focus();
+        iframe.contentWindow?.print();
+      } catch {
+        window.print();
+      } finally {
+        setTimeout(() => {
+          if (document.body.contains(iframe)) {
+            document.body.removeChild(iframe);
+          }
+        }, 3000);
+      }
+    }, 250);
   };
 
   // Generate plain text / ChordPro sheet format with section tags
@@ -545,43 +697,43 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
   };
 
   return (
-    <div className="min-h-screen bg-[#0c0e12] pb-52 sm:pb-40 pt-1 px-1.5 sm:px-4 md:px-6 relative print:bg-white print:p-0 print:m-0 print:text-black">
+    <div className="min-h-screen bg-[#0c0e12] pb-52 sm:pb-40 pt-1 px-1 sm:px-4 md:px-6 relative print:bg-white print:p-0 print:m-0 print:text-black">
       {/* ========================================================================= */}
-      {/* COMPACT & RESPONSIVE STICKY TOP NAVIGATION BAR                            */}
+      {/* TOP SECTION BAR (AT TOP & NO LONGER STICKY FOR BOTH DESKTOP AND MOBILE)   */}
       {/* ========================================================================= */}
-      <header className="max-w-4xl mx-auto flex items-center justify-between gap-1.5 sm:gap-2 mb-3 bg-[#151922]/95 border border-white/10 rounded-2xl px-2.5 py-1.5 sm:px-4 sm:py-2.5 backdrop-blur-md sticky top-1 z-30 shadow-xl print:hidden text-white">
-        {/* Left: Back & White Sheet Badge */}
+      {/*
+        Per user request:
+        "make it like previous and like current mobile view, where its at the top no longer sticky"
+        It sits at the top in normal/relative flow so it scrolls off naturally as the user scrolls down!
+      */}
+      <header className="relative max-w-4xl mx-auto flex items-center justify-between gap-1.5 sm:gap-2 mb-3 bg-[#151922] border border-white/10 rounded-2xl px-2.5 py-1.5 sm:px-4 sm:py-2.5 text-white shadow-md print:hidden">
+        {/* Left: Back to Studio & WHITE SHEET VIEW badge */}
         <div className="flex items-center gap-1.5 sm:gap-3 min-w-0">
           <button
             onClick={onClose}
-            className="flex items-center gap-1 sm:gap-1.5 px-2 py-1 sm:px-2.5 sm:py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white border border-white/10 text-xs font-mono font-bold transition-all cursor-pointer shrink-0"
+            className="flex items-center gap-1 sm:gap-1.5 px-2.5 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white border border-white/10 text-xs font-mono font-bold transition-all cursor-pointer shrink-0"
             title="Return to standard studio"
           >
             <ArrowLeft className="w-3.5 h-3.5 text-[#a3ff12]" />
-            <span className="hidden sm:inline">Back</span>
+            <span>Back to Studio</span>
           </button>
 
-          <div className="h-4 w-px bg-white/10 shrink-0" />
+          <div className="h-4 w-px bg-white/10 shrink-0 hidden sm:block" />
 
           <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
-            <span className="px-2 py-0.5 rounded-md bg-white text-zinc-900 font-mono text-[10px] font-black uppercase tracking-wider shrink-0 flex items-center gap-1 shadow-sm">
+            <span className="px-2 py-0.5 rounded-md bg-white text-zinc-900 font-mono text-[9.5px] sm:text-[10px] font-black uppercase tracking-wider shrink-0 flex items-center gap-1 shadow-sm">
               <FileText className="w-3 h-3 text-emerald-600" />
-              <span>White Sheet</span>
+              <span>WHITE SHEET VIEW</span>
             </span>
-            <div className="min-w-0 truncate">
-              <span className="text-xs sm:text-sm font-bold text-white truncate block">
-                {song.title || "Song Sheet"}
-              </span>
-            </div>
           </div>
         </div>
 
-        {/* Right: Actions (Undo, Follow Music, Export, Print) */}
+        {/* Right: Actions (Undo, Follow Music, Export, Print Sheet) */}
         <div className="flex items-center gap-1 sm:gap-2 shrink-0">
           {undoStack.length > 0 && (
             <button
               onClick={handleUndo}
-              className="px-2 py-1 rounded-xl bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 text-[10px] font-mono font-bold flex items-center gap-1 transition-colors cursor-pointer"
+              className="px-2 py-1 sm:px-2.5 sm:py-1 rounded-xl bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 text-[10.5px] font-mono font-bold flex items-center gap-1 transition-colors cursor-pointer"
               title="Undo last change"
             >
               <Undo2 className="w-3 h-3" />
@@ -592,7 +744,7 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
           {/* Auto-scroll toggle */}
           <button
             onClick={() => setAutoScroll(!autoScroll)}
-            className={`px-2 py-1 rounded-xl border text-[10.5px] sm:text-[11px] font-mono font-bold flex items-center gap-1 transition-all cursor-pointer ${
+            className={`px-2 py-1 sm:px-2.5 sm:py-1 rounded-xl border text-[10.5px] sm:text-[11px] font-mono font-bold flex items-center gap-1 transition-all cursor-pointer ${
               autoScroll
                 ? "bg-[#a3ff12]/15 border-[#a3ff12]/40 text-[#a3ff12]"
                 : "bg-white/5 border-white/10 text-zinc-400 hover:text-white"
@@ -600,7 +752,7 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
             title="Auto-scroll to currently playing chord"
           >
             <Clock className="w-3 h-3" />
-            <span className="hidden md:inline">Follow:</span>
+            <span className="hidden md:inline">Follow Music:</span>
             <span>{autoScroll ? "ON" : "OFF"}</span>
           </button>
 
@@ -611,17 +763,17 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
             title="Export / Share Chords"
           >
             <Download className="w-3 h-3 text-sky-400" />
-            <span className="hidden sm:inline">Export</span>
+            <span>Export</span>
           </button>
 
-          {/* Print button */}
+          {/* Print Sheet Button (Vibrant neon green matching user image) */}
           <button
             onClick={handlePrint}
-            className="px-2 py-1 sm:px-2.5 sm:py-1 rounded-xl bg-white/5 hover:bg-white/10 text-zinc-200 hover:text-white border border-white/10 font-mono font-bold text-[10.5px] sm:text-[11px] flex items-center gap-1 transition-all cursor-pointer"
-            title="Print lead sheet"
+            className="px-2.5 py-1 sm:px-3 sm:py-1 rounded-xl bg-[#a3ff12] hover:bg-[#92eb10] text-black font-mono font-extrabold text-[10.5px] sm:text-[11px] flex items-center gap-1.5 shadow-sm transition-all cursor-pointer active:scale-95"
+            title="Print multi-page lead sheet or save as PDF"
           >
-            <Printer className="w-3 h-3 text-emerald-400" />
-            <span className="hidden sm:inline">Print</span>
+            <Printer className="w-3.5 h-3.5" />
+            <span>Print Sheet</span>
           </button>
         </div>
       </header>
@@ -643,10 +795,12 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
       )}
 
       {/* ========================================================================= */}
-      {/* THE WHITE SHEET (Crisp Music Paper Lead Sheet with Responsive Layout)     */}
+      {/* THE WHITE SHEET (Crisp Music Paper Lead Sheet with Grid Layout)           */}
       {/* ========================================================================= */}
-      <main className="max-w-4xl mx-auto bg-white rounded-2xl sm:rounded-3xl border border-zinc-200/90 shadow-2xl shadow-black/40 p-3 sm:p-6 md:p-8 space-y-4 sm:space-y-5 text-zinc-900 print:shadow-none print:border-none print:p-0 print:m-0 print:rounded-none">
-        
+      <main
+        id="chord-sheet-printable"
+        className="max-w-4xl mx-auto bg-white rounded-2xl sm:rounded-3xl border border-zinc-200/90 shadow-2xl shadow-black/40 p-3 sm:p-6 md:p-8 space-y-4 sm:space-y-5 text-zinc-900 print:shadow-none print:border-none print:p-0 print:m-0 print:rounded-none printable-chord-sheet"
+      >
         {/* Lead Sheet Title Header & Metadata Strip */}
         <section aria-label="Song Header" className="border-b-2 border-zinc-900 pb-3 sm:pb-4">
           <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-2">
@@ -661,7 +815,7 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
               )}
             </div>
 
-            {/* Quick Metadata Badges Strip (Clean Paper Lead Sheet Style) */}
+            {/* Quick Metadata Badges Strip */}
             <div className="flex items-center gap-1.5 flex-wrap text-[11px] font-mono">
               <span className="px-2 py-0.5 rounded-md bg-zinc-100 border border-zinc-300 text-zinc-800 font-bold">
                 Key: <strong className="text-zinc-950">{song.key || "C"}</strong>
@@ -684,36 +838,39 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
           </div>
         </section>
 
-        {/* =================================================================== */}
-        {/* CHORD VOICINGS DIAGRAMS GALLERY (Rendered with light theme on sheet) */}
-        {/* =================================================================== */}
-        <section aria-label="Chord Voicings" className="bg-zinc-50 border border-zinc-200 rounded-2xl overflow-hidden print:border-zinc-300">
-          <div
-            onClick={() => setShowDiagrams(!showDiagrams)}
-            className="flex items-center justify-between px-3.5 py-2.5 cursor-pointer hover:bg-zinc-100 transition-colors select-none"
-          >
-            <div className="flex items-center gap-2">
+        {/* ========================================================================= */}
+        {/* CHORD DIAGRAMS SECTION (Matches user screenshot, clean paper grid)        */}
+        {/* ========================================================================= */}
+        <section
+          aria-label="Chord Voicings"
+          className="bg-white border border-zinc-200/90 rounded-2xl p-3 sm:p-4 shadow-xs transition-all print:border-zinc-300"
+        >
+          {/* Header Row: Title & Strum preview hint & Collapse toggle */}
+          <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-zinc-100">
+            <div
+              onClick={() => setShowDiagrams(!showDiagrams)}
+              className="flex items-center gap-2 cursor-pointer select-none group"
+            >
               <Music className="w-4 h-4 text-emerald-700" />
-              <h2 className="text-xs font-mono font-bold uppercase tracking-wider text-zinc-800">
-                Chord Diagrams ({uniqueChordVoicings.length} Unique)
+              <h2 className="text-xs sm:text-sm font-mono font-bold tracking-tight text-zinc-900 group-hover:text-emerald-700 transition-colors">
+                ♫ CHORD DIAGRAMS ({uniqueChordVoicings.length} UNIQUE)
               </h2>
-            </div>
-            <div className="flex items-center gap-2 text-xs font-mono text-zinc-600">
-              <span className="text-[11px] hidden sm:inline">
-                {showDiagrams ? "Hide diagrams" : "View diagrams"}
-              </span>
               {showDiagrams ? (
-                <ChevronUp className="w-4 h-4 text-zinc-600" />
+                <ChevronUp className="w-3.5 h-3.5 text-zinc-400 group-hover:text-zinc-600" />
               ) : (
-                <ChevronDown className="w-4 h-4 text-zinc-600" />
+                <ChevronDown className="w-3.5 h-3.5 text-zinc-400 group-hover:text-zinc-600" />
               )}
             </div>
+
+            <span className="text-[10px] sm:text-[11px] font-mono text-zinc-500 hidden sm:inline">
+              Click any diagram to hear strum preview
+            </span>
           </div>
 
-          {/* Collapsible Diagrams Strip */}
+          {/* Unique Chord Diagram Cards Strip / Grid */}
           {showDiagrams && (
-            <div className="p-3 sm:p-4 border-t border-zinc-200 bg-white animate-in fade-in duration-150">
-              <div className="flex items-center gap-3 overflow-x-auto pb-2 scrollbar-thin">
+            <div className="pt-3 overflow-hidden animate-in fade-in duration-150">
+              <div className="flex items-stretch gap-2 sm:gap-3 overflow-x-auto pb-2 scrollbar-thin snap-x">
                 {uniqueChordVoicings.map(({ rawChord, targetShape, voicingResult }) => {
                   const isCurrentlyPlaying =
                     activeResolvedChord?.isValid &&
@@ -724,33 +881,37 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
                   return (
                     <div
                       key={rawChord}
+                      ref={isCurrentlyPlaying ? activeDiagramCardRef : null}
                       onClick={() => {
                         if (voicingResult.voicing) {
                           guitarSynth.strumChord(voicingResult.voicing.frets, "down", 24, capo);
                         }
                       }}
-                      className={`group relative rounded-xl p-2 transition-all duration-150 cursor-pointer flex flex-col items-center justify-between border shrink-0 ${
+                      className={`group relative rounded-2xl p-2 sm:p-3 transition-all duration-150 cursor-pointer flex flex-col justify-between border shrink-0 snap-start ${
                         isCurrentlyPlaying
-                          ? "bg-lime-50 border-lime-500 shadow-md ring-1 ring-lime-400 scale-[1.02]"
-                          : "bg-white hover:bg-zinc-50 border-zinc-200"
-                      } min-w-[110px] sm:min-w-[125px]`}
-                      title={`Hear ${targetShape} guitar strum`}
+                          ? "bg-[#f0fdf4] border-2 border-[#10b981] shadow-md ring-1 ring-[#10b981]/30 scale-[1.02]"
+                          : "bg-white hover:bg-zinc-50 border border-zinc-200/90 shadow-xs"
+                      } min-w-[115px] sm:min-w-[135px] max-w-[155px]`}
+                      title={`Click to strum ${targetShape}`}
                     >
+                      {/* Card Header: Chord Name & "NOW PLAYING" badge */}
                       <div className="flex items-center justify-between w-full mb-1">
                         <span
-                          className={`text-sm sm:text-base font-black font-mono ${
-                            isCurrentlyPlaying ? "text-lime-800" : "text-zinc-900"
+                          className={`text-base sm:text-lg font-black font-mono tracking-tight ${
+                            isCurrentlyPlaying ? "text-[#059669]" : "text-zinc-900"
                           }`}
                         >
                           {targetShape}
                         </span>
                         {isCurrentlyPlaying && (
-                          <span className="w-2 h-2 rounded-full bg-lime-500 animate-ping" />
+                          <span className="bg-[#10b981] text-white text-[8px] sm:text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 sm:px-2 rounded-full shadow-xs shrink-0">
+                            NOW PLAYING
+                          </span>
                         )}
                       </div>
 
-                      {/* Light Theme Chord Diagram for Crisp Sheet Paper Reading */}
-                      <div className="w-full flex items-center justify-center h-[115px] sm:h-[130px]">
+                      {/* Light Theme Guitar Chord Diagram */}
+                      <div className="w-full flex items-center justify-center h-[95px] sm:h-[115px] my-0.5">
                         {voicingResult.voicing ? (
                           <ChordDiagram
                             frets={voicingResult.voicing.frets}
@@ -770,8 +931,15 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
                         )}
                       </div>
 
-                      <div className="mt-1 flex items-center gap-1 text-[9px] font-mono text-zinc-500 group-hover:text-emerald-700 transition-colors">
-                        <Play className="w-2 h-2 fill-current" />
+                      {/* Card Footer: Preview button with play icon */}
+                      <div
+                        className={`mt-1 flex items-center justify-center gap-1.5 text-[9.5px] sm:text-[10px] font-mono ${
+                          isCurrentlyPlaying
+                            ? "text-[#059669] font-bold"
+                            : "text-zinc-500 group-hover:text-zinc-900"
+                        } transition-colors pt-1 border-t border-zinc-100 print:hidden`}
+                      >
+                        <Play className="w-2.5 h-2.5 fill-current" />
                         <span>Preview</span>
                       </div>
                     </div>
@@ -783,8 +951,15 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
         </section>
 
         {/* =================================================================== */}
-        {/* SECTIONS & CHORDS PROGRESSION VIEW ON WHITE SHEET                   */}
+        {/* SECTIONS & CHORDS PROGRESSION VIEW (GRID ON BOTH MOBILE & DESKTOP)  */}
         {/* =================================================================== */}
+        {/*
+          Per user request:
+          "no need the Inline Sliding (Right to Left), just show like how its shown
+          on desktop view but maybe can be smaller to fit more chords"
+          Both desktop & mobile now render the clean, responsive grid layout
+          with compact chord blocks to fit significantly more chords per row!
+        */}
         <section aria-label="Progression Timeline" className="space-y-4">
           {/* Section Toolbar / Helper */}
           <div className="flex items-center justify-between gap-2 px-1">
@@ -801,7 +976,8 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
                   title="Auto-detect and divide into Verse/Chorus template"
                 >
                   <Sparkles className="w-3 h-3 text-emerald-600" />
-                  <span>Auto-Template Sections</span>
+                  <span className="hidden sm:inline">Auto-Template Sections</span>
+                  <span className="sm:hidden">Template</span>
                 </button>
               )}
             </div>
@@ -815,14 +991,16 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
             return (
               <div
                 key={`section-${sIdx}-${section.name}-${section.startIndex}`}
-                className={`rounded-2xl border transition-all duration-200 overflow-hidden ${
+                className={`rounded-2xl border transition-all duration-200 overflow-hidden print-break-inside-avoid ${
                   isSectionActive
                     ? "border-emerald-400 shadow-md ring-1 ring-emerald-200"
                     : "border-zinc-200 hover:border-zinc-300"
                 } bg-white`}
               >
                 {/* SECTION HEADER BANNER (Paper style) */}
-                <div className={`px-3 sm:px-4 py-2.5 flex items-center justify-between gap-2 border-b border-zinc-200 ${style.headerBg} border-l-4 ${style.accentBorder}`}>
+                <div
+                  className={`px-3 sm:px-4 py-2 sm:py-2.5 flex items-center justify-between gap-2 border-b border-zinc-200 ${style.headerBg} border-l-4 ${style.accentBorder}`}
+                >
                   <div className="flex items-center gap-2 sm:gap-3 min-w-0">
                     {/* Section Tag Badge / Editable input */}
                     {editingSectionIdx === sIdx ? (
@@ -865,11 +1043,11 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
                         >
                           <span className={`w-1.5 h-1.5 rounded-full ${style.dot}`} />
                           <span>{section.name}</span>
-                          <Edit3 className="w-2.5 h-2.5 opacity-60 ml-0.5" />
+                          <Edit3 className="w-2.5 h-2.5 opacity-60 ml-0.5 print:hidden" />
                         </span>
 
                         {isSectionActive && (
-                          <span className="px-1.5 py-0.5 rounded bg-emerald-100 border border-emerald-300 text-emerald-800 text-[9px] font-mono font-bold tracking-wider animate-pulse hidden sm:inline">
+                          <span className="px-1.5 py-0.5 rounded bg-emerald-100 border border-emerald-300 text-emerald-800 text-[9px] font-mono font-bold tracking-wider animate-pulse hidden sm:inline print:hidden">
                             NOW PLAYING
                           </span>
                         )}
@@ -883,7 +1061,7 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
                   </div>
 
                   {/* Right: Section Actions */}
-                  <div className="flex items-center gap-1.5 shrink-0">
+                  <div className="flex items-center gap-1.5 shrink-0 print:hidden">
                     {/* Play from section start */}
                     <button
                       onClick={() => {
@@ -910,75 +1088,106 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
                   </div>
                 </div>
 
-                {/* CHORDS GRID UNDER THIS SECTION (Responsive 2-col on mobile, 3-4 on tablet/desktop) */}
-                <div className="p-2 sm:p-3.5 bg-white">
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 sm:gap-2.5">
+                {/* COMPACT CHORDS GRID (Fits more chords across mobile & desktop) */}
+                {/* 3 cols on mobile, 4 on sm, 5 on md, 6 on lg */}
+                <div className="p-2 sm:p-3 bg-white">
+                  <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-1.5 sm:gap-2 print:grid print:grid-cols-4">
                     {section.items.map(({ seg, originalIndex }) => {
                       const state = resolveChordFinderState(seg.chord, transpose, capo, song.key);
                       const chordLabel = capo > 0 && state.isValid ? state.shapeChord : state.transposedChord;
                       const isActive = originalIndex === activeSegmentIdx;
                       const segDuration = (seg.endTime - seg.startTime).toFixed(1);
 
+                      // Resolve miniature voicing for this specific chord
+                      const resolved = chordVoicingMap.get(seg.chord);
+                      const targetShape = capo > 0 && state.isValid ? state.shapeChord : state.transposedChord;
+                      const voicing = resolved?.voicing || resolveGuitarChord(targetShape, {
+                        keyContext: song.key,
+                        capo,
+                        detectedChord: seg.chord,
+                      }).voicing;
+
                       return (
                         <div
                           key={seg.id || `chord-${originalIndex}-${seg.startTime}`}
                           ref={isActive ? activeChordRef : null}
                           onClick={() => onSeek(seg.startTime)}
-                          className={`group relative rounded-xl p-2 sm:p-2.5 border transition-all duration-150 cursor-pointer flex flex-col justify-between select-none ${
+                          className={`group relative rounded-xl p-1.5 sm:p-2 border transition-all duration-150 cursor-pointer flex flex-col justify-between select-none print-break-inside-avoid ${
                             isActive
-                              ? "bg-[#ecfccb] border-[#84cc16] ring-2 ring-[#84cc16] shadow-md scale-[1.02] text-zinc-950"
-                              : "bg-zinc-50/80 hover:bg-zinc-100 border-zinc-200 text-zinc-800 shadow-xs"
+                              ? "bg-[#ecfccb] border-2 border-[#84cc16] ring-2 ring-[#84cc16]/40 shadow-md scale-[1.02] text-zinc-950"
+                              : "bg-white hover:bg-zinc-50 border border-zinc-200/90 text-zinc-800 shadow-xs"
                           }`}
                           title={`Jump to ${chordLabel} at ${formatTime(seg.startTime)}`}
                         >
                           {/* Top: Timestamp & Duration */}
-                          <div className="flex items-center justify-between text-[10px] font-mono text-zinc-500 mb-0.5">
+                          <div className="flex items-center justify-between text-[8.5px] sm:text-[9.5px] font-mono text-zinc-500 mb-0.5">
                             <span
-                              className={`px-1.5 py-0.5 rounded font-bold ${
+                              className={`px-1 py-0.2 sm:px-1.5 sm:py-0.5 rounded font-bold ${
                                 isActive
                                   ? "bg-[#84cc16] text-black font-extrabold"
-                                  : "bg-zinc-200/80 text-zinc-700"
+                                  : "bg-zinc-100 text-zinc-700 border border-zinc-200"
                               }`}
                             >
                               {formatTime(seg.startTime)}
                             </span>
-                            <span className="text-[9.5px] font-mono text-zinc-400">{segDuration}s</span>
+                            <span className="text-[8px] sm:text-[9px] font-mono text-zinc-400">{segDuration}s</span>
                           </div>
 
-                          {/* Center: Chord Symbol */}
-                          <div className="py-1 text-center">
+                          {/* Center 1: Chord Symbol */}
+                          <div className="text-center pt-0.5">
                             <span
-                              className={`text-2xl sm:text-3xl font-mono font-black tracking-tight transition-transform ${
+                              className={`text-base sm:text-lg md:text-xl font-mono font-black tracking-tight transition-transform ${
                                 isActive ? "text-[#365314] scale-105 inline-block" : "text-zinc-900"
                               }`}
                             >
                               {chordLabel}
                             </span>
                             {capo > 0 && state.isValid && state.shapeChord !== state.transposedChord && (
-                              <span className="block text-[9.5px] font-mono font-bold text-sky-700 truncate">
+                              <span className="block text-[8px] sm:text-[8.5px] font-mono font-bold text-sky-700 truncate">
                                 Sounding: {state.transposedChord}
                               </span>
                             )}
                           </div>
 
+                          {/* Miniature Chord Diagram (Compact & Scaled to fit more chords) */}
+                          <div className="w-full flex items-center justify-center my-0.5 h-[58px] sm:h-[68px] md:h-[72px]">
+                            {voicing ? (
+                              <ChordDiagram
+                                frets={voicing.frets}
+                                fingers={voicing.fingers}
+                                barre={voicing.barre}
+                                position={voicing.baseFret}
+                                cagedShape={voicing.cagedShape}
+                                capo={capo}
+                                size="xxs"
+                                theme="light"
+                                className="max-h-full max-w-full"
+                              />
+                            ) : (
+                              <div className="text-[8.5px] font-mono text-zinc-400 text-center py-1">
+                                N/A
+                              </div>
+                            )}
+                          </div>
+
                           {/* Bottom Row: Actions (Play status, Tag section, Remove) */}
-                          <div className="flex items-center justify-between pt-1 border-t border-zinc-200/60 mt-0.5">
+                          <div className="flex items-center justify-between pt-0.5 border-t border-zinc-100 mt-0.5 print:hidden">
                             <span
-                              className={`text-[9.5px] font-mono flex items-center gap-1 ${
+                              className={`text-[8.5px] sm:text-[9px] font-mono flex items-center gap-0.5 sm:gap-1 ${
                                 isActive ? "text-[#365314] font-bold" : "text-zinc-400 group-hover:text-zinc-600"
                               }`}
                             >
                               {isActive ? (
                                 <>
-                                  <Play className="w-2.5 h-2.5 fill-current text-[#4d7c0f] animate-pulse" />
-                                  <span>PLAYING</span>
+                                  <Play className="w-2 h-2 fill-current text-[#4d7c0f] animate-pulse" />
+                                  <span className="hidden sm:inline">PLAY</span>
                                 </>
                               ) : (
                                 <span>Seek</span>
                               )}
                             </span>
 
-                            <div className="flex items-center gap-1 print:hidden">
+                            <div className="flex items-center gap-0.5">
                               {/* Add / Split section tag button */}
                               <button
                                 onClick={(e) => {
@@ -986,10 +1195,10 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
                                   setTagModalChordIdx(originalIndex);
                                   setCustomTagName("");
                                 }}
-                                className="p-1 rounded hover:bg-zinc-200 text-zinc-500 hover:text-emerald-700 transition-colors cursor-pointer"
+                                className="p-0.5 rounded hover:bg-zinc-100 text-zinc-400 hover:text-emerald-700 transition-colors cursor-pointer"
                                 title="Split and start a new section tag here"
                               >
-                                <Tag className="w-3 h-3" />
+                                <Tag className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
                               </button>
 
                               {/* Remove Chord Segment */}
@@ -998,10 +1207,10 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
                                   e.stopPropagation();
                                   handleRemoveSegment(originalIndex);
                                 }}
-                                className="p-1 rounded hover:bg-red-100 text-zinc-400 hover:text-red-600 transition-colors cursor-pointer"
+                                className="p-0.5 rounded hover:bg-red-50 text-zinc-400 hover:text-red-600 transition-colors cursor-pointer"
                                 title="Remove chord segment"
                               >
-                                <Trash2 className="w-3 h-3" />
+                                <Trash2 className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
                               </button>
                             </div>
                           </div>
@@ -1016,7 +1225,7 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
         </section>
 
         {/* Lead Sheet Footer Note */}
-        <div className="pt-3 border-t border-zinc-200 flex flex-col sm:flex-row items-center justify-between text-[11px] font-mono text-zinc-500 gap-1.5">
+        <div className="pt-3 border-t border-zinc-200 flex flex-col sm:flex-row items-center justify-between text-[11px] font-mono text-zinc-500 gap-1.5 print:text-zinc-400">
           <span>Guitar Studio AI • Lead Chord Sheet</span>
           <span>Click any chord to seek • Tap tag to split sections • Tap trash to remove</span>
         </div>
@@ -1025,13 +1234,10 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
       {/* ========================================================================= */}
       {/* FLOATING PLAYBACK DOCK (Pinned Safely ABOVE Mobile Bottom Navigation)     */}
       {/* ========================================================================= */}
-      {/*
-        Notice: MobileBottomNav has h-16 (64px) + z-40.
-        By setting `bottom-[74px] md:bottom-5 z-50`, this player dock floats
-        comfortably and cleanly above the mobile bottom nav on phone screens,
-        and at the regular bottom-5 on desktop!
-      */}
-      <aside aria-label="Playback Controls" className="fixed bottom-[74px] md:bottom-5 left-1/2 -translate-x-1/2 z-50 w-[95%] max-w-2xl bg-[#0f121a]/95 backdrop-blur-xl border border-white/15 rounded-2xl shadow-2xl p-2.5 sm:p-3 flex flex-col gap-2 text-white print:hidden">
+      <aside
+        aria-label="Playback Controls"
+        className="fixed bottom-[74px] md:bottom-5 left-1/2 -translate-x-1/2 z-50 w-[95%] max-w-2xl bg-[#0f121a]/95 backdrop-blur-xl border border-white/15 rounded-2xl shadow-2xl p-2.5 sm:p-3 flex flex-col gap-2 text-white print:hidden"
+      >
         {/* Scrubber track */}
         <div className="flex items-center gap-2 sm:gap-3">
           <span className="text-[10px] sm:text-[11px] font-mono text-zinc-400 w-9 text-right shrink-0">
@@ -1116,7 +1322,11 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
               className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-[#a3ff12] hover:bg-[#92eb10] text-black flex items-center justify-center shadow-[0_0_15px_rgba(163,255,18,0.4)] transition-all cursor-pointer"
               title={isPlaying ? "Pause (Space)" : "Play (Space)"}
             >
-              {isPlaying ? <Pause className="w-4 h-4 sm:w-5 sm:h-5 fill-black" /> : <Play className="w-4 h-4 sm:w-5 sm:h-5 fill-black ml-0.5" />}
+              {isPlaying ? (
+                <Pause className="w-4 h-4 sm:w-5 sm:h-5 fill-black" />
+              ) : (
+                <Play className="w-4 h-4 sm:w-5 sm:h-5 fill-black ml-0.5" />
+              )}
             </button>
 
             <button
@@ -1145,7 +1355,7 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
       {/* SECTION TAGGING MODAL / PICKER                                            */}
       {/* ========================================================================= */}
       {tagModalChordIdx !== null && (
-        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-3">
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-3 print:hidden">
           <div className="bg-[#14171e] border border-white/15 rounded-3xl p-5 max-w-sm w-full shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between border-b border-white/10 pb-2.5">
               <div className="flex items-center gap-2">
@@ -1162,10 +1372,8 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
 
             <p className="text-xs font-mono text-zinc-400">
               Split the chord progression at chord{" "}
-              <strong className="text-white">
-                {segments[tagModalChordIdx]?.chord}
-              </strong>{" "}
-              ({formatTime(segments[tagModalChordIdx]?.startTime)}) into a labeled section:
+              <strong className="text-white">{segments[tagModalChordIdx]?.chord}</strong> (
+              {formatTime(segments[tagModalChordIdx]?.startTime)}) into a labeled section:
             </p>
 
             {/* Common Preset Tags */}
@@ -1214,7 +1422,7 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
       {/* EXPORT MODAL                                                             */}
       {/* ========================================================================= */}
       {showExportModal && (
-        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-3">
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-3 print:hidden">
           <div className="bg-[#14171e] border border-white/15 rounded-3xl p-5 sm:p-6 max-w-md w-full shadow-2xl space-y-4 animate-in fade-in duration-150">
             <div className="flex items-center justify-between border-b border-white/10 pb-3">
               <div className="flex items-center gap-2">
@@ -1230,15 +1438,16 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
             </div>
 
             <p className="text-xs font-mono text-zinc-400">
-              Export your customized chord progression and tagged sections for <strong>{song.title}</strong>:
+              Export your customized chord progression and tagged sections for{" "}
+              <strong>{song.title}</strong>:
             </p>
 
             <div className="space-y-2.5">
-              {/* Option 1: Print / PDF */}
+              {/* Option 1: Print / PDF Document (Pure Multi-Page Lead Sheet) */}
               <button
                 onClick={() => {
                   setShowExportModal(false);
-                  setTimeout(() => window.print(), 200);
+                  setTimeout(() => handlePrint(), 200);
                 }}
                 className="w-full p-2.5 sm:p-3 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-between text-left transition-all cursor-pointer group"
               >
@@ -1248,10 +1457,10 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
                   </div>
                   <div>
                     <h4 className="text-xs font-bold font-mono text-white group-hover:text-purple-300">
-                      Print / PDF Document
+                      Print / PDF Multi-Page Document
                     </h4>
                     <p className="text-[10px] font-mono text-zinc-400">
-                      Print crisp lead sheet or save as digital PDF
+                      Clean lead sheet with all playable chords & diagrams across pages
                     </p>
                   </div>
                 </div>
