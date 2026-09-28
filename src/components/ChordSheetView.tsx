@@ -18,11 +18,15 @@ import {
   ArrowLeft,
   ChevronDown,
   ChevronUp,
+  ChevronLeft,
+  ChevronRight,
   Tag,
   Edit3,
   Layers,
   ExternalLink,
   FileCode,
+  Sun,
+  Moon,
 } from "lucide-react";
 import { ChordSegment, SavedSong, SongAnalysis } from "../types";
 import { ChordDiagram } from "./ChordDiagram";
@@ -137,6 +141,7 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
   onUpdateSongSegments,
 }) => {
   const [autoScroll, setAutoScroll] = useState<boolean>(true);
+  const [sheetTheme, setSheetTheme] = useState<"light" | "dark">("light");
   const [showExportModal, setShowExportModal] = useState<boolean>(false);
   const [showDiagrams, setShowDiagrams] = useState<boolean>(true);
   const [copiedText, setCopiedText] = useState<boolean>(false);
@@ -155,6 +160,59 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
   const activeChordRef = useRef<HTMLDivElement | null>(null);
   const activeDiagramCardRef = useRef<HTMLDivElement | null>(null);
   const toastTimeoutRef = useRef<number | null>(null);
+
+  // Top navigation sliding / swiping bar state & refs
+  const topButtonsContainerRef = useRef<HTMLDivElement | null>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState<boolean>(false);
+  const [canScrollRight, setCanScrollRight] = useState<boolean>(false);
+  const isDraggingTopBarRef = useRef<boolean>(false);
+  const topBarStartXRef = useRef<number>(0);
+  const topBarScrollLeftRef = useRef<number>(0);
+
+  const updateScrollIndicators = () => {
+    if (topButtonsContainerRef.current) {
+      const { scrollLeft, scrollWidth, clientWidth } = topButtonsContainerRef.current;
+      setCanScrollLeft(scrollLeft > 6);
+      setCanScrollRight(scrollLeft + clientWidth < scrollWidth - 6);
+    }
+  };
+
+  useEffect(() => {
+    updateScrollIndicators();
+    const handleResize = () => updateScrollIndicators();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [undoStack.length]);
+
+  const handleTopBarMouseDown = (e: React.MouseEvent) => {
+    if (!topButtonsContainerRef.current) return;
+    isDraggingTopBarRef.current = true;
+    topBarStartXRef.current = e.pageX - topButtonsContainerRef.current.offsetLeft;
+    topBarScrollLeftRef.current = topButtonsContainerRef.current.scrollLeft;
+  };
+
+  const handleTopBarMouseMove = (e: React.MouseEvent) => {
+    if (!isDraggingTopBarRef.current || !topButtonsContainerRef.current) return;
+    e.preventDefault();
+    const x = e.pageX - topButtonsContainerRef.current.offsetLeft;
+    const walk = (x - topBarStartXRef.current) * 1.5;
+    topButtonsContainerRef.current.scrollLeft = topBarScrollLeftRef.current - walk;
+    updateScrollIndicators();
+  };
+
+  const handleTopBarMouseUp = () => {
+    isDraggingTopBarRef.current = false;
+  };
+
+  const handleScrollNudge = (direction: "left" | "right") => {
+    if (topButtonsContainerRef.current) {
+      topButtonsContainerRef.current.scrollBy({
+        left: direction === "left" ? -140 : 140,
+        behavior: "smooth",
+      });
+      setTimeout(updateScrollIndicators, 200);
+    }
+  };
 
   // Format seconds to mm:ss
   const formatTime = (time: number) => {
@@ -1193,6 +1251,8 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
     showToast("Chord data JSON downloaded!");
   };
 
+  const isLightSheet = sheetTheme === "light";
+
   return (
     <div className="min-h-screen bg-[#0c0e12] pb-52 sm:pb-40 pt-1 px-1 sm:px-4 md:px-6 relative print:bg-white print:p-0 print:m-0 print:text-black">
       {/* ========================================================================= */}
@@ -1216,53 +1276,115 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
           </button>
         </div>
 
-        {/* Right: Actions (Undo, Follow Music, External, Export, Print) */}
-        <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-          {undoStack.length > 0 && (
-            <button
-              onClick={handleUndo}
-              className="px-2 py-1 sm:px-2.5 sm:py-1 rounded-xl bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 text-[10.5px] font-mono font-bold flex items-center gap-1 transition-colors cursor-pointer"
-              title="Undo last change"
-            >
-              <Undo2 className="w-3 h-3" />
-              <span className="hidden sm:inline">Undo</span>
-            </button>
+        {/* Right: Actions Carousel (Horizontally swipeable & slidable to show all buttons) */}
+        <div className="relative flex items-center min-w-0 flex-1 justify-end overflow-hidden">
+          {/* Left scroll / swipe nudge button (visible when scrolled to right) */}
+          {canScrollLeft && (
+            <div className="absolute left-0 top-0 bottom-0 z-10 flex items-center pr-2 bg-gradient-to-r from-[#151922] via-[#151922]/90 to-transparent">
+              <button
+                onClick={() => handleScrollNudge("left")}
+                className="w-5 h-5 rounded-full bg-white/20 hover:bg-white/30 text-white flex items-center justify-center transition-all shadow-sm cursor-pointer"
+                title="Scroll buttons left"
+                aria-label="Scroll buttons left"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+              </button>
+            </div>
           )}
 
-          {/* Auto-scroll toggle */}
-          <button
-            onClick={() => setAutoScroll(!autoScroll)}
-            className={`px-2 py-1 sm:px-2.5 sm:py-1 rounded-xl border text-[10.5px] sm:text-[11px] font-mono font-bold flex items-center gap-1 transition-all cursor-pointer ${
-              autoScroll
-                ? "bg-[#a3ff12]/15 border-[#a3ff12]/40 text-[#a3ff12]"
-                : "bg-white/5 border-white/10 text-zinc-400 hover:text-white"
-            }`}
-            title="Auto-scroll to currently playing chord"
+          {/* Swipeable / Slidable Track */}
+          <div
+            ref={topButtonsContainerRef}
+            onScroll={updateScrollIndicators}
+            onMouseDown={handleTopBarMouseDown}
+            onMouseMove={handleTopBarMouseMove}
+            onMouseUp={handleTopBarMouseUp}
+            onMouseLeave={handleTopBarMouseUp}
+            className="flex items-center gap-1.5 sm:gap-2 overflow-x-auto no-scrollbar scroll-smooth touch-pan-x py-0.5 px-0.5 max-w-full shrink min-w-0 [-webkit-overflow-scrolling:touch] cursor-grab active:cursor-grabbing select-none"
           >
-            <Clock className="w-3 h-3" />
-            <span className="hidden md:inline">Follow Music:</span>
-            <span>{autoScroll ? "ON" : "OFF"}</span>
-          </button>
+            {undoStack.length > 0 && (
+              <button
+                onClick={handleUndo}
+                className="px-2 py-1 sm:px-2.5 sm:py-1 rounded-xl bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 text-[10.5px] font-mono font-bold flex items-center gap-1 transition-colors cursor-pointer shrink-0"
+                title="Undo last change"
+              >
+                <Undo2 className="w-3 h-3" />
+                <span className="hidden sm:inline">Undo</span>
+              </button>
+            )}
 
-          {/* External Page button */}
-          <button
-            onClick={handleOpenExternalPage}
-            className="px-2 py-1 sm:px-2.5 sm:py-1 rounded-xl bg-white/5 hover:bg-white/10 text-white border border-white/10 text-[10.5px] sm:text-[11px] font-mono font-bold flex items-center gap-1.5 transition-all cursor-pointer"
-            title="Open full chord sheet in an external web page / new tab"
-          >
-            <ExternalLink className="w-3 h-3 text-sky-400" />
-            <span>External</span>
-          </button>
+            {/* Auto-scroll toggle */}
+            <button
+              onClick={() => setAutoScroll(!autoScroll)}
+              className={`px-2 py-1 sm:px-2.5 sm:py-1 rounded-xl border text-[10.5px] sm:text-[11px] font-mono font-bold flex items-center gap-1 transition-all cursor-pointer shrink-0 ${
+                autoScroll
+                  ? "bg-[#a3ff12]/15 border-[#a3ff12]/40 text-[#a3ff12]"
+                  : "bg-white/5 border-white/10 text-zinc-400 hover:text-white"
+              }`}
+              title="Auto-scroll to currently playing chord"
+            >
+              <Clock className="w-3 h-3" />
+              <span className="hidden md:inline">Follow:</span>
+              <span>{autoScroll ? "ON" : "OFF"}</span>
+            </button>
 
-          {/* Export Button (Consolidated prominent button opening export formats: HTML, PDF, Word Doc) */}
-          <button
-            onClick={() => setShowExportModal(true)}
-            className="px-2.5 py-1 sm:px-3 sm:py-1 rounded-xl bg-[#a3ff12] hover:bg-[#92eb10] text-black font-mono font-extrabold text-[10.5px] sm:text-[11px] flex items-center gap-1.5 shadow-sm transition-all cursor-pointer active:scale-95"
-            title="Export sheet in HTML, PDF, or Word Doc formats"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>Export</span>
-          </button>
+            {/* Dark / Light Sheet Theme Toggle */}
+            <button
+              onClick={() => setSheetTheme((prev) => (prev === "light" ? "dark" : "light"))}
+              className={`px-2 py-1 sm:px-2.5 sm:py-1 rounded-xl border text-[10.5px] sm:text-[11px] font-mono font-bold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${
+                sheetTheme === "dark"
+                  ? "bg-indigo-500/15 border-indigo-500/40 text-indigo-300 hover:bg-indigo-500/25"
+                  : "bg-white/5 border-white/10 text-zinc-300 hover:text-white hover:bg-white/10"
+              }`}
+              title={`Switch to ${sheetTheme === "light" ? "Dark" : "Light"} sheet view`}
+            >
+              {sheetTheme === "light" ? (
+                <>
+                  <Moon className="w-3 h-3 text-indigo-400" />
+                  <span>Dark</span>
+                </>
+              ) : (
+                <>
+                  <Sun className="w-3 h-3 text-amber-400" />
+                  <span>Light</span>
+                </>
+              )}
+            </button>
+
+            {/* External Page button */}
+            <button
+              onClick={handleOpenExternalPage}
+              className="px-2 py-1 sm:px-2.5 sm:py-1 rounded-xl bg-white/5 hover:bg-white/10 text-white border border-white/10 text-[10.5px] sm:text-[11px] font-mono font-bold flex items-center gap-1.5 transition-all cursor-pointer shrink-0"
+              title="Open full chord sheet in an external web page / new tab"
+            >
+              <ExternalLink className="w-3 h-3 text-sky-400" />
+              <span>External</span>
+            </button>
+
+            {/* Export Button (Consolidated prominent button opening export formats: HTML, PDF, Word Doc) */}
+            <button
+              onClick={() => setShowExportModal(true)}
+              className="px-2.5 py-1 sm:px-3 sm:py-1 rounded-xl bg-[#a3ff12] hover:bg-[#92eb10] text-black font-mono font-extrabold text-[10.5px] sm:text-[11px] flex items-center gap-1.5 shadow-sm transition-all cursor-pointer active:scale-95 shrink-0"
+              title="Export sheet in HTML, PDF, or Word Doc formats"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Export</span>
+            </button>
+          </div>
+
+          {/* Right scroll / swipe nudge button (visible when more buttons exist on right) */}
+          {canScrollRight && (
+            <div className="absolute right-0 top-0 bottom-0 z-10 flex items-center pl-2 bg-gradient-to-l from-[#151922] via-[#151922]/90 to-transparent">
+              <button
+                onClick={() => handleScrollNudge("right")}
+                className="w-5 h-5 rounded-full bg-white/20 hover:bg-white/30 text-white flex items-center justify-center transition-all shadow-sm cursor-pointer animate-pulse"
+                title="Scroll to see more buttons"
+                aria-label="Scroll buttons right"
+              >
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
         </div>
       </header>
 
@@ -1283,21 +1405,25 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
       )}
 
       {/* ========================================================================= */}
-      {/* THE WHITE SHEET (Crisp Music Paper Lead Sheet with Grid Layout)           */}
+      {/* THE SHEET (Crisp Music Paper Lead Sheet or Sleek Dark Sheet)              */}
       {/* ========================================================================= */}
       <main
         id="chord-sheet-printable"
-        className="max-w-4xl mx-auto bg-white rounded-2xl sm:rounded-3xl border border-zinc-200/90 shadow-2xl shadow-black/40 p-3 sm:p-6 md:p-8 space-y-4 sm:space-y-5 text-zinc-900 print:shadow-none print:border-none print:p-0 print:m-0 print:rounded-none printable-chord-sheet"
+        className={`max-w-4xl mx-auto rounded-2xl sm:rounded-3xl border shadow-2xl p-3 sm:p-6 md:p-8 space-y-4 sm:space-y-5 transition-colors print:bg-white print:text-black print:shadow-none print:border-none print:p-0 print:m-0 print:rounded-none printable-chord-sheet ${
+          isLightSheet
+            ? "bg-white text-zinc-900 border-zinc-200/90 shadow-black/30"
+            : "bg-[#0d1117] text-zinc-100 border-white/10 shadow-black/80"
+        }`}
       >
         {/* Lead Sheet Title Header & Metadata Strip */}
-        <section aria-label="Song Header" className="border-b-2 border-zinc-900 pb-3 sm:pb-4">
+        <section aria-label="Song Header" className={`border-b-2 pb-3 sm:pb-4 transition-colors ${isLightSheet ? "border-zinc-900" : "border-white/20"}`}>
           <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-2">
             <div className="min-w-0">
-              <h1 className="text-xl sm:text-2xl md:text-3xl font-black text-zinc-900 tracking-tight font-mono truncate">
+              <h1 className={`text-xl sm:text-2xl md:text-3xl font-black tracking-tight font-mono truncate ${isLightSheet ? "text-zinc-900" : "text-white"}`}>
                 {song.title || "Untitled Song"}
               </h1>
               {song.artist && (
-                <p className="text-xs sm:text-sm font-mono text-zinc-600 font-medium truncate mt-0.5">
+                <p className={`text-xs sm:text-sm font-mono font-medium truncate mt-0.5 ${isLightSheet ? "text-zinc-600" : "text-zinc-400"}`}>
                   {song.artist}
                 </p>
               )}
@@ -1305,21 +1431,21 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
 
             {/* Quick Metadata Badges Strip */}
             <div className="flex items-center gap-1.5 flex-wrap text-[11px] font-mono">
-              <span className="px-2 py-0.5 rounded-md bg-zinc-100 border border-zinc-300 text-zinc-800 font-bold">
-                Key: <strong className="text-zinc-950">{song.key || "C"}</strong>
+              <span className={`px-2 py-0.5 rounded-md border font-bold ${isLightSheet ? "bg-zinc-100 border-zinc-300 text-zinc-800" : "bg-white/5 border-white/10 text-zinc-300"}`}>
+                Key: <strong className={isLightSheet ? "text-zinc-950" : "text-[#a3ff12]"}>{song.key || "C"}</strong>
               </span>
-              <span className="px-2 py-0.5 rounded-md bg-zinc-100 border border-zinc-300 text-zinc-800 font-bold">
+              <span className={`px-2 py-0.5 rounded-md border font-bold ${isLightSheet ? "bg-zinc-100 border-zinc-300 text-zinc-800" : "bg-white/5 border-white/10 text-zinc-300"}`}>
                 {song.tempo || 120} BPM
               </span>
               {capo > 0 && (
-                <span className="px-2 py-0.5 rounded-md bg-sky-50 border border-sky-300 text-sky-800 font-extrabold">
+                <span className={`px-2 py-0.5 rounded-md border font-extrabold ${isLightSheet ? "bg-sky-50 border-sky-300 text-sky-800" : "bg-sky-500/15 border-sky-500/30 text-sky-300"}`}>
                   Capo {capo}
                 </span>
               )}
-              <span className="px-2 py-0.5 rounded-md bg-zinc-100 border border-zinc-200 text-zinc-600 hidden sm:inline">
+              <span className={`px-2 py-0.5 rounded-md border hidden sm:inline ${isLightSheet ? "bg-zinc-100 border-zinc-200 text-zinc-600" : "bg-white/5 border-white/10 text-zinc-400"}`}>
                 {song.timeSignature || "4/4"}
               </span>
-              <span className="px-2 py-0.5 rounded-md bg-zinc-100 border border-zinc-200 text-zinc-600">
+              <span className={`px-2 py-0.5 rounded-md border ${isLightSheet ? "bg-zinc-100 border-zinc-200 text-zinc-600" : "bg-white/5 border-white/10 text-zinc-400"}`}>
                 {segments.length} Chords • {formatTime(duration)}
               </span>
             </div>
@@ -1327,35 +1453,43 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
         </section>
 
         {/* ========================================================================= */}
-        {/* CHORD DIAGRAMS SECTION (Matches user screenshot, clean paper grid)        */}
+        {/* CHORD DIAGRAMS SECTION (Crisp Paper Grid or Dark Green Voicings)          */}
         {/* ========================================================================= */}
         <section
           aria-label="Chord Voicings"
-          className="bg-white border border-zinc-200/90 rounded-2xl p-3 sm:p-4 shadow-xs transition-all print:border-zinc-300"
+          className={`border rounded-2xl p-3 sm:p-4 shadow-xs transition-all print:border-zinc-300 print:bg-white ${
+            isLightSheet
+              ? "bg-white border-zinc-200/90 text-zinc-900"
+              : "bg-[#161b22] border-white/10 text-white"
+          }`}
         >
           {/* Header Row: Title & Strum preview hint & Collapse toggle */}
-          <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-zinc-100">
+          <div className={`flex items-center justify-between gap-2 pb-2.5 border-b ${isLightSheet ? "border-zinc-100" : "border-white/10"}`}>
             <div
               onClick={() => setShowDiagrams(!showDiagrams)}
               className="flex items-center gap-2 cursor-pointer select-none group"
             >
-              <Music className="w-4 h-4 text-emerald-700" />
-              <h2 className="text-xs sm:text-sm font-mono font-bold tracking-tight text-zinc-900 group-hover:text-emerald-700 transition-colors">
+              <Music className={`w-4 h-4 ${isLightSheet ? "text-zinc-900" : "text-[#a3ff12]"}`} />
+              <h2 className={`text-xs sm:text-sm font-mono font-bold tracking-tight transition-colors ${
+                isLightSheet
+                  ? "text-zinc-900 group-hover:text-black"
+                  : "text-white group-hover:text-[#a3ff12]"
+              }`}>
                 ♫ CHORD DIAGRAMS ({uniqueChordVoicings.length} UNIQUE)
               </h2>
               {showDiagrams ? (
-                <ChevronUp className="w-3.5 h-3.5 text-zinc-400 group-hover:text-zinc-600" />
+                <ChevronUp className={`w-3.5 h-3.5 ${isLightSheet ? "text-zinc-400 group-hover:text-zinc-600" : "text-zinc-500 group-hover:text-white"}`} />
               ) : (
-                <ChevronDown className="w-3.5 h-3.5 text-zinc-400 group-hover:text-zinc-600" />
+                <ChevronDown className={`w-3.5 h-3.5 ${isLightSheet ? "text-zinc-400 group-hover:text-zinc-600" : "text-zinc-500 group-hover:text-white"}`} />
               )}
             </div>
 
-            <span className="text-[10px] sm:text-[11px] font-mono text-zinc-500 hidden sm:inline">
+            <span className={`text-[10px] sm:text-[11px] font-mono hidden sm:inline ${isLightSheet ? "text-zinc-500" : "text-zinc-400"}`}>
               Click any diagram to hear strum preview
             </span>
           </div>
 
-          {/* Unique Chord Diagram Cards Grid (Wrapping naturally like song sections, no inline scroll) */}
+          {/* Unique Chord Diagram Cards Grid */}
           {showDiagrams && (
             <div className="pt-3 animate-in fade-in duration-150">
               <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2 sm:gap-2.5">
@@ -1377,8 +1511,12 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
                       }}
                       className={`group relative rounded-2xl p-2 sm:p-2.5 transition-all duration-150 cursor-pointer flex flex-col justify-between border ${
                         isCurrentlyPlaying
-                          ? "bg-[#f0fdf4] border-2 border-[#10b981] shadow-md ring-1 ring-[#10b981]/30 scale-[1.02]"
-                          : "bg-white hover:bg-zinc-50 border border-zinc-200/90 shadow-xs"
+                          ? isLightSheet
+                            ? "bg-[#ecfdf5] border-2 border-[#10b981] shadow-md ring-2 ring-[#10b981]/30 scale-[1.02]"
+                            : "bg-[#10b981]/15 border-2 border-[#10b981] shadow-md ring-2 ring-[#10b981]/40 scale-[1.02]"
+                          : isLightSheet
+                          ? "bg-white hover:bg-zinc-50 border border-zinc-200/90 text-zinc-900 shadow-xs"
+                          : "bg-[#1c2128] hover:bg-[#252c36] border-white/10 text-white shadow-xs"
                       }`}
                       title={`Click to strum ${targetShape}`}
                     >
@@ -1386,19 +1524,21 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
                       <div className="flex items-center justify-between w-full mb-1">
                         <span
                           className={`text-sm sm:text-base font-black font-mono tracking-tight ${
-                            isCurrentlyPlaying ? "text-[#059669]" : "text-zinc-900"
+                            isCurrentlyPlaying
+                              ? "text-[#10b981]"
+                              : isLightSheet ? "text-zinc-900" : "text-white"
                           }`}
                         >
                           {targetShape}
                         </span>
                         {isCurrentlyPlaying && (
-                          <span className="bg-[#10b981] text-white text-[7.5px] sm:text-[8.5px] font-black uppercase tracking-wider px-1.5 py-0.2 sm:px-2 sm:py-0.5 rounded-full shadow-xs shrink-0">
+                          <span className="bg-[#10b981] text-white text-[7.5px] sm:text-[8.5px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full shadow-xs shrink-0">
                             PLAYING
                           </span>
                         )}
                       </div>
 
-                      {/* Light Theme Guitar Chord Diagram */}
+                      {/* Guitar Chord Diagram - Black in Light Mode, Green in Dark Mode */}
                       <div className="w-full flex items-center justify-center h-[90px] sm:h-[105px] my-0.5">
                         {voicingResult.voicing ? (
                           <ChordDiagram
@@ -1409,11 +1549,11 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
                             cagedShape={voicingResult.voicing.cagedShape}
                             capo={capo}
                             size="xs"
-                            theme="light"
+                            theme={sheetTheme}
                             className="max-h-full max-w-full"
                           />
                         ) : (
-                          <div className="text-[10px] font-mono text-zinc-400 text-center py-4">
+                          <div className={`text-[10px] font-mono text-center py-4 ${isLightSheet ? "text-zinc-400" : "text-zinc-500"}`}>
                             No diagram
                           </div>
                         )}
@@ -1421,13 +1561,15 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
 
                       {/* Card Footer: Preview button with play icon */}
                       <div
-                        className={`mt-1 flex items-center justify-center gap-1 text-[9px] sm:text-[10px] font-mono ${
+                        className={`mt-1 flex items-center justify-center gap-1 text-[9px] sm:text-[10px] font-mono transition-colors pt-1 border-t print:hidden ${
+                          isLightSheet ? "border-zinc-100" : "border-white/5"
+                        } ${
                           isCurrentlyPlaying
-                            ? "text-[#059669] font-bold"
-                            : "text-zinc-500 group-hover:text-zinc-900"
-                        } transition-colors pt-1 border-t border-zinc-100 print:hidden`}
+                            ? "text-[#10b981] font-bold"
+                            : isLightSheet ? "text-zinc-500 group-hover:text-zinc-900" : "text-zinc-400 group-hover:text-white"
+                        }`}
                       >
-                        <Play className="w-2.5 h-2.5 fill-current" />
+                        <Play className={`w-2.5 h-2.5 fill-current ${isCurrentlyPlaying ? "text-[#10b981]" : ""}`} />
                         <span>Preview</span>
                       </div>
                     </div>
@@ -1481,13 +1623,19 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
                 key={`section-${sIdx}-${section.name}-${section.startIndex}`}
                 className={`rounded-2xl border transition-all duration-200 overflow-hidden print-break-inside-avoid ${
                   isSectionActive
-                    ? "border-emerald-400 shadow-md ring-1 ring-emerald-200"
-                    : "border-zinc-200 hover:border-zinc-300"
-                } bg-white`}
+                    ? isLightSheet
+                      ? "border-2 border-[#10b981] shadow-md ring-2 ring-[#10b981]/20"
+                      : "border-2 border-[#10b981] shadow-md ring-2 ring-[#10b981]/30"
+                    : isLightSheet ? "border-zinc-200 hover:border-zinc-300" : "border-white/10 hover:border-white/20"
+                } ${isLightSheet ? "bg-white" : "bg-[#161b22]"}`}
               >
-                {/* SECTION HEADER BANNER (Paper style) */}
+                {/* SECTION HEADER BANNER (Paper style or Sleek Dark) */}
                 <div
-                  className={`px-3 sm:px-4 py-2 sm:py-2.5 flex items-center justify-between gap-2 border-b border-zinc-200 ${style.headerBg} border-l-4 ${style.accentBorder}`}
+                  className={`px-3 sm:px-4 py-2 sm:py-2.5 flex items-center justify-between gap-2 border-b border-l-4 ${style.accentBorder} ${
+                    isLightSheet
+                      ? `border-zinc-200 ${style.headerBg}`
+                      : "border-white/10 bg-[#1c2128]"
+                  }`}
                 >
                   <div className="flex items-center gap-2 sm:gap-3 min-w-0">
                     {/* Section Tag Badge / Editable input */}
@@ -1501,7 +1649,9 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
                             if (e.key === "Enter") handleRenameSection(sIdx, editSectionNameInput);
                             if (e.key === "Escape") setEditingSectionIdx(null);
                           }}
-                          className="bg-white text-zinc-900 font-mono font-bold text-xs px-2 py-0.5 rounded border border-emerald-500 focus:outline-none w-28 sm:w-36 shadow-xs"
+                          className={`font-mono font-bold text-xs px-2 py-0.5 rounded border focus:outline-none w-28 sm:w-36 shadow-xs ${
+                            isLightSheet ? "bg-white text-zinc-900 border-emerald-500" : "bg-[#0d1117] text-white border-[#a3ff12]"
+                          }`}
                           autoFocus
                         />
                         <button
@@ -1535,7 +1685,11 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
                         </span>
 
                         {isSectionActive && (
-                          <span className="px-1.5 py-0.5 rounded bg-emerald-100 border border-emerald-300 text-emerald-800 text-[9px] font-mono font-bold tracking-wider animate-pulse hidden sm:inline print:hidden">
+                          <span className={`px-2 py-0.5 rounded-full text-[9px] font-mono font-bold tracking-wider animate-pulse hidden sm:inline print:hidden ${
+                            isLightSheet
+                              ? "bg-[#ecfdf5] border border-[#10b981] text-[#10b981]"
+                              : "bg-[#10b981]/20 border border-[#10b981] text-[#10b981]"
+                          }`}>
                             NOW PLAYING
                           </span>
                         )}
@@ -1543,7 +1697,7 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
                     )}
 
                     {/* Section Time Span */}
-                    <span className="text-[10px] font-mono text-zinc-500 shrink-0">
+                    <span className={`text-[10px] font-mono shrink-0 ${isLightSheet ? "text-zinc-500" : "text-zinc-400"}`}>
                       {formatTime(section.startTime)} - {formatTime(section.endTime)} ({section.items.length} chords)
                     </span>
                   </div>
@@ -1556,7 +1710,11 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
                         onSeek(section.startTime);
                         if (!isPlaying) onPlayPause();
                       }}
-                      className="px-2 py-1 rounded-lg bg-white hover:bg-zinc-100 text-zinc-800 border border-zinc-300 text-[10px] font-mono font-bold flex items-center gap-1 transition-all cursor-pointer shadow-xs"
+                      className={`px-2 py-1 rounded-lg text-[10px] font-mono font-bold flex items-center gap-1 transition-all cursor-pointer shadow-xs ${
+                        isLightSheet
+                          ? "bg-white hover:bg-zinc-100 text-zinc-800 border border-zinc-300"
+                          : "bg-white/10 hover:bg-white/20 text-white border border-white/15"
+                      }`}
                       title={`Play from beginning of ${section.name}`}
                     >
                       <Play className="w-2.5 h-2.5 text-emerald-600 fill-current" />
@@ -1578,7 +1736,7 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
 
                 {/* COMPACT CHORDS GRID (Fits more chords across mobile & desktop) */}
                 {/* 3 cols on mobile, 4 on sm, 5 on md, 6 on lg */}
-                <div className="p-2 sm:p-3 bg-white">
+                <div className={`p-2 sm:p-3 transition-colors ${isLightSheet ? "bg-white" : "bg-[#0d1117]"}`}>
                   <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-1.5 sm:gap-2 print:grid print:grid-cols-4">
                     {section.items.map(({ seg, originalIndex }) => {
                       const state = resolveChordFinderState(seg.chord, transpose, capo, song.key);
@@ -1602,36 +1760,42 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
                           onClick={() => onSeek(seg.startTime)}
                           className={`group relative rounded-xl p-1.5 sm:p-2 border transition-all duration-150 cursor-pointer flex flex-col justify-between select-none scroll-mt-24 sm:scroll-mt-28 md:scroll-mt-32 print-break-inside-avoid ${
                             isActive
-                              ? "bg-[#ecfccb] border-2 border-[#84cc16] ring-2 ring-[#84cc16]/40 shadow-md scale-[1.02] text-zinc-950"
-                              : "bg-white hover:bg-zinc-50 border border-zinc-200/90 text-zinc-800 shadow-xs"
+                              ? isLightSheet
+                                ? "bg-[#ecfdf5] border-2 border-[#10b981] ring-2 ring-[#10b981]/30 shadow-md scale-[1.02] text-zinc-950"
+                                : "bg-[#10b981]/15 border-2 border-[#10b981] ring-2 ring-[#10b981]/40 shadow-md scale-[1.02] text-white"
+                              : isLightSheet
+                              ? "bg-white hover:bg-zinc-50 border border-zinc-200/90 text-zinc-800 shadow-xs"
+                              : "bg-[#1c2128] hover:bg-[#252c36] border border-white/10 text-zinc-200 shadow-xs"
                           }`}
                           title={`Jump to ${chordLabel} at ${formatTime(seg.startTime)}`}
                         >
                           {/* Top: Timestamp & Duration */}
-                          <div className="flex items-center justify-between text-[8.5px] sm:text-[9.5px] font-mono text-zinc-500 mb-0.5">
+                          <div className={`flex items-center justify-between text-[8.5px] sm:text-[9.5px] font-mono mb-0.5 ${isLightSheet ? "text-zinc-500" : "text-zinc-400"}`}>
                             <span
-                              className={`px-1 py-0.2 sm:px-1.5 sm:py-0.5 rounded font-bold ${
+                              className={`px-1.5 py-0.2 sm:px-2 sm:py-0.5 rounded font-bold ${
                                 isActive
-                                  ? "bg-[#84cc16] text-black font-extrabold"
-                                  : "bg-zinc-100 text-zinc-700 border border-zinc-200"
+                                  ? "bg-[#84cc16] text-black font-extrabold shadow-xs"
+                                  : isLightSheet ? "bg-zinc-100 text-zinc-700 border border-zinc-200" : "bg-white/5 text-zinc-300 border border-white/10"
                               }`}
                             >
                               {formatTime(seg.startTime)}
                             </span>
-                            <span className="text-[8px] sm:text-[9px] font-mono text-zinc-400">{segDuration}s</span>
+                            <span className={`text-[8px] sm:text-[9px] font-mono ${isLightSheet ? "text-zinc-400" : "text-zinc-500"}`}>{segDuration}s</span>
                           </div>
 
                           {/* Center 1: Chord Symbol */}
                           <div className="text-center pt-0.5">
                             <span
                               className={`text-base sm:text-lg md:text-xl font-mono font-black tracking-tight transition-transform ${
-                                isActive ? "text-[#365314] scale-105 inline-block" : "text-zinc-900"
+                                isActive
+                                  ? isLightSheet ? "text-zinc-950 scale-105 inline-block" : "text-[#10b981] scale-105 inline-block"
+                                  : isLightSheet ? "text-zinc-900" : "text-white"
                               }`}
                             >
                               {chordLabel}
                             </span>
                             {capo > 0 && state.isValid && state.shapeChord !== state.transposedChord && (
-                              <span className="block text-[8px] sm:text-[8.5px] font-mono font-bold text-sky-700 truncate">
+                              <span className={`block text-[8px] sm:text-[8.5px] font-mono font-bold truncate ${isLightSheet ? "text-sky-700" : "text-sky-400"}`}>
                                 Sounding: {state.transposedChord}
                               </span>
                             )}
@@ -1648,26 +1812,28 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
                                 cagedShape={voicing.cagedShape}
                                 capo={capo}
                                 size="xxs"
-                                theme="light"
+                                theme={sheetTheme}
                                 className="max-h-full max-w-full"
                               />
                             ) : (
-                              <div className="text-[8.5px] font-mono text-zinc-400 text-center py-1">
+                              <div className={`text-[8.5px] font-mono text-center py-1 ${isLightSheet ? "text-zinc-400" : "text-zinc-500"}`}>
                                 N/A
                               </div>
                             )}
                           </div>
 
                           {/* Bottom Row: Actions (Play status, Tag section, Remove) */}
-                          <div className="flex items-center justify-between pt-0.5 border-t border-zinc-100 mt-0.5 print:hidden">
+                          <div className={`flex items-center justify-between pt-0.5 border-t mt-0.5 print:hidden ${isLightSheet ? "border-zinc-100" : "border-white/5"}`}>
                             <span
                               className={`text-[8.5px] sm:text-[9px] font-mono flex items-center gap-0.5 sm:gap-1 ${
-                                isActive ? "text-[#365314] font-bold" : "text-zinc-400 group-hover:text-zinc-600"
+                                isActive
+                                  ? "text-[#10b981] font-bold"
+                                  : isLightSheet ? "text-zinc-400 group-hover:text-zinc-600" : "text-zinc-500 group-hover:text-zinc-300"
                               }`}
                             >
                               {isActive ? (
                                 <>
-                                  <Play className="w-2 h-2 fill-current text-[#4d7c0f] animate-pulse" />
+                                  <Play className="w-2 h-2 fill-current animate-pulse text-[#10b981]" />
                                   <span className="hidden sm:inline">PLAY</span>
                                 </>
                               ) : (
@@ -1683,7 +1849,11 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
                                   setTagModalChordIdx(originalIndex);
                                   setCustomTagName("");
                                 }}
-                                className="p-0.5 rounded hover:bg-zinc-100 text-zinc-400 hover:text-emerald-700 transition-colors cursor-pointer"
+                                className={`p-0.5 rounded transition-colors cursor-pointer ${
+                                  isLightSheet
+                                    ? "hover:bg-zinc-100 text-zinc-400 hover:text-zinc-700"
+                                    : "hover:bg-white/10 text-zinc-500 hover:text-zinc-300"
+                                }`}
                                 title="Split and start a new section tag here"
                               >
                                 <Tag className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
@@ -1695,7 +1865,11 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
                                   e.stopPropagation();
                                   handleRemoveSegment(originalIndex);
                                 }}
-                                className="p-0.5 rounded hover:bg-red-50 text-zinc-400 hover:text-red-600 transition-colors cursor-pointer"
+                                className={`p-0.5 rounded transition-colors cursor-pointer ${
+                                  isLightSheet
+                                    ? "hover:bg-red-50 text-zinc-400 hover:text-red-600"
+                                    : "hover:bg-red-500/10 text-zinc-500 hover:text-red-400"
+                                }`}
                                 title="Remove chord segment"
                               >
                                 <Trash2 className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
@@ -1715,7 +1889,9 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
         {/* Lead Sheet Footer Note (Hidden on Print, PDF export, and external sheet) */}
         <div
           data-footer-instruction="true"
-          className="pt-3 border-t border-zinc-200 flex flex-col sm:flex-row items-center justify-between text-[11px] font-mono text-zinc-400 gap-1.5 print:hidden print-hidden editor-instruction-footer"
+          className={`pt-3 border-t flex flex-col sm:flex-row items-center justify-between text-[11px] font-mono gap-1.5 print:hidden print-hidden editor-instruction-footer ${
+            isLightSheet ? "border-zinc-200 text-zinc-400" : "border-white/10 text-zinc-500"
+          }`}
         >
           <span>Guitar Studio AI • Lead Chord Sheet</span>
           <span>Click any chord to seek • Tap tag to split sections • Tap trash to remove</span>

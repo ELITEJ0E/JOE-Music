@@ -1916,6 +1916,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                           title={capo > 0 ? `${activeChord.shapeChord} (Capo ${capo})` : activeChord.transposedChord}
                           capo={capo}
                           size="md"
+                          animated={true}
                           className="max-h-full max-w-full"
                         />
                       </div>

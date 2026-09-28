@@ -17,6 +17,7 @@ export interface ChordDiagramProps {
   className?: string;
   capo?: number;
   theme?: "dark" | "light";
+  animated?: boolean;
 }
 
 /**
@@ -73,28 +74,33 @@ export const ChordDiagramComponent: React.FC<ChordDiagramProps> = ({
   className = "",
   capo = 0,
   theme = "dark",
+  animated = theme === "dark" && size !== "xxs",
 }) => {
   // Calculate automatic display starting fret
   const startFret = calculateStartFret(frets, barre, position);
   const isOpenPosition = startFret === 1;
 
   const isLight = theme === "light";
-  const nutFill = capo > 0 ? (isLight ? "#0284c7" : "#38bdf8") : (isLight ? "#0f172a" : "#a3ff12");
+  // Light theme: Crisp Jet Black chord diagrams for white sheet / paper view
+  // Dark theme: Signature green (#a3ff12) chord diagrams
+  const nutFill = capo > 0 ? (isLight ? "#0284c7" : "#38bdf8") : (isLight ? "#000000" : "#a3ff12");
   const capoLabelColor = isLight ? "#0284c7" : "#38bdf8";
-  const topWireColor = isLight ? "#94a3b8" : "rgba(255,255,255,0.4)";
-  const positionLabelColor = isLight ? "#0f172a" : "#a3ff12";
-  const fretWireColor = isLight ? "#cbd5e1" : "rgba(255,255,255,0.18)";
-  const stringWireColor = isLight ? "#64748b" : "rgba(255,255,255,0.35)";
-  const barreFill = isLight ? "#0f172a" : "#a3ff12";
-  const barreHaloFill = isLight ? "#0f172a" : "#a3ff12";
-  const barreHaloOpacity = isLight ? 0.12 : 0.2;
+  const topWireColor = isLight ? "#000000" : "rgba(255,255,255,0.4)";
+  const positionLabelColor = isLight ? "#000000" : "#a3ff12";
+  const fretWireColor = isLight ? "#000000" : "rgba(255,255,255,0.18)";
+  const stringWireColor = isLight ? "#000000" : "rgba(255,255,255,0.35)";
+
+  const barreFill = isLight ? "#000000" : "#a3ff12";
+  const barreHaloFill = isLight ? "#000000" : "#a3ff12";
+  const barreHaloOpacity = isLight ? 0 : 0.22;
   const barreTextColor = isLight ? "#ffffff" : "#000000";
-  const openCircleStroke = capo > 0 ? (isLight ? "#0284c7" : "#38bdf8") : (isLight ? "#0f172a" : "#a3ff12");
-  const dotFill = isLight ? "#0f172a" : "#a3ff12";
-  const dotHaloFill = isLight ? "#0f172a" : "#a3ff12";
-  const dotHaloOpacity = isLight ? 0.12 : 0.22;
+
+  const openCircleStroke = capo > 0 ? (isLight ? "#0284c7" : "#38bdf8") : (isLight ? "#000000" : "#a3ff12");
+  const dotFill = isLight ? "#000000" : "#a3ff12";
+  const dotHaloFill = isLight ? "#000000" : "#a3ff12";
+  const dotHaloOpacity = isLight ? 0 : 0.25;
   const dotTextColor = isLight ? "#ffffff" : "#000000";
-  const subtitleColor = capo > 0 ? (isLight ? "#0284c7" : "#38bdf8") : (isLight ? "#475569" : "#a3ff12");
+  const subtitleColor = capo > 0 ? (isLight ? "#0284c7" : "#38bdf8") : (isLight ? "#27272a" : "#a3ff12");
 
   // Geometry Constants
   const startX = 46; // Left margin for strings
@@ -192,7 +198,7 @@ export const ChordDiagramComponent: React.FC<ChordDiagramProps> = ({
               x2={endX}
               y2={y}
               stroke={f === 0 && isOpenPosition ? "transparent" : fretWireColor}
-              strokeWidth={f === 0 ? "2" : "1.5"}
+              strokeWidth={f === 0 ? (isLight ? "2.5" : "2") : isLight ? "1.8" : "1.5"}
             />
           );
         })}
@@ -200,7 +206,7 @@ export const ChordDiagramComponent: React.FC<ChordDiagramProps> = ({
         {/* 6 Strings Vertical Lines (Low E thicker on left, High E thinner on right) */}
         {[0, 1, 2, 3, 4, 5].map((s) => {
           const x = getStringX(s);
-          const gauge = 1.0 + (5 - s) * 0.32;
+          const gauge = (1.0 + (5 - s) * 0.32) * (isLight ? 1.25 : 1);
           return (
             <line
               key={`string-${s}`}
@@ -214,126 +220,137 @@ export const ChordDiagramComponent: React.FC<ChordDiagramProps> = ({
           );
         })}
 
-        {/* Barre Rendering - High-performance GPU geometry with halo */}
-        {barre && (() => {
+        {/* Barre Rendering - with smooth transitions when animated */}
+        {(() => {
+          if (!barre || barre.fret <= 0) return null;
           const relFret = barre.fret - startFret + 1;
-          if (relFret >= 1 && relFret <= numVisibleFrets) {
-            const y = topY + (relFret - 0.5) * fretSpacing;
-            const x1 = getStringX(barre.fromString);
-            const x2 = getStringX(barre.toString);
-            const minX = Math.min(x1, x2);
-            const maxX = Math.max(x1, x2);
-            const pillWidth = maxX - minX + 22;
-            const barreFinger = fingers ? fingers[barre.fromString] || 1 : 1;
+          const inRange = relFret >= 1 && relFret <= numVisibleFrets;
+          if (!inRange && !animated) return null;
 
-            return (
-              <g
-                key="barre-indicator"
-                className={onPluck ? "cursor-pointer" : ""}
-                onClick={() => onPluck?.(5 - barre.fromString, barre.fret)}
+          const y = topY + (relFret - 0.5) * fretSpacing;
+          const x1 = getStringX(barre.fromString);
+          const x2 = getStringX(barre.toString);
+          const minX = Math.min(x1, x2);
+          const maxX = Math.max(x1, x2);
+          const pillWidth = maxX - minX + 22;
+          const barreFinger = fingers ? fingers[barre.fromString] || 1 : 1;
+
+          return (
+            <g
+              key="barre-indicator"
+              className={onPluck && inRange ? "cursor-pointer" : ""}
+              onClick={() => inRange && onPluck?.(5 - barre.fromString, barre.fret)}
+              style={
+                animated
+                  ? {
+                      opacity: inRange ? 1 : 0,
+                      transform: inRange ? "scale(1)" : "scale(0.8)",
+                      transformOrigin: `${(minX + maxX) / 2}px ${y}px`,
+                      transition: "all 0.28s cubic-bezier(0.34, 1.25, 0.64, 1)",
+                      pointerEvents: inRange ? "auto" : "none",
+                    }
+                  : undefined
+              }
+            >
+              {/* Soft outer glow halo */}
+              <rect
+                x={minX - 13}
+                y={y - 13}
+                width={pillWidth + 4}
+                height={26}
+                rx={13}
+                fill={barreHaloFill}
+                fillOpacity={barreHaloOpacity}
+                style={animated ? { transition: "all 0.28s cubic-bezier(0.34, 1.25, 0.64, 1)" } : undefined}
+              />
+              {/* Horizontal Rounded Barre Pill */}
+              <rect
+                x={minX - 11}
+                y={y - 11}
+                width={pillWidth}
+                height={22}
+                rx={11}
+                fill={barreFill}
+                fillOpacity={0.95}
+                style={animated ? { transition: "all 0.28s cubic-bezier(0.34, 1.25, 0.64, 1)" } : undefined}
+              />
+              {/* Barre Finger Label */}
+              <text
+                x={minX}
+                y={y + 4}
+                fill={barreTextColor}
+                fontSize="11"
+                fontFamily="monospace"
+                fontWeight="bold"
+                textAnchor="middle"
+                style={animated ? { transition: "all 0.28s cubic-bezier(0.34, 1.25, 0.64, 1)" } : undefined}
               >
-                {/* Soft outer glow halo */}
-                <rect
-                  x={minX - 13}
-                  y={y - 13}
-                  width={pillWidth + 4}
-                  height={26}
-                  rx={13}
-                  fill={barreHaloFill}
-                  fillOpacity={barreHaloOpacity}
-                />
-                {/* Horizontal Rounded Barre Pill */}
-                <rect
-                  x={minX - 11}
-                  y={y - 11}
-                  width={pillWidth}
-                  height={22}
-                  rx={11}
-                  fill={barreFill}
-                  fillOpacity={0.95}
-                />
-                {/* Barre Finger Label */}
+                {barreFinger}
+              </text>
+            </g>
+          );
+        })()}
+
+        {/* Finger Dots, Open Circles ('O'), and Muted Markers ('✕') */}
+        {[0, 1, 2, 3, 4, 5].map((sIdx) => {
+          const fret = frets[sIdx];
+          const x = getStringX(sIdx);
+          const isMuted = fret === "x";
+          const isOpen = fret === 0;
+          const isFretted = typeof fret === "number" && fret > 0;
+          const relFret = isFretted ? fret - startFret + 1 : 1;
+          const inRange = relFret >= 1 && relFret <= numVisibleFrets;
+
+          const isCoveredByBarre = Boolean(
+            barre &&
+            barre.fret === fret &&
+            sIdx >= barre.fromString &&
+            sIdx <= barre.toString
+          );
+
+          const showDot = isFretted && inRange && !isCoveredByBarre;
+          const y = topY + (relFret - 0.5) * fretSpacing;
+          const fingerNumber = fingers ? fingers[sIdx] : 0;
+
+          if (!animated) {
+            if (isMuted) {
+              return (
                 <text
-                  x={minX}
-                  y={y + 4}
-                  fill={barreTextColor}
-                  fontSize="11"
+                  key={`mute-${sIdx}`}
+                  x={x}
+                  y="26"
+                  fill="#ef4444"
+                  fontSize="14"
                   fontFamily="monospace"
                   fontWeight="bold"
                   textAnchor="middle"
                 >
-                  {barreFinger}
+                  ✕
                 </text>
-              </g>
-            );
-          }
-          return null;
-        })()}
-
-        {/* Finger Dots, Open Circles ('O'), and Muted Markers ('✕') */}
-        {frets.map((fret, sIdx) => {
-          const x = getStringX(sIdx);
-
-          // 1. Muted String "✕"
-          if (fret === "x") {
-            return (
-              <text
-                key={`mute-${sIdx}`}
-                x={x}
-                y="26"
-                fill="#ef4444"
-                fontSize="14"
-                fontFamily="monospace"
-                fontWeight="bold"
-                textAnchor="middle"
-              >
-                ✕
-              </text>
-            );
-          }
-
-          // 2. Open String "O"
-          if (fret === 0) {
-            return (
-              <circle
-                key={`open-${sIdx}`}
-                cx={x}
-                cy="22"
-                r="6"
-                fill="none"
-                stroke={openCircleStroke}
-                strokeWidth="2"
-                className={onPluck ? "cursor-pointer hover:fill-zinc-500/20" : ""}
-                onClick={() => onPluck?.(5 - sIdx, 0)}
-              />
-            );
-          }
-
-          // 3. Fretted Note Dot (1..24+)
-          if (typeof fret === "number" && fret > 0) {
-            const relFret = fret - startFret + 1;
-
-            if (relFret >= 1 && relFret <= numVisibleFrets) {
-              const isCoveredByBarre =
-                barre &&
-                barre.fret === fret &&
-                sIdx >= barre.fromString &&
-                sIdx <= barre.toString;
-
-              if (isCoveredByBarre) {
-                return null;
-              }
-
-              const y = topY + (relFret - 0.5) * fretSpacing;
-              const fingerNumber = fingers ? fingers[sIdx] : 0;
-
+              );
+            }
+            if (isOpen) {
+              return (
+                <circle
+                  key={`open-${sIdx}`}
+                  cx={x}
+                  cy="22"
+                  r="6"
+                  fill="none"
+                  stroke={openCircleStroke}
+                  strokeWidth={isLight ? "2.5" : "2"}
+                  className={onPluck ? "cursor-pointer hover:fill-zinc-500/20" : ""}
+                  onClick={() => onPluck?.(5 - sIdx, 0)}
+                />
+              );
+            }
+            if (showDot) {
               return (
                 <g
                   key={`dot-${sIdx}`}
                   className={onPluck ? "cursor-pointer" : ""}
-                  onClick={() => onPluck?.(5 - sIdx, fret)}
+                  onClick={() => onPluck?.(5 - sIdx, fret as number)}
                 >
-                  {/* Subtle vector glow halo (hardware accelerated, 0ms raster overhead) */}
                   <circle
                     cx={x}
                     cy={y}
@@ -341,14 +358,13 @@ export const ChordDiagramComponent: React.FC<ChordDiagramProps> = ({
                     fill={dotHaloFill}
                     fillOpacity={dotHaloOpacity}
                   />
-                  {/* Crisp primary finger dot */}
                   <circle
                     cx={x}
                     cy={y}
                     r="11"
                     fill={dotFill}
                   />
-                  {fingerNumber > 0 ? (
+                  {fingerNumber > 0 && (
                     <text
                       x={x}
                       y={y + 4}
@@ -360,13 +376,99 @@ export const ChordDiagramComponent: React.FC<ChordDiagramProps> = ({
                     >
                       {fingerNumber}
                     </text>
-                  ) : null}
+                  )}
                 </g>
               );
             }
+            return null;
           }
 
-          return null;
+          // Animated transition rendering for normal studio mode
+          return (
+            <g key={`string-node-${sIdx}`}>
+              {/* Muted String "✕" */}
+              <text
+                x={x}
+                y="26"
+                fill="#ef4444"
+                fontSize="14"
+                fontFamily="monospace"
+                fontWeight="bold"
+                textAnchor="middle"
+                style={{
+                  opacity: isMuted ? 1 : 0,
+                  transform: isMuted ? "scale(1)" : "scale(0.3)",
+                  transformOrigin: `${x}px 22px`,
+                  transition: "all 0.22s ease-out",
+                  pointerEvents: isMuted ? "auto" : "none",
+                }}
+              >
+                ✕
+              </text>
+
+              {/* Open String "O" */}
+              <circle
+                cx={x}
+                cy="22"
+                r="6"
+                fill="none"
+                stroke={openCircleStroke}
+                strokeWidth="2"
+                className={onPluck && isOpen ? "cursor-pointer hover:fill-zinc-500/20" : ""}
+                onClick={() => isOpen && onPluck?.(5 - sIdx, 0)}
+                style={{
+                  opacity: isOpen ? 1 : 0,
+                  transform: isOpen ? "scale(1)" : "scale(0.3)",
+                  transformOrigin: `${x}px 22px`,
+                  transition: "all 0.22s ease-out",
+                  pointerEvents: isOpen ? "auto" : "none",
+                }}
+              />
+
+              {/* Fretted Note Dot */}
+              <g
+                className={onPluck && showDot ? "cursor-pointer" : ""}
+                onClick={() => showDot && onPluck?.(5 - sIdx, fret as number)}
+                style={{
+                  opacity: showDot ? 1 : 0,
+                  transform: showDot ? "scale(1)" : "scale(0.3)",
+                  transformOrigin: `${x}px ${y}px`,
+                  transition: "all 0.28s cubic-bezier(0.34, 1.25, 0.64, 1)",
+                  pointerEvents: showDot ? "auto" : "none",
+                }}
+              >
+                <circle
+                  cx={x}
+                  cy={y}
+                  r="14"
+                  fill={dotHaloFill}
+                  fillOpacity={dotHaloOpacity}
+                  style={{ transition: "all 0.28s cubic-bezier(0.34, 1.25, 0.64, 1)" }}
+                />
+                <circle
+                  cx={x}
+                  cy={y}
+                  r="11"
+                  fill={dotFill}
+                  style={{ transition: "all 0.28s cubic-bezier(0.34, 1.25, 0.64, 1)" }}
+                />
+                {fingerNumber > 0 && (
+                  <text
+                    x={x}
+                    y={y + 4}
+                    fill={dotTextColor}
+                    fontSize="11"
+                    fontFamily="monospace"
+                    fontWeight="bold"
+                    textAnchor="middle"
+                    style={{ transition: "all 0.28s cubic-bezier(0.34, 1.25, 0.64, 1)" }}
+                  >
+                    {fingerNumber}
+                  </text>
+                )}
+              </g>
+            </g>
+          );
         })}
 
         {/* Optional CAGED Shape Subtitle Badge in SVG */}
