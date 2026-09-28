@@ -16,6 +16,7 @@ import {
   Repeat,
   GripVertical,
   X,
+  FileText,
 } from "lucide-react";
 import { findChordByName } from "../data/chordDatabase";
 import { resolveGuitarChord, GuitarVoicingResult } from "../audio/guitarChordResolver";
@@ -24,13 +25,14 @@ import { guitarSynth } from "../audio/guitarSynth";
 import { analyzeAudioFile } from "../audio/audioAnalyzer";
 import { stabilizeChordSegments } from "../audio/harmonicStabilizer";
 import { audioEngine } from "../audio/audioContext";
-import { SongAnalysis, SavedSong } from "../types";
+import { SongAnalysis, SavedSong, ChordSegment } from "../types";
 import { resolveChordFinderState, transposeChordSymbol } from "../music/chordTransposer";
 import { PlayabilityMode } from "../music/chordVoicingGenerator";
 import { arrangeChordProgression, ProgressionArrangementResult } from "../music/fingerstyleArranger";
 import { CURRENT_ANALYSIS_VERSION, needsReanalysis } from "../audio/analysisVersion";
 import { liveChordDetector, LiveChordResult } from "../audio/liveChordDetector";
 import { ChordDiagram } from "./ChordDiagram";
+import { ChordSheetView } from "./ChordSheetView";
 import { CustomConfirmDialog } from "./ui/CustomConfirmDialog";
 import { TimelineScrubber } from "./ui/TimelineScrubber";
 import { SunoSong } from "./SongsLibraryView";
@@ -65,6 +67,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
   const [songName, setSongName] = useState("");
   const [analysisProgress, setAnalysisProgress] = useState<{ message: string; pct: number } | null>(null);
   const [showUploadPanel, setShowUploadPanel] = useState<boolean>(false);
+  const [isSheetViewOpen, setIsSheetViewOpen] = useState<boolean>(false);
 
   const inFlightSongIdRef = useRef<string | null>(null);
   const processedInitialSongIdRef = useRef<string | null>(null);
@@ -352,6 +355,9 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
   const segments = React.useMemo(() => {
     if (!activeSong) return [];
     if (activeSong.chordSegments && activeSong.chordSegments.length > 0) {
+      if ((activeSong as any).isUserEdited) {
+        return activeSong.chordSegments;
+      }
       const stabilized = stabilizeChordSegments(activeSong.chordSegments, {
         beats: activeSong.beats,
         tempo: activeSong.tempo,
@@ -1250,6 +1256,48 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
     setIsPlaying(false);
   };
 
+  const handleUpdateSongSegments = async (newSegments: ChordSegment[]) => {
+    if (!activeSong) return;
+
+    // Cache original segments before user modification so they can be restored if desired
+    const originalBackup = (activeSong as any)._originalSegments || activeSong.chordSegments;
+
+    const uniqueChords = Array.from(new Set(newSegments.map((s) => s.chord)));
+    const updatedSong: SavedSong = {
+      ...activeSong,
+      chordSegments: newSegments,
+      chords: uniqueChords,
+      savedAt: Date.now(),
+      isUserEdited: true,
+      _originalSegments: originalBackup,
+    } as any;
+
+    await saveSongToDB(updatedSong);
+    setActiveSong(updatedSong);
+    const updatedList = await loadSongsFromDB();
+    setSavedSongs(updatedList);
+  };
+
+  const handleRestoreOriginalChords = async () => {
+    if (!activeSong) return;
+    const original = (activeSong as any)._originalSegments;
+    if (!original || original.length === 0) return;
+
+    const uniqueChords = Array.from(new Set(original.map((s: any) => s.chord)));
+    const restoredSong: SavedSong = {
+      ...activeSong,
+      chordSegments: original,
+      chords: uniqueChords,
+      savedAt: Date.now(),
+      isUserEdited: false,
+    } as any;
+
+    await saveSongToDB(restoredSong);
+    setActiveSong(restoredSong);
+    const updatedList = await loadSongsFromDB();
+    setSavedSongs(updatedList);
+  };
+
   const handleRewindInChordFinder = (stepAmount?: number) => {
     const curTime = audioRef.current?.src && !isNaN(audioRef.current.currentTime) && isFinite(audioRef.current.currentTime)
       ? audioRef.current.currentTime
@@ -1415,24 +1463,54 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
     <div id="panel-chord-finder" className="max-w-6xl mx-auto space-y-6 pb-12 animate-in fade-in duration-200">
       <audio ref={audioRef} className="hidden" />
 
-      {/* Top Action Bar / Cards (Collapsible when song active to save vertical space on mobile) */}
-      {activeSong && !showUploadPanel ? (
-        <div className="flex items-center justify-between px-3.5 py-2 frosted-card rounded-2xl border border-white/5 text-xs font-mono">
-          <div className="flex items-center gap-2 text-zinc-400 truncate mr-2 min-w-0">
-            <Sparkles className="w-3.5 h-3.5 text-[#a3ff12] shrink-0" />
-            <span className="truncate">
-              Now Playing: <strong className="text-white">{activeSong.title}</strong>
-            </span>
-          </div>
-          <button
-            onClick={() => setShowUploadPanel(true)}
-            className="px-2.5 py-1 rounded-xl bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white border border-white/10 transition-colors flex items-center gap-1.5 cursor-pointer text-[11px] shrink-0"
-          >
-            <Upload className="w-3 h-3 text-[#a3ff12]" />
-            <span>Search / Upload</span>
-          </button>
-        </div>
+      {isSheetViewOpen && activeSong ? (
+        <ChordSheetView
+          song={activeSong}
+          segments={segments}
+          currentTime={displayTime}
+          duration={duration}
+          isPlaying={isPlaying}
+          onPlayPause={() => setIsPlaying(!isPlaying)}
+          onSeek={(time) => seekToTime(time)}
+          transpose={transpose}
+          capo={capo}
+          onTransposeChange={setTranspose}
+          onCapoChange={setCapo}
+          onClose={() => setIsSheetViewOpen(false)}
+          onUpdateSongSegments={handleUpdateSongSegments}
+          onRestoreOriginalChords={handleRestoreOriginalChords}
+          audioRef={audioRef}
+        />
       ) : (
+        <>
+          {/* Top Action Bar / Cards (Collapsible when song active to save vertical space on mobile) */}
+          {activeSong && !showUploadPanel ? (
+            <div className="flex items-center justify-between px-3.5 py-2 frosted-card rounded-2xl border border-white/5 text-xs font-mono">
+              <div className="flex items-center gap-2 text-zinc-400 truncate mr-2 min-w-0">
+                <Sparkles className="w-3.5 h-3.5 text-[#a3ff12] shrink-0" />
+                <span className="truncate">
+                  Now Playing: <strong className="text-white">{activeSong.title}</strong>
+                </span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={() => setIsSheetViewOpen(true)}
+                  className="px-2.5 py-1 rounded-xl bg-white/10 hover:bg-white/15 text-white border border-white/15 transition-all flex items-center gap-1.5 cursor-pointer text-[11px] shadow-sm font-semibold"
+                  title="Open White Sheet Lead Sheet with chord diagrams, progression, and export options"
+                >
+                  <FileText className="w-3 h-3 text-[#a3ff12]" />
+                  <span>Chord Sheet</span>
+                </button>
+                <button
+                  onClick={() => setShowUploadPanel(true)}
+                  className="px-2.5 py-1 rounded-xl bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white border border-white/10 transition-colors flex items-center gap-1.5 cursor-pointer text-[11px]"
+                >
+                  <Upload className="w-3 h-3 text-[#a3ff12]" />
+                  <span>Search / Upload</span>
+                </button>
+              </div>
+            </div>
+          ) : (
         <div className="space-y-4">
           <div className="text-center space-y-1 sm:space-y-1.5 relative">
             <div className="flex items-center justify-between sm:justify-center">
@@ -1626,6 +1704,14 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
           </div>
 
           <div className="flex items-center gap-2 text-xs font-mono text-zinc-300 shrink-0">
+            <button
+              onClick={() => setIsSheetViewOpen(true)}
+              className="px-2.5 py-0.5 sm:px-3 sm:py-1 bg-white/10 hover:bg-white/20 border border-white/20 rounded-full text-[11px] sm:text-xs font-bold text-white transition-all cursor-pointer flex items-center gap-1.5 shadow-sm"
+              title="Open White Sheet View with chord diagrams and timestamps"
+            >
+              <FileText className="w-3.5 h-3.5 text-[#a3ff12]" />
+              <span>Chord Sheet</span>
+            </button>
             <span className="px-2.5 py-0.5 sm:px-3 sm:py-1 bg-white/5 border border-white/5 rounded-full text-[11px] sm:text-xs">
               Key: {activeSong.key || "C Maj"}
             </span>
@@ -2259,6 +2345,8 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
           </div>
         </div>
       </div>
+        </>
+      )}
 
       <CustomConfirmDialog
         isOpen={dialog.isOpen}

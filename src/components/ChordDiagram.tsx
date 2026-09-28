@@ -16,6 +16,7 @@ export interface ChordDiagramProps {
   onPluck?: (stringIdx: number, fret: number) => void;
   className?: string;
   capo?: number;
+  theme?: "dark" | "light";
 }
 
 /**
@@ -71,10 +72,29 @@ export const ChordDiagramComponent: React.FC<ChordDiagramProps> = ({
   onPluck,
   className = "",
   capo = 0,
+  theme = "dark",
 }) => {
   // Calculate automatic display starting fret
   const startFret = calculateStartFret(frets, barre, position);
   const isOpenPosition = startFret === 1;
+
+  const isLight = theme === "light";
+  const nutFill = capo > 0 ? (isLight ? "#0284c7" : "#38bdf8") : (isLight ? "#0f172a" : "#a3ff12");
+  const capoLabelColor = isLight ? "#0284c7" : "#38bdf8";
+  const topWireColor = isLight ? "#94a3b8" : "rgba(255,255,255,0.4)";
+  const positionLabelColor = isLight ? "#0f172a" : "#a3ff12";
+  const fretWireColor = isLight ? "#cbd5e1" : "rgba(255,255,255,0.18)";
+  const stringWireColor = isLight ? "#64748b" : "rgba(255,255,255,0.35)";
+  const barreFill = isLight ? "#0f172a" : "#a3ff12";
+  const barreHaloFill = isLight ? "#0f172a" : "#a3ff12";
+  const barreHaloOpacity = isLight ? 0.12 : 0.2;
+  const barreTextColor = isLight ? "#ffffff" : "#000000";
+  const openCircleStroke = capo > 0 ? (isLight ? "#0284c7" : "#38bdf8") : (isLight ? "#0f172a" : "#a3ff12");
+  const dotFill = isLight ? "#0f172a" : "#a3ff12";
+  const dotHaloFill = isLight ? "#0f172a" : "#a3ff12";
+  const dotHaloOpacity = isLight ? 0.12 : 0.22;
+  const dotTextColor = isLight ? "#ffffff" : "#000000";
+  const subtitleColor = capo > 0 ? (isLight ? "#0284c7" : "#38bdf8") : (isLight ? "#475569" : "#a3ff12");
 
   // Geometry Constants
   const startX = 46; // Left margin for strings
@@ -118,14 +138,14 @@ export const ChordDiagramComponent: React.FC<ChordDiagramProps> = ({
               y={topY - 5}
               width={capo > 0 ? gridWidth + 8 : gridWidth + 2}
               height={capo > 0 ? 8 : 6}
-              fill={capo > 0 ? "#38bdf8" : "#a3ff12"}
+              fill={nutFill}
               rx={capo > 0 ? "4" : "3"}
             />
             {capo > 0 && showPositionLabel && (
               <text
                 x={startX - 8}
                 y={topY + 1}
-                fill="#38bdf8"
+                fill={capoLabelColor}
                 fontSize="10"
                 fontFamily="monospace"
                 fontWeight="bold"
@@ -141,7 +161,7 @@ export const ChordDiagramComponent: React.FC<ChordDiagramProps> = ({
             y1={topY}
             x2={endX}
             y2={topY}
-            stroke="rgba(255,255,255,0.4)"
+            stroke={topWireColor}
             strokeWidth="2.5"
           />
         )}
@@ -151,7 +171,7 @@ export const ChordDiagramComponent: React.FC<ChordDiagramProps> = ({
           <text
             x={startX - 10}
             y={topY + fretSpacing / 2 + 5}
-            fill="#a3ff12"
+            fill={positionLabelColor}
             fontSize="13"
             fontFamily="monospace"
             fontWeight="bold"
@@ -171,7 +191,7 @@ export const ChordDiagramComponent: React.FC<ChordDiagramProps> = ({
               y1={y}
               x2={endX}
               y2={y}
-              stroke={f === 0 && isOpenPosition ? "transparent" : "rgba(255,255,255,0.18)"}
+              stroke={f === 0 && isOpenPosition ? "transparent" : fretWireColor}
               strokeWidth={f === 0 ? "2" : "1.5"}
             />
           );
@@ -188,7 +208,7 @@ export const ChordDiagramComponent: React.FC<ChordDiagramProps> = ({
               y1={topY}
               x2={x}
               y2={bottomY}
-              stroke="rgba(255,255,255,0.35)"
+              stroke={stringWireColor}
               strokeWidth={gauge}
             />
           );
@@ -219,8 +239,8 @@ export const ChordDiagramComponent: React.FC<ChordDiagramProps> = ({
                   width={pillWidth + 4}
                   height={26}
                   rx={13}
-                  fill="#a3ff12"
-                  fillOpacity={0.2}
+                  fill={barreHaloFill}
+                  fillOpacity={barreHaloOpacity}
                 />
                 {/* Horizontal Rounded Barre Pill */}
                 <rect
@@ -229,14 +249,14 @@ export const ChordDiagramComponent: React.FC<ChordDiagramProps> = ({
                   width={pillWidth}
                   height={22}
                   rx={11}
-                  fill="#a3ff12"
+                  fill={barreFill}
                   fillOpacity={0.95}
                 />
                 {/* Barre Finger Label */}
                 <text
                   x={minX}
                   y={y + 4}
-                  fill="#000"
+                  fill={barreTextColor}
                   fontSize="11"
                   fontFamily="monospace"
                   fontWeight="bold"
@@ -261,7 +281,7 @@ export const ChordDiagramComponent: React.FC<ChordDiagramProps> = ({
                 key={`mute-${sIdx}`}
                 x={x}
                 y="26"
-                fill="#ff4d4d"
+                fill="#ef4444"
                 fontSize="14"
                 fontFamily="monospace"
                 fontWeight="bold"
@@ -281,9 +301,9 @@ export const ChordDiagramComponent: React.FC<ChordDiagramProps> = ({
                 cy="22"
                 r="6"
                 fill="none"
-                stroke={capo > 0 ? "#38bdf8" : "#a3ff12"}
+                stroke={openCircleStroke}
                 strokeWidth="2"
-                className={onPluck ? "cursor-pointer hover:fill-[#a3ff12]/30" : ""}
+                className={onPluck ? "cursor-pointer hover:fill-zinc-500/20" : ""}
                 onClick={() => onPluck?.(5 - sIdx, 0)}
               />
             );
@@ -318,21 +338,21 @@ export const ChordDiagramComponent: React.FC<ChordDiagramProps> = ({
                     cx={x}
                     cy={y}
                     r="14"
-                    fill="#a3ff12"
-                    fillOpacity="0.22"
+                    fill={dotHaloFill}
+                    fillOpacity={dotHaloOpacity}
                   />
                   {/* Crisp primary finger dot */}
                   <circle
                     cx={x}
                     cy={y}
                     r="11"
-                    fill="#a3ff12"
+                    fill={dotFill}
                   />
                   {fingerNumber > 0 ? (
                     <text
                       x={x}
                       y={y + 4}
-                      fill="#000"
+                      fill={dotTextColor}
                       fontSize="11"
                       fontFamily="monospace"
                       fontWeight="bold"
@@ -354,7 +374,7 @@ export const ChordDiagramComponent: React.FC<ChordDiagramProps> = ({
           <text
             x="120"
             y="248"
-            fill={capo > 0 ? "#38bdf8" : "#a3ff12"}
+            fill={subtitleColor}
             fontSize="10"
             fontFamily="monospace"
             fontWeight="bold"
