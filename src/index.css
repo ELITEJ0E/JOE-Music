@@ -235,5 +235,25 @@ input[type="range"] {
     break-inside: avoid !important;
     page-break-inside: avoid !important;
   }
+
+  /* Ensure song sections flow across pages naturally without forcing blank/empty pages */
+  .section-wrapper,
+  .printable-chord-sheet section,
+  [aria-label="Progression Timeline"] > div {
+    break-inside: auto !important;
+    page-break-inside: auto !important;
+    break-before: auto !important;
+    page-break-before: auto !important;
+    break-after: auto !important;
+    page-break-after: auto !important;
+    overflow: visible !important;
+    height: auto !important;
+    min-height: 0 !important;
+  }
+
+  .section-header-banner {
+    break-after: avoid !important;
+    page-break-after: avoid !important;
+  }
 }
 

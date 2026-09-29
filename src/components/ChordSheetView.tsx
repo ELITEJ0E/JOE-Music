@@ -207,6 +207,7 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
   const activeChordRef = useRef<HTMLDivElement | null>(null);
   const activeDiagramCardRef = useRef<HTMLDivElement | null>(null);
   const toastTimeoutRef = useRef<number | null>(null);
+  const externalTabRef = useRef<Window | null>(null);
 
   // Top navigation sliding / swiping bar state & refs
   const topButtonsContainerRef = useRef<HTMLDivElement | null>(null);
@@ -657,13 +658,42 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
       )
       .forEach((el) => el.remove());
 
+    // 1b. Remove the sections helper toolbar ("SONG SECTIONS (X)")
+    clone.querySelectorAll('[aria-label="Progression Timeline"] > div').forEach((el) => {
+      if (el.textContent?.includes("SONG SECTIONS")) {
+        el.remove();
+      }
+    });
+
     // 2. Ensure the Unique Chord Diagrams section is always visible
     clone.querySelectorAll(".print-force-show, .print-force-diagrams").forEach((el) => {
       el.classList.remove("hidden");
       (el as HTMLElement).style.display = "block";
     });
 
-    // 3. Convert all chord diagram SVGs to high-contrast crisp black ink on white paper
+    // 3. Prevent empty pages: Strip break-inside-avoid and overflow-hidden from section containers
+    // (Only individual chord cards should avoid breaking, while sections must flow naturally across page breaks)
+    clone.querySelectorAll(".section-wrapper, [class*='rounded-2xl'][class*='border']").forEach((el) => {
+      if (!el.id?.startsWith("chord-cell-") && !el.classList.contains("chord-card")) {
+        el.classList.remove("print-break-inside-avoid");
+        (el as HTMLElement).style.overflow = "visible";
+        (el as HTMLElement).style.breakInside = "auto";
+        (el as HTMLElement).style.pageBreakInside = "auto";
+        (el as HTMLElement).style.height = "auto";
+        (el as HTMLElement).style.minHeight = "0";
+      }
+    });
+
+    // 4. Normalize sheet colors to crisp high-contrast paper (clean black ink on white paper)
+    clone.style.backgroundColor = "#ffffff";
+    clone.style.color = "#0f172a";
+    clone.querySelectorAll<HTMLElement>(".chord-card, .group, [id^='chord-cell-']").forEach((card) => {
+      card.style.backgroundColor = "#ffffff";
+      card.style.color = "#0f172a";
+      card.style.borderColor = "#cbd5e1";
+    });
+
+    // 5. Convert all chord diagram SVGs to high-contrast crisp black ink on white paper
     clone.querySelectorAll<SVGElement>("svg.chord-diagram-svg").forEach((svg) => {
       // Set explicit SVG viewBox dimensions for sharp print rendering
       svg.setAttribute("width", "72");
@@ -797,11 +827,49 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
             .font-extrabold { font-weight: 800; }
             .uppercase { text-transform: uppercase; }
 
-            /* Break rules to prevent breaking elements across page cuts */
-            section, .section-block, [aria-label="Chord Voicings"], [aria-label="Progression Timeline"] > div {
-              page-break-inside: avoid !important;
-              break-inside: avoid !important;
-              margin-bottom: 18px;
+            /* Break rules to prevent breaking elements across page cuts without causing empty pages */
+            article,
+            #chord-sheet-printable,
+            .sheet-wrapper,
+            section,
+            [aria-label="Progression Timeline"],
+            .progression-timeline {
+              break-inside: auto !important;
+              page-break-inside: auto !important;
+              break-before: auto !important;
+              page-break-before: auto !important;
+              height: auto !important;
+              min-height: 0 !important;
+              overflow: visible !important;
+            }
+
+            [aria-label="Chord Voicings"] {
+              break-inside: auto !important;
+              page-break-inside: auto !important;
+              break-after: auto !important;
+              page-break-after: auto !important;
+              margin-bottom: 14px !important;
+              overflow: visible !important;
+            }
+
+            .section-wrapper,
+            .section-card,
+            [aria-label="Progression Timeline"] > div {
+              break-inside: auto !important;
+              page-break-inside: auto !important;
+              break-before: auto !important;
+              page-break-before: auto !important;
+              break-after: auto !important;
+              page-break-after: auto !important;
+              margin-bottom: 12px !important;
+              overflow: visible !important;
+              height: auto !important;
+              min-height: 0 !important;
+            }
+
+            .section-header-banner {
+              break-after: avoid !important;
+              page-break-after: avoid !important;
             }
 
             /* Flex alignment & icon bounds for clean multi-page document */
@@ -809,7 +877,7 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
             .items-center { align-items: center !important; }
             .justify-between { justify-content: space-between !important; }
             .gap-1 { gap: 4px !important; }
-            .gap-1.5, .gap-1\.5 { gap: 6px !important; }
+            .gap-1.5, .gap-1\\.5 { gap: 6px !important; }
             .gap-2 { gap: 8px !important; }
             .gap-3 { gap: 12px !important; }
             .shrink-0 { flex-shrink: 0 !important; }
@@ -839,7 +907,7 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
               min-width: 15px !important;
               min-height: 15px !important;
             }
-            svg.w-3.5, svg.h-3.5, svg.w-3\.5, svg.h-3\.5, .w-3\.5, .h-3\.5 {
+            svg.w-3.5, svg.h-3.5, svg.w-3\\.5, svg.h-3\\.5, .w-3\\.5, .h-3\\.5 {
               width: 13px !important;
               height: 13px !important;
               min-width: 13px !important;
@@ -886,21 +954,34 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
               background: #ffffff !important;
             }
 
-            /* Chords 4-column layout for print matching PDF export */
+            /* Chords layout for print - using flex-wrap avoids Chromium grid fragmentation and prevents empty pages */
             .grid {
-              display: grid !important;
-              grid-template-columns: repeat(4, 1fr) !important;
+              display: flex !important;
+              flex-wrap: wrap !important;
               gap: 8px !important;
               margin-top: 6px !important;
+            }
+            .grid > * {
+              flex: 0 0 calc(25% - 6px) !important;
+              width: calc(25% - 6px) !important;
+              max-width: calc(25% - 6px) !important;
+              box-sizing: border-box !important;
             }
 
             /* Top Chord Voicings reference grid */
             [aria-label="Chord Voicings"] .grid {
-              grid-template-columns: repeat(6, 1fr) !important;
+              display: flex !important;
+              flex-wrap: wrap !important;
               gap: 8px !important;
             }
+            [aria-label="Chord Voicings"] .grid > * {
+              flex: 0 0 calc(16.666% - 7px) !important;
+              width: calc(16.666% - 7px) !important;
+              max-width: calc(16.666% - 7px) !important;
+              box-sizing: border-box !important;
+            }
 
-            .group {
+            .group, .chord-card, [id^="chord-cell-"] {
               page-break-inside: avoid !important;
               break-inside: avoid !important;
               border: 1px solid #cbd5e1 !important;
@@ -910,10 +991,10 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
               display: flex !important;
               flex-direction: column !important;
               justify-content: space-between !important;
-              min-height: 120px !important;
+              min-height: 118px !important;
             }
 
-            button, .print-hidden, .editor-instruction-footer, [data-footer-instruction] {
+            #chord-sheet-printable button, .print-hidden, .editor-instruction-footer, [data-footer-instruction] {
               display: none !important;
             }
           </style>
@@ -996,18 +1077,16 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
     .top-toolbar {
       position: sticky;
       top: 0;
-      z-index: 100;
-      background: rgba(15, 23, 42, 0.96);
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
-      border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+      z-index: 1000;
+      background: #0f172a;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.15);
       padding: 10px 24px;
-      display: flex;
+      display: flex !important;
       align-items: center;
       justify-content: space-between;
       gap: 12px;
       color: #ffffff;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
     }
     .top-toolbar .logo-group {
       display: flex;
@@ -1041,34 +1120,38 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
       gap: 8px;
       flex-shrink: 0;
     }
-    .btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 7px 16px;
-      border-radius: 8px;
-      font-size: 12px;
-      font-weight: 700;
-      font-family: ui-monospace, monospace;
-      cursor: pointer;
-      border: 1px solid transparent;
-      transition: all 0.15s ease;
-      text-decoration: none;
+    .top-toolbar button,
+    .top-toolbar .btn {
+      display: inline-flex !important;
+      align-items: center !important;
+      gap: 6px !important;
+      padding: 7px 16px !important;
+      border-radius: 8px !important;
+      font-size: 12px !important;
+      font-weight: 700 !important;
+      font-family: ui-monospace, monospace !important;
+      cursor: pointer !important;
+      border: 1px solid transparent !important;
+      transition: all 0.15s ease !important;
+      text-decoration: none !important;
+      visibility: visible !important;
+      opacity: 1 !important;
     }
     .btn-primary {
-      background: #a3ff12;
-      color: #000;
+      background: #a3ff12 !important;
+      color: #000000 !important;
+      box-shadow: 0 2px 8px rgba(163, 255, 18, 0.3) !important;
     }
     .btn-primary:hover {
-      background: #8de30c;
+      background: #8de30c !important;
     }
     .btn-secondary {
-      background: rgba(255, 255, 255, 0.1);
-      color: #fff;
-      border-color: rgba(255, 255, 255, 0.15);
+      background: rgba(255, 255, 255, 0.1) !important;
+      color: #ffffff !important;
+      border-color: rgba(255, 255, 255, 0.2) !important;
     }
     .btn-secondary:hover {
-      background: rgba(255, 255, 255, 0.2);
+      background: rgba(255, 255, 255, 0.2) !important;
     }
 
     /* Paper Lead Sheet Container */
@@ -1085,11 +1168,49 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
       box-shadow: 0 8px 30px rgba(0,0,0,0.06);
     }
 
-    /* Section Structure & Break Isolation */
-    section, .section-block, [aria-label="Chord Voicings"], [aria-label="Progression Timeline"] > div {
-      page-break-inside: avoid !important;
-      break-inside: avoid !important;
-      margin-bottom: 22px;
+    /* Section Structure & Break Rules - Flow naturally without empty pages */
+    article,
+    #chord-sheet-printable,
+    .sheet-wrapper,
+    section,
+    [aria-label="Progression Timeline"],
+    .progression-timeline {
+      break-inside: auto !important;
+      page-break-inside: auto !important;
+      break-before: auto !important;
+      page-break-before: auto !important;
+      height: auto !important;
+      min-height: 0 !important;
+      overflow: visible !important;
+    }
+
+    [aria-label="Chord Voicings"] {
+      break-inside: auto !important;
+      page-break-inside: auto !important;
+      break-after: auto !important;
+      page-break-after: auto !important;
+      margin-bottom: 14px !important;
+      overflow: visible !important;
+    }
+
+    .section-wrapper,
+    .section-card,
+    [aria-label="Progression Timeline"] > div {
+      break-inside: auto !important;
+      page-break-inside: auto !important;
+      break-before: auto !important;
+      page-break-before: auto !important;
+      break-after: auto !important;
+      page-break-after: auto !important;
+      margin-bottom: 12px !important;
+      overflow: visible !important;
+      height: auto !important;
+      min-height: 0 !important;
+    }
+
+    .section-header-banner {
+      break-after: avoid !important;
+      page-break-after: avoid !important;
     }
 
     /* Flex alignment utilities */
@@ -1097,14 +1218,12 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
     .items-center { align-items: center !important; }
     .justify-between { justify-content: space-between !important; }
     .gap-1 { gap: 4px !important; }
-    .gap-1\.5, .gap-1\.5 { gap: 6px !important; }
+    .gap-1\\.5, .gap-1\\.5 { gap: 6px !important; }
     .gap-2 { gap: 8px !important; }
     .gap-3 { gap: 12px !important; }
     .shrink-0 { flex-shrink: 0 !important; }
 
-    /* SECTION BADGE & ICON PLACEMENT:
-       Ensure section icons (Music, Sparkles, Layers, Tag, Play, etc.)
-       are placed inline with section title, perfectly centered, never wrapped */
+    /* SECTION BADGE & ICON PLACEMENT */
     .section-badge, [class*="rounded-lg"][class*="font-mono"][class*="font-extrabold"] {
       display: inline-flex !important;
       align-items: center !important;
@@ -1124,7 +1243,7 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
       margin: 0 !important;
       flex-shrink: 0 !important;
     }
-    svg.w-3\.5, svg.h-3\.5, .w-3\.5, .h-3\.5 {
+    svg.w-3\\.5, svg.h-3\\.5, .w-3\\.5, .h-3\\.5 {
       width: 14px !important;
       height: 14px !important;
       min-width: 14px !important;
@@ -1137,8 +1256,7 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
       min-height: 16px !important;
     }
 
-    /* CHORD DIAGRAM SVGS:
-       Strictly constrain width and height so diagrams are uniform, neat, and razor-sharp */
+    /* CHORD DIAGRAM SVGS */
     svg.chord-diagram-svg,
     .chord-diagram-svg {
       display: block !important;
@@ -1168,7 +1286,7 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
       fill: #ffffff !important;
     }
 
-    /* CHORD BOXES & 4-COLUMN GRID LAYOUT (Matching PDF Export) */
+    /* Screen Chords 4-column layout */
     .grid {
       display: grid !important;
       grid-template-columns: repeat(4, 1fr) !important;
@@ -1183,15 +1301,13 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
     }
 
     @media (max-width: 640px) {
-      @media screen {
-        .grid {
-          grid-template-columns: repeat(3, 1fr) !important;
-          gap: 6px !important;
-        }
+      .grid {
+        grid-template-columns: repeat(3, 1fr) !important;
+        gap: 6px !important;
       }
     }
 
-    .group, .chord-card {
+    .group, .chord-card, [id^="chord-cell-"] {
       border: 1px solid #cbd5e1 !important;
       border-radius: 10px !important;
       padding: 8px 10px !important;
@@ -1216,11 +1332,15 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
       letter-spacing: 0.5px;
     }
 
-    button, .print-hidden, .editor-instruction-footer, [data-footer-instruction] {
+    /* Hide interactive print buttons only inside the sheet itself */
+    #chord-sheet-printable button,
+    .print-hidden,
+    .editor-instruction-footer,
+    [data-footer-instruction] {
       display: none !important;
     }
 
-    /* Print Styles */
+    /* Print Styles: Flex-wrap avoids Chromium grid fragmentation and prevents empty pages */
     @media print {
       body {
         background: #ffffff !important;
@@ -1248,13 +1368,41 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
         margin: 12mm 14mm;
       }
       .grid {
-        grid-template-columns: repeat(4, 1fr) !important;
+        display: flex !important;
+        flex-wrap: wrap !important;
         gap: 8px !important;
       }
-      .group, .chord-card {
+      .grid > * {
+        flex: 0 0 calc(25% - 6px) !important;
+        width: calc(25% - 6px) !important;
+        max-width: calc(25% - 6px) !important;
+        box-sizing: border-box !important;
+      }
+      [aria-label="Chord Voicings"] .grid > * {
+        flex: 0 0 calc(16.666% - 7px) !important;
+        width: calc(16.666% - 7px) !important;
+        max-width: calc(16.666% - 7px) !important;
+        box-sizing: border-box !important;
+      }
+      .group, .chord-card, [id^="chord-cell-"] {
         border: 1px solid #cbd5e1 !important;
         box-shadow: none !important;
         min-height: 118px !important;
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+      }
+      .section-wrapper,
+      .section-card,
+      [aria-label="Progression Timeline"] > div {
+        break-inside: auto !important;
+        page-break-inside: auto !important;
+        break-before: auto !important;
+        page-break-before: auto !important;
+        break-after: auto !important;
+        page-break-after: auto !important;
+        overflow: visible !important;
+        height: auto !important;
+        min-height: 0 !important;
       }
       svg.chord-diagram-svg,
       .chord-diagram-svg {
@@ -1268,18 +1416,22 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
   </style>
 </head>
 <body>
-  <!-- Screen Navigation Bar -->
+  <!-- Screen Navigation Bar with Print & Close controls -->
   <header class="top-toolbar">
     <div class="logo-group">
       <span class="badge">LEAD SHEET</span>
       <span class="song-heading">${songTitle} &bull; ${songArtist}</span>
     </div>
     <div class="actions">
-      <button class="btn btn-primary" onclick="window.print()">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+      <button class="btn btn-primary" onclick="window.print()" id="btn-print-sheet" title="Print this chord sheet or save as PDF">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="6 9 6 2 18 2 18 9"></polyline>
+          <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
+          <rect x="6" y="14" width="12" height="8"></rect>
+        </svg>
         Print / Save PDF
       </button>
-      <button class="btn btn-secondary" onclick="window.close()">
+      <button class="btn btn-secondary" onclick="window.close()" title="Close external sheet">
         Close
       </button>
     </div>
@@ -1291,11 +1443,22 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
       JOE Guitar Studio &bull; ${songTitle} &bull; Full Lead Chord Sheet
     </div>
   </main>
+
+  <script>
+    // Enable Ctrl+P / Cmd+P print shortcut
+    window.addEventListener('keydown', function(e) {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'p' || e.key === 'P')) {
+        e.preventDefault();
+        window.print();
+      }
+    });
+  </script>
 </body>
 </html>`;
   };
 
   // Open full chord sheet in an external web page / new browser tab
+  // Guarantees ONLY 1 external tab is opened and reused across clicks
   const handleOpenExternalPage = async () => {
     const html = generateFullHtmlSheet();
     if (!html) {
@@ -1303,30 +1466,59 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
       return;
     }
 
+    const EXTERNAL_TAB_TARGET = "JoeGuitarStudio_ExternalLeadSheet";
+
+    // Synchronously open / acquire the single external tab to avoid popup blockers
+    let extWin: Window | null = null;
+    try {
+      extWin = window.open("", EXTERNAL_TAB_TARGET);
+      if (extWin && (!extWin.location.href || extWin.location.href === "about:blank")) {
+        extWin.document.title = `${song.title || "Chord Sheet"} - Loading...`;
+        extWin.document.body.style.backgroundColor = "#0f172a";
+        extWin.document.body.style.color = "#ffffff";
+        extWin.document.body.style.fontFamily = "ui-monospace, monospace";
+        extWin.document.body.style.display = "flex";
+        extWin.document.body.style.alignItems = "center";
+        extWin.document.body.style.justifyContent = "center";
+        extWin.document.body.style.height = "100vh";
+        extWin.document.body.style.margin = "0";
+        extWin.document.body.innerHTML = `
+          <div style="text-align:center;padding:24px;">
+            <div style="background:#a3ff12;color:#000;font-weight:900;padding:4px 12px;border-radius:6px;display:inline-block;margin-bottom:12px;font-size:12px;letter-spacing:1px;">JOE GUITAR STUDIO</div>
+            <div style="font-size:16px;font-weight:bold;margin-bottom:6px;color:#f8fafc;">Preparing Lead Sheet...</div>
+            <div style="font-size:12px;color:#94a3b8;">${song.title || "Song"} (${segments.length} chords)</div>
+          </div>
+        `;
+      }
+    } catch {
+      extWin = null;
+    }
+
+    const songSlug = (song.title || "chords").toLowerCase().replace(/[^a-z0-9]/g, "-").slice(0, 30) || "lead-sheet";
+    const sheetId = `sheet-${songSlug}-${Date.now().toString(36)}`;
+
     try {
       const res = await fetch("/api/external-sheet", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           html,
-          title: `${song.title || "Chord Sheet"} - JOE Guitar Studio`,
-          id: `sheet-${(song.title || "chords").toLowerCase().replace(/[^a-z0-9]/g, "-")}-${Date.now().toString(36)}`,
+          title: `${song.title || "Chord Sheet"} - JOE Guitar Studio Lead Sheet`,
+          id: sheetId,
         }),
       });
+
       if (res.ok) {
         const data = await res.json();
         if (data.url) {
-          const newWin = window.open(data.url, "_blank", "noopener,noreferrer");
-          if (!newWin) {
-            const a = document.createElement("a");
-            a.href = data.url;
-            a.target = "_blank";
-            a.rel = "noopener noreferrer";
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
+          if (extWin && !extWin.closed) {
+            extWin.location.href = data.url;
+            extWin.focus();
+          } else {
+            const w = window.open(data.url, EXTERNAL_TAB_TARGET);
+            w?.focus();
           }
-          showToast("Opened full chord sheet in external page!");
+          showToast("Lead sheet updated in external tab!");
           return;
         }
       }
@@ -1337,17 +1529,14 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
     // Client-side Blob URL fallback
     const blob = new Blob([html], { type: "text/html;charset=utf-8" });
     const blobUrl = URL.createObjectURL(blob);
-    const win = window.open(blobUrl, "_blank", "noopener,noreferrer");
-    if (!win) {
-      const a = document.createElement("a");
-      a.href = blobUrl;
-      a.target = "_blank";
-      a.rel = "noopener noreferrer";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+    if (extWin && !extWin.closed) {
+      extWin.location.href = blobUrl;
+      extWin.focus();
+    } else {
+      const w = window.open(blobUrl, EXTERNAL_TAB_TARGET);
+      w?.focus();
     }
-    showToast("Opened full chord sheet in external page!");
+    showToast("Lead sheet opened in external tab!");
   };
 
   // Download standalone .html document
@@ -1953,7 +2142,7 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
         */}
         <section aria-label="Progression Timeline" className="space-y-4">
           {/* Section Toolbar / Helper */}
-          <div className="flex items-center justify-between gap-2 px-1">
+          <div className="flex items-center justify-between gap-2 px-1 print:hidden print-hidden">
             <div className="flex items-center gap-2 text-xs font-mono text-zinc-700 font-bold">
               <Layers className="w-4 h-4 text-emerald-700 shrink-0 inline-block align-middle" />
               <span className="inline-block align-middle">SONG SECTIONS ({sections.length})</span>
@@ -1983,7 +2172,7 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
             return (
               <div
                 key={`section-${sIdx}-${section.name}-${section.startIndex}`}
-                className={`rounded-2xl border transition-all duration-200 overflow-hidden print-break-inside-avoid ${
+                className={`section-wrapper rounded-2xl border transition-all duration-200 overflow-visible print:border-zinc-300 print:shadow-none print:bg-white print:overflow-visible ${
                   isSectionActive
                     ? isLightSheet
                       ? "border-2 border-[#10b981] shadow-md ring-2 ring-[#10b981]/20"
@@ -1993,7 +2182,7 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
               >
                 {/* SECTION HEADER BANNER (Paper style or Sleek Dark) */}
                 <div
-                  className={`px-3 sm:px-4 py-2 sm:py-2.5 flex items-center justify-between gap-2 border-b border-l-4 ${style.accentBorder} ${
+                  className={`section-header-banner px-3 sm:px-4 py-2 sm:py-2.5 flex items-center justify-between gap-2 border-b border-l-4 ${style.accentBorder} print:bg-zinc-50 print:border-zinc-300 ${
                     isLightSheet
                       ? `border-zinc-200 ${style.headerBg}`
                       : "border-white/10 bg-[#1c2128]"
@@ -2124,7 +2313,7 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
                           ref={isActive ? activeChordRef : null}
                           data-active-chord={isActive ? "true" : "false"}
                           onClick={() => handleSeekAndFollow(seg.startTime)}
-                          className={`group relative rounded-xl p-1.5 sm:p-2 border transition-all duration-150 cursor-pointer flex flex-col justify-between select-none scroll-mt-24 sm:scroll-mt-28 md:scroll-mt-32 print-break-inside-avoid overflow-hidden ${
+                          className={`group chord-card relative rounded-xl p-1.5 sm:p-2 border transition-all duration-150 cursor-pointer flex flex-col justify-between select-none scroll-mt-24 sm:scroll-mt-28 md:scroll-mt-32 print-break-inside-avoid print:bg-white print:border-zinc-300 overflow-hidden ${
                             isActive
                               ? isLightSheet
                                 ? "bg-[#ecfdf5] border-2 border-[#10b981] ring-2 ring-[#10b981]/30 shadow-lg scale-[1.02] text-zinc-950"
