@@ -215,6 +215,11 @@ export const MultiTrackStudio: React.FC<MultiTrackStudioProps> = ({ initialSong 
   const [clippingTracks, setClippingTracks] = useState<{ [trackId: string]: boolean }>({});
   const [buses, setBuses] = useState<BusChannelState[]>(DEFAULT_BUS_CHANNELS);
 
+  // Grid Canvas Scrubbing Control
+  const isCanvasScrubbingRef = useRef<boolean>(false);
+  const canvasRectCacheRef = useRef<{ left: number; width: number }>({ left: 0, width: 1 });
+  const pendingCanvasSeekTimeRef = useRef<number | null>(null);
+
   // Dialogs & Feedback
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [dialog, setDialog] = useState<{
@@ -414,7 +419,7 @@ export const MultiTrackStudio: React.FC<MultiTrackStudioProps> = ({ initialSong 
     const unsubTick = transport.subscribeTick((t) => {
       setPlayheadTimeSec(t);
       if (playheadLineRef.current) {
-        playheadLineRef.current.style.transform = `translateX(${t * zoomPxPerSec}px)`;
+        playheadLineRef.current.style.transform = `translate3d(${(t * zoomPxPerSec).toFixed(2)}px, 0, 0)`;
       }
     });
 
@@ -678,8 +683,66 @@ export const MultiTrackStudio: React.FC<MultiTrackStudioProps> = ({ initialSong 
     const target = snapTimeToGrid(timeSec);
     transport.seek(target);
     setPlayheadTimeSec(target);
+    if (playheadLineRef.current) {
+      playheadLineRef.current.style.transform = `translate3d(${(target * zoomPxPerSec).toFixed(2)}px, 0, 0)`;
+    }
     if (transportState.isPlaying) {
       dawEngine.startPlayback(project, target);
+    }
+  };
+
+  const handleGridPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if ((e.target as HTMLElement).closest("[data-clip-item]")) return;
+    if (e.button !== 0 && e.pointerType === "mouse") return;
+
+    const gridEl = e.currentTarget;
+    const rect = gridEl.getBoundingClientRect();
+    canvasRectCacheRef.current = { left: rect.left, width: rect.width };
+
+    try {
+      gridEl.setPointerCapture(e.pointerId);
+    } catch {}
+
+    isCanvasScrubbingRef.current = true;
+    document.body.style.cursor = "ew-resize";
+    const clickX = Math.max(0, e.clientX - rect.left);
+    const targetSec = Math.max(0, clickX / zoomPxPerSec);
+    pendingCanvasSeekTimeRef.current = targetSec;
+
+    if (playheadLineRef.current) {
+      playheadLineRef.current.style.transform = `translate3d(${(targetSec * zoomPxPerSec).toFixed(2)}px, 0, 0)`;
+    }
+  };
+
+  const handleGridPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isCanvasScrubbingRef.current) return;
+    const { left } = canvasRectCacheRef.current;
+    const currentX = Math.max(0, e.clientX - left);
+    const targetSec = Math.max(0, currentX / zoomPxPerSec);
+    pendingCanvasSeekTimeRef.current = targetSec;
+
+    if (playheadLineRef.current) {
+      playheadLineRef.current.style.transform = `translate3d(${(targetSec * zoomPxPerSec).toFixed(2)}px, 0, 0)`;
+    }
+  };
+
+  const handleGridPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    const gridEl = e.currentTarget;
+    if (gridEl && gridEl.hasPointerCapture(e.pointerId)) {
+      try {
+        gridEl.releasePointerCapture(e.pointerId);
+      } catch {}
+    }
+
+    if (isCanvasScrubbingRef.current) {
+      isCanvasScrubbingRef.current = false;
+      document.body.style.cursor = "";
+
+      if (pendingCanvasSeekTimeRef.current !== null) {
+        const finalTarget = pendingCanvasSeekTimeRef.current;
+        pendingCanvasSeekTimeRef.current = null;
+        handleSeek(finalTarget);
+      }
     }
   };
 
@@ -1187,106 +1250,99 @@ export const MultiTrackStudio: React.FC<MultiTrackStudioProps> = ({ initialSong 
           </div>
         </div>
 
-        {/* Center Timeline Ruler & Waveform Lanes */}
-        <div className="flex-1 flex flex-col bg-[#07090e] overflow-hidden relative">
-          {/* Ruler */}
+        {/* Center Timeline Workspace (Single Shared Scroll Container) */}
+        <div
+          className="flex-1 overflow-auto select-none relative touch-none bg-[#07090e] cursor-crosshair"
+          id="timeline-main-container"
+          onScroll={(e) => {
+            const headers = document.getElementById("track-headers-container");
+            if (headers) headers.scrollTop = e.currentTarget.scrollTop;
+          }}
+        >
           <div
-            className="h-10 shrink-0 border-b border-white/10 bg-[#0c0e15] overflow-x-auto overflow-y-hidden scrollbar-none"
-            id="timeline-ruler-container"
-            onScroll={(e) => {
-              const target = document.getElementById("timeline-lanes-container");
-              if (target) target.scrollLeft = e.currentTarget.scrollLeft;
-            }}
+            className="relative min-h-full"
+            style={{ width: `${Math.max(800, maxProjectDurationSec * zoomPxPerSec)}px` }}
+            onPointerDown={handleGridPointerDown}
+            onPointerMove={handleGridPointerMove}
+            onPointerUp={handleGridPointerUp}
+            onPointerCancel={handleGridPointerUp}
           >
-            <TimelineRuler
-              bpm={project.bpm}
-              timeSig={project.timeSig}
-              zoomPxPerSec={zoomPxPerSec}
-              totalDurationSec={maxProjectDurationSec}
-              playheadTimeSec={playheadTimeSec}
-              onSeek={handleSeek}
-            />
-          </div>
+            {/* Sticky Ruler Header at Top */}
+            <div className="sticky top-0 z-40 h-10 bg-[#0c0e15] border-b border-white/10 shadow-md">
+              <TimelineRuler
+                bpm={project.bpm}
+                timeSig={project.timeSig}
+                zoomPxPerSec={zoomPxPerSec}
+                totalDurationSec={maxProjectDurationSec}
+                playheadTimeSec={playheadTimeSec}
+                onSeek={handleSeek}
+                playheadLineRef={playheadLineRef}
+              />
+            </div>
 
-          {/* Timeline Lanes */}
-          <div
-            className="flex-1 overflow-auto cursor-crosshair select-none relative"
-            id="timeline-lanes-container"
-            onScroll={(e) => {
-              const ruler = document.getElementById("timeline-ruler-container");
-              const headers = document.getElementById("track-headers-container");
-              if (ruler) ruler.scrollLeft = e.currentTarget.scrollLeft;
-              if (headers) headers.scrollTop = e.currentTarget.scrollTop;
-            }}
-          >
-            <div
-              className="relative divide-y divide-white/5 min-h-full"
-              style={{ width: `${Math.max(800, maxProjectDurationSec * zoomPxPerSec)}px` }}
-              onClick={(e) => {
-                const rect = e.currentTarget.getBoundingClientRect();
-                const clickX = e.clientX - rect.left;
-                handleSeek(clickX / zoomPxPerSec);
-              }}
-            >
-              {/* Background Grid Lines */}
-              <div className="absolute inset-0 pointer-events-none">
-                {Array.from({ length: Math.ceil(maxProjectDurationSec / (60 / project.bpm)) }).map((_, beatIdx) => {
-                  const beatX = beatIdx * (60 / project.bpm) * zoomPxPerSec;
-                  const isBar = beatIdx % 4 === 0;
-                  return (
-                    <div
-                      key={`lane-grid-${beatIdx}`}
-                      className={`absolute top-0 bottom-0 ${isBar ? "w-px bg-white/10" : "w-px bg-white/5"}`}
-                      style={{ left: `${beatX}px` }}
-                    />
-                  );
-                })}
-              </div>
+            {/* Background Grid Lines */}
+            <div className="absolute top-10 bottom-0 left-0 right-0 pointer-events-none z-0">
+              {Array.from({ length: Math.ceil(maxProjectDurationSec / (60 / project.bpm)) }).map((_, beatIdx) => {
+                const beatX = beatIdx * (60 / project.bpm) * zoomPxPerSec;
+                const isBar = beatIdx % 4 === 0;
+                return (
+                  <div
+                    key={`lane-grid-${beatIdx}`}
+                    className={`absolute top-0 bottom-0 ${isBar ? "w-px bg-white/10" : "w-px bg-white/5"}`}
+                    style={{ left: `${beatX}px` }}
+                  />
+                );
+              })}
+            </div>
 
-              {/* Track Lanes with Clips */}
+            {/* Track Lanes with Clips */}
+            <div className="relative divide-y divide-white/5 pt-0 z-10">
               {project.tracks.map((track) => (
                 <div
                   key={track.id}
                   className={`relative h-24 sm:h-28 ${track.id === selectedTrackId ? "bg-white/[0.02]" : ""}`}
                 >
                   {(track.clips || []).map((clip) => (
-                    <AudioClipView
-                      key={clip.id}
-                      clip={clip}
-                      trackColor={track.color}
-                      zoomPxPerSec={zoomPxPerSec}
-                      isSelected={clip.id === selectedClipId}
-                      onSelect={() => {
-                        setSelectedClipId(clip.id);
-                        setSelectedTrackId(track.id);
-                        setInspectingClip(clip);
-                      }}
-                      onMove={(newStart) => handleMoveClip(clip.id, newStart)}
-                      onTrimLeft={(delta) => handleTrimLeft(clip.id, delta)}
-                      onTrimRight={(delta) => handleTrimRight(clip.id, delta)}
-                      onOpenInspector={(c) => {
-                        setInspectingClip(c);
-                        setActiveDeckTab("inspector");
-                        setIsDeckExpanded(true);
-                      }}
-                      onSplitAtPlayhead={handleSplitAtPlayhead}
-                      onDuplicate={handleDuplicateClip}
-                      onDelete={handleDeleteClip}
-                    />
+                    <div key={clip.id} data-clip-item="true">
+                      <AudioClipView
+                        clip={clip}
+                        trackColor={track.color}
+                        zoomPxPerSec={zoomPxPerSec}
+                        isSelected={clip.id === selectedClipId}
+                        onSelect={() => {
+                          setSelectedClipId(clip.id);
+                          setSelectedTrackId(track.id);
+                          setInspectingClip(clip);
+                        }}
+                        onMove={(newStart) => handleMoveClip(clip.id, newStart)}
+                        onTrimLeft={(delta) => handleTrimLeft(clip.id, delta)}
+                        onTrimRight={(delta) => handleTrimRight(clip.id, delta)}
+                        onOpenInspector={(c) => {
+                          setInspectingClip(c);
+                          setActiveDeckTab("inspector");
+                          setIsDeckExpanded(true);
+                        }}
+                        onSplitAtPlayhead={handleSplitAtPlayhead}
+                        onDuplicate={handleDuplicateClip}
+                        onDelete={handleDeleteClip}
+                      />
+                    </div>
                   ))}
                 </div>
               ))}
+            </div>
 
-              {/* Direct Hardware-Accelerated Playhead */}
-              <div
-                ref={playheadLineRef}
-                className="absolute top-0 bottom-0 w-px bg-rose-500 z-20 pointer-events-none shadow-[0_0_12px_rgba(244,63,94,0.9)]"
-                style={{ transform: `translateX(${playheadTimeSec * zoomPxPerSec}px)` }}
-              >
-                <div className="absolute -top-3 -left-1.5 w-3 h-3 bg-rose-500 rotate-45 shadow-sm" />
-              </div>
+            {/* ONE SINGLE UNIFIED CONTINUOUS HARDWARE-ACCELERATED PLAYHEAD (Ruler Handle + Track Needle) */}
+            <div
+              ref={playheadLineRef}
+              className="absolute top-0 bottom-0 w-[2px] bg-[#a3ff12] z-50 pointer-events-none shadow-[0_0_14px_rgba(163,255,18,0.95)] will-change-transform"
+              style={{ transform: `translate3d(${(playheadTimeSec * zoomPxPerSec).toFixed(2)}px, 0, 0)` }}
+            >
+              {/* Neon Green Thumb Handle Pointer sitting atop the Sticky Ruler */}
+              <div className="absolute top-0 -left-[7px] w-0 h-0 border-l-[8px] border-l-transparent border-r-[8px] border-r-transparent border-t-[10px] border-t-[#a3ff12] filter drop-shadow-[0_0_6px_#a3ff12]" />
             </div>
           </div>
+        </div>
 
           {/* Floating Zoom & Tool Controls */}
           <div className="absolute bottom-3 right-3 z-20 flex items-center gap-1 bg-[#12151e]/90 backdrop-blur-md border border-white/10 p-1 rounded-xl shadow-lg">
@@ -1307,7 +1363,6 @@ export const MultiTrackStudio: React.FC<MultiTrackStudioProps> = ({ initialSong 
             </button>
           </div>
         </div>
-      </div>
 
       {/* 3. COLLAPSIBLE BOTTOM STUDIO DECK (MIXER / EFFECTS / TONE / DRUMS / LOOPER / AI) */}
       <div className={`shrink-0 bg-[#0d1017] border-t border-white/10 transition-all duration-300 flex flex-col ${isDeckExpanded ? "h-64 sm:h-72" : "h-10"}`}>
