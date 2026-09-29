@@ -646,6 +646,90 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
     showToast(`Undone: ${lastAction.description}.`);
   };
 
+  // Helper to clone and sanitize printable lead sheet for pristine PDF / Print and external HTML rendering
+  const preparePrintableClone = (printableArea: HTMLElement): HTMLElement => {
+    const clone = printableArea.cloneNode(true) as HTMLElement;
+
+    // 1. Remove interactive UI elements, edit buttons, footer instructions, trash buttons
+    clone
+      .querySelectorAll(
+        "button, .print\\:hidden, .print-hidden, [role='button'], .editor-instruction-footer, [data-footer-instruction]"
+      )
+      .forEach((el) => el.remove());
+
+    // 2. Ensure the Unique Chord Diagrams section is always visible
+    clone.querySelectorAll(".print-force-show, .print-force-diagrams").forEach((el) => {
+      el.classList.remove("hidden");
+      (el as HTMLElement).style.display = "block";
+    });
+
+    // 3. Convert all chord diagram SVGs to high-contrast crisp black ink on white paper
+    clone.querySelectorAll<SVGElement>("svg.chord-diagram-svg").forEach((svg) => {
+      // Set explicit SVG viewBox dimensions for sharp print rendering
+      svg.setAttribute("width", "72");
+      svg.setAttribute("height", "80");
+
+      // Strings and Frets
+      svg.querySelectorAll("line").forEach((line) => {
+        const stroke = line.getAttribute("stroke");
+        if (!stroke || stroke === "transparent") return;
+        line.setAttribute("stroke", "#1e293b");
+        line.style.stroke = "#1e293b";
+      });
+
+      // Nut, Barre, and Rectangles
+      svg.querySelectorAll("rect").forEach((rect) => {
+        const fill = rect.getAttribute("fill");
+        if (!fill || fill === "none" || fill === "transparent") return;
+        const opacity = rect.getAttribute("fill-opacity");
+        if (opacity && parseFloat(opacity) < 0.5) {
+          rect.remove(); // Remove soft glow halo
+          return;
+        }
+        rect.setAttribute("fill", "#0f172a");
+        rect.style.fill = "#0f172a";
+      });
+
+      // Circles (Dots and Open string markers)
+      svg.querySelectorAll("circle").forEach((circle) => {
+        const opacity = circle.getAttribute("fill-opacity");
+        if (opacity && parseFloat(opacity) < 0.5) {
+          circle.remove(); // Remove glow halo
+          return;
+        }
+        const fill = circle.getAttribute("fill");
+        const stroke = circle.getAttribute("stroke");
+        if (fill && fill !== "none" && fill !== "transparent") {
+          circle.setAttribute("fill", "#0f172a");
+          circle.style.fill = "#0f172a";
+        }
+        if (stroke && stroke !== "none" && stroke !== "transparent") {
+          circle.setAttribute("stroke", "#0f172a");
+          circle.style.stroke = "#0f172a";
+        }
+      });
+
+      // Text labels (fret numbers, finger numbers inside dots, mute ✕)
+      svg.querySelectorAll("text").forEach((text) => {
+        const content = text.textContent?.trim();
+        if (content === "✕") {
+          text.setAttribute("fill", "#dc2626");
+          text.style.fill = "#dc2626";
+        } else if (content && /^[1-4T]$/.test(content)) {
+          // Finger numbers inside solid black dots -> crisp white text
+          text.setAttribute("fill", "#ffffff");
+          text.style.fill = "#ffffff";
+        } else {
+          // Position labels ("3fr", "Capo 2", etc.)
+          text.setAttribute("fill", "#0f172a");
+          text.style.fill = "#0f172a";
+        }
+      });
+    });
+
+    return clone;
+  };
+
   // Print pristine lead sheet across multiple pages without webpage UI
   const handlePrint = () => {
     const printableArea = document.getElementById("chord-sheet-printable");
@@ -672,10 +756,8 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
       return;
     }
 
-    // Clone the printable sheet content and strip interactive UI buttons, edit hints, and footers
-    const clone = printableArea.cloneNode(true) as HTMLElement;
-    clone.querySelectorAll("button").forEach((b) => b.remove());
-    clone.querySelectorAll(".print\\:hidden, .print-hidden, [role='button'], .editor-instruction-footer, [data-footer-instruction]").forEach((el) => el.remove());
+    // Clone and sanitize printable sheet content with crisp black diagrams
+    const clone = preparePrintableClone(printableArea);
 
     iframeDoc.open();
     iframeDoc.write(`
@@ -773,6 +855,25 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
               height: 80px !important;
               max-width: 100% !important;
             }
+            /* High-contrast ink rules for diagram SVGs in print */
+            svg.chord-diagram-svg line {
+              stroke: #1e293b !important;
+            }
+            svg.chord-diagram-svg rect:not([fill="none"]):not([fill="transparent"]) {
+              fill: #0f172a !important;
+            }
+            svg.chord-diagram-svg circle[fill]:not([fill="none"]):not([fill="transparent"]) {
+              fill: #0f172a !important;
+            }
+            svg.chord-diagram-svg circle[stroke]:not([stroke="none"]):not([stroke="transparent"]) {
+              stroke: #0f172a !important;
+            }
+            svg.chord-diagram-svg text {
+              fill: #0f172a !important;
+            }
+            svg.chord-diagram-svg text[fill="#ffffff"] {
+              fill: #ffffff !important;
+            }
 
             /* Container resets */
             #chord-sheet-printable {
@@ -791,6 +892,12 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
               grid-template-columns: repeat(4, 1fr) !important;
               gap: 8px !important;
               margin-top: 6px !important;
+            }
+
+            /* Top Chord Voicings reference grid */
+            [aria-label="Chord Voicings"] .grid {
+              grid-template-columns: repeat(6, 1fr) !important;
+              gap: 8px !important;
             }
 
             .group {
@@ -842,8 +949,7 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
     const printableArea = document.getElementById("chord-sheet-printable");
     if (!printableArea) return "";
 
-    const clone = printableArea.cloneNode(true) as HTMLElement;
-    clone.querySelectorAll("button, .print\\:hidden, .print-hidden, [role='button'], .editor-instruction-footer, [data-footer-instruction]").forEach((el) => el.remove());
+    const clone = preparePrintableClone(printableArea);
 
     const songTitle = song.title || "Untitled Song";
     const songArtist = song.artist || "Unknown Artist";
@@ -1042,12 +1148,38 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
       max-width: 100% !important;
     }
 
+    /* High-contrast ink rules for diagram SVGs in external sheet */
+    svg.chord-diagram-svg line {
+      stroke: #1e293b !important;
+    }
+    svg.chord-diagram-svg rect:not([fill="none"]):not([fill="transparent"]) {
+      fill: #0f172a !important;
+    }
+    svg.chord-diagram-svg circle[fill]:not([fill="none"]):not([fill="transparent"]) {
+      fill: #0f172a !important;
+    }
+    svg.chord-diagram-svg circle[stroke]:not([stroke="none"]):not([stroke="transparent"]) {
+      stroke: #0f172a !important;
+    }
+    svg.chord-diagram-svg text {
+      fill: #0f172a !important;
+    }
+    svg.chord-diagram-svg text[fill="#ffffff"] {
+      fill: #ffffff !important;
+    }
+
     /* CHORD BOXES & 4-COLUMN GRID LAYOUT (Matching PDF Export) */
     .grid {
       display: grid !important;
       grid-template-columns: repeat(4, 1fr) !important;
       gap: 10px !important;
       margin-top: 6px !important;
+    }
+
+    /* Top Chord Voicings reference grid (6 per row on desktop) */
+    [aria-label="Chord Voicings"] .grid {
+      grid-template-columns: repeat(6, 1fr) !important;
+      gap: 10px !important;
     }
 
     @media (max-width: 640px) {
@@ -1638,7 +1770,7 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
       {/* ========================================================================= */}
       {/* THE SHEET (Crisp Music Paper Lead Sheet or Sleek Dark Sheet)              */}
       {/* ========================================================================= */}
-      <main
+      <article
         id="chord-sheet-printable"
         className={`max-w-4xl mx-auto rounded-2xl sm:rounded-3xl border shadow-2xl p-3 sm:p-6 md:p-8 space-y-4 sm:space-y-5 transition-colors print:bg-white print:text-black print:shadow-none print:border-none print:p-0 print:m-0 print:rounded-none printable-chord-sheet ${
           isLightSheet
@@ -1720,95 +1852,93 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
             </span>
           </div>
 
-          {/* Unique Chord Diagram Cards Grid */}
-          {showDiagrams && (
-            <div className="pt-3 animate-in fade-in duration-150">
-              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2 sm:gap-2.5">
-                {uniqueChordVoicings.map(({ rawChord, targetShape, voicingResult }) => {
-                  const isCurrentlyPlaying =
-                    activeResolvedChord?.isValid &&
-                    (capo > 0
-                      ? activeResolvedChord.shapeChord === targetShape
-                      : activeResolvedChord.transposedChord === targetShape);
+          {/* Unique Chord Diagram Cards Grid - always rendered for print/PDF */}
+          <div className={`pt-3 animate-in fade-in duration-150 ${showDiagrams ? "block" : "hidden print:block print-force-show print-force-diagrams"}`}>
+            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2 sm:gap-2.5">
+              {uniqueChordVoicings.map(({ rawChord, targetShape, voicingResult }) => {
+                const isCurrentlyPlaying =
+                  activeResolvedChord?.isValid &&
+                  (capo > 0
+                    ? activeResolvedChord.shapeChord === targetShape
+                    : activeResolvedChord.transposedChord === targetShape);
 
-                  return (
-                    <div
-                      key={rawChord}
-                      ref={isCurrentlyPlaying ? activeDiagramCardRef : null}
-                      onClick={() => {
-                        if (voicingResult.voicing) {
-                          guitarSynth.strumChord(voicingResult.voicing.frets, "down", 24, capo);
-                        }
-                      }}
-                      className={`group relative rounded-2xl p-2 sm:p-2.5 transition-all duration-150 cursor-pointer flex flex-col justify-between border ${
-                        isCurrentlyPlaying
-                          ? isLightSheet
-                            ? "bg-[#ecfdf5] border-2 border-[#10b981] shadow-md ring-2 ring-[#10b981]/30 scale-[1.02]"
-                            : "bg-[#10b981]/15 border-2 border-[#10b981] shadow-md ring-2 ring-[#10b981]/40 scale-[1.02]"
-                          : isLightSheet
-                          ? "bg-white hover:bg-zinc-50 border border-zinc-200/90 text-zinc-900 shadow-xs"
-                          : "bg-[#1c2128] hover:bg-[#252c36] border-white/10 text-white shadow-xs"
-                      }`}
-                      title={`Click to strum ${targetShape}`}
-                    >
-                      {/* Card Header: Chord Name & "NOW PLAYING" badge */}
-                      <div className="flex items-center justify-between w-full mb-1">
-                        <span
-                          className={`text-sm sm:text-base font-black font-mono tracking-tight ${
-                            isCurrentlyPlaying
-                              ? "text-[#10b981]"
-                              : isLightSheet ? "text-zinc-900" : "text-white"
-                          }`}
-                        >
-                          {targetShape}
-                        </span>
-                        {isCurrentlyPlaying && (
-                          <span className="bg-[#10b981] text-white text-[7.5px] sm:text-[8.5px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full shadow-xs shrink-0">
-                            PLAYING
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Guitar Chord Diagram - Black in Light Mode, Green in Dark Mode */}
-                      <div className="w-full flex items-center justify-center h-[90px] sm:h-[105px] my-0.5">
-                        {voicingResult.voicing ? (
-                          <ChordDiagram
-                            frets={voicingResult.voicing.frets}
-                            fingers={voicingResult.voicing.fingers}
-                            barre={voicingResult.voicing.barre}
-                            position={voicingResult.voicing.baseFret}
-                            cagedShape={voicingResult.voicing.cagedShape}
-                            capo={capo}
-                            size="xs"
-                            theme={sheetTheme}
-                            className="max-h-full max-w-full"
-                          />
-                        ) : (
-                          <div className={`text-[10px] font-mono text-center py-4 ${isLightSheet ? "text-zinc-400" : "text-zinc-500"}`}>
-                            No diagram
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Card Footer: Preview button with play icon */}
-                      <div
-                        className={`mt-1 flex items-center justify-center gap-1 text-[9px] sm:text-[10px] font-mono transition-colors pt-1 border-t print:hidden ${
-                          isLightSheet ? "border-zinc-100" : "border-white/5"
-                        } ${
+                return (
+                  <div
+                    key={rawChord}
+                    ref={isCurrentlyPlaying ? activeDiagramCardRef : null}
+                    onClick={() => {
+                      if (voicingResult.voicing) {
+                        guitarSynth.strumChord(voicingResult.voicing.frets, "down", 24, capo);
+                      }
+                    }}
+                    className={`group relative rounded-2xl p-2 sm:p-2.5 transition-all duration-150 cursor-pointer flex flex-col justify-between border ${
+                      isCurrentlyPlaying
+                        ? isLightSheet
+                          ? "bg-[#ecfdf5] border-2 border-[#10b981] shadow-md ring-2 ring-[#10b981]/30 scale-[1.02]"
+                          : "bg-[#10b981]/15 border-2 border-[#10b981] shadow-md ring-2 ring-[#10b981]/40 scale-[1.02]"
+                        : isLightSheet
+                        ? "bg-white hover:bg-zinc-50 border border-zinc-200/90 text-zinc-900 shadow-xs"
+                        : "bg-[#1c2128] hover:bg-[#252c36] border-white/10 text-white shadow-xs"
+                    }`}
+                    title={`Click to strum ${targetShape}`}
+                  >
+                    {/* Card Header: Chord Name & "NOW PLAYING" badge */}
+                    <div className="flex items-center justify-between w-full mb-1">
+                      <span
+                        className={`text-sm sm:text-base font-black font-mono tracking-tight ${
                           isCurrentlyPlaying
-                            ? "text-[#10b981] font-bold"
-                            : isLightSheet ? "text-zinc-500 group-hover:text-zinc-900" : "text-zinc-400 group-hover:text-white"
+                            ? "text-[#10b981]"
+                            : isLightSheet ? "text-zinc-900" : "text-white"
                         }`}
                       >
-                        <Play className={`w-2.5 h-2.5 fill-current ${isCurrentlyPlaying ? "text-[#10b981]" : ""}`} />
-                        <span>Preview</span>
-                      </div>
+                        {targetShape}
+                      </span>
+                      {isCurrentlyPlaying && (
+                        <span className="bg-[#10b981] text-white text-[7.5px] sm:text-[8.5px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full shadow-xs shrink-0">
+                          PLAYING
+                        </span>
+                      )}
                     </div>
-                  );
-                })}
-              </div>
+
+                    {/* Guitar Chord Diagram - Black in Light Mode, Green in Dark Mode */}
+                    <div className="w-full flex items-center justify-center h-[90px] sm:h-[105px] my-0.5">
+                      {voicingResult.voicing ? (
+                        <ChordDiagram
+                          frets={voicingResult.voicing.frets}
+                          fingers={voicingResult.voicing.fingers}
+                          barre={voicingResult.voicing.barre}
+                          position={voicingResult.voicing.baseFret}
+                          cagedShape={voicingResult.voicing.cagedShape}
+                          capo={capo}
+                          size="xs"
+                          theme={sheetTheme}
+                          className="max-h-full max-w-full"
+                        />
+                      ) : (
+                        <div className={`text-[10px] font-mono text-center py-4 ${isLightSheet ? "text-zinc-400" : "text-zinc-500"}`}>
+                          No diagram
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Card Footer: Preview button with play icon */}
+                    <div
+                      className={`mt-1 flex items-center justify-center gap-1 text-[9px] sm:text-[10px] font-mono transition-colors pt-1 border-t print:hidden ${
+                        isLightSheet ? "border-zinc-100" : "border-white/5"
+                      } ${
+                        isCurrentlyPlaying
+                          ? "text-[#10b981] font-bold"
+                          : isLightSheet ? "text-zinc-500 group-hover:text-zinc-900" : "text-zinc-400 group-hover:text-white"
+                      }`}
+                    >
+                      <Play className={`w-2.5 h-2.5 fill-current ${isCurrentlyPlaying ? "text-[#10b981]" : ""}`} />
+                      <span>Preview</span>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-          )}
+          </div>
         </section>
 
         {/* =================================================================== */}
@@ -2144,7 +2274,7 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
           <span className="font-bold">JOE Guitar Studio • Lead Chord Sheet</span>
           <span>Click any chord to seek • Tap tag to split sections • Tap trash to remove</span>
         </div>
-      </main>
+      </article>
 
       {/* ========================================================================= */}
       {/* FLOATING PLAYBACK DOCK (Pinned Safely ABOVE Mobile Bottom Navigation)     */}
