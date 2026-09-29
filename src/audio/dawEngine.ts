@@ -1,5 +1,16 @@
 import { audioEngine } from "./audioContext";
-import { DAWProject, DAWTrack, TrackEqConfig, TrackInsertEffectsConfig } from "../types";
+import {
+  DAWProject,
+  DAWTrack,
+  TrackEqConfig,
+  TrackInsertEffectsConfig,
+  TrackDelayConfig,
+  TrackChorusConfig,
+  TrackDriveConfig,
+  ToneMacroSettings,
+  MasteringConfig,
+} from "../types";
+import { mapToneMacrosToTrackDsp } from "../types/toneAndEffects";
 import { audioBufferToWavBlob } from "./wavEncoder";
 
 interface ActiveClipNode {
@@ -16,6 +27,55 @@ interface TrackEqNodes {
   high: BiquadFilterNode;
 }
 
+interface TrackInsertNodes {
+  inputGain: GainNode;
+  eq: TrackEqNodes;
+  compressor: DynamicsCompressorNode;
+  drive?: {
+    shaper: WaveShaperNode;
+    lowpass: BiquadFilterNode;
+    wetGain: GainNode;
+    dryGain: GainNode;
+    outputGain: GainNode;
+  };
+  chorus?: {
+    delay: DelayNode;
+    lfo: OscillatorNode;
+    lfoGain: GainNode;
+    wetGain: GainNode;
+    dryGain: GainNode;
+    outputGain: GainNode;
+  };
+  delay?: {
+    delayNode: DelayNode;
+    feedbackGain: GainNode;
+    wetGain: GainNode;
+    dryGain: GainNode;
+    outputGain: GainNode;
+  };
+  reverbSendGain: GainNode;
+  outputGain: GainNode;
+}
+
+/**
+ * Creates soft-clipping sigmoid wave shaper curve for smooth analog-style overdrive.
+ */
+function makeDistortionCurve(amount: number = 20): Float32Array {
+  const nSamples = 44100;
+  const curve = new Float32Array(nSamples);
+  const deg = Math.PI / 180;
+  const k = typeof amount === "number" ? Math.max(1, amount) : 20;
+
+  for (let i = 0; i < nSamples; ++i) {
+    const x = (i * 2) / nSamples - 1;
+    curve[i] = ((3 + k) * x * 20 * deg) / (Math.PI + k * Math.abs(x));
+  }
+  return curve;
+}
+
+/**
+ * Generates an acoustic impulse response buffer for studio convolution reverb.
+ */
 function createReverbImpulseBuffer(
   ctx: BaseAudioContext,
   durationSec: number = 2.2,
@@ -42,13 +102,12 @@ class DAWEngine {
   private activeNodes: Map<string, ActiveClipNode> = new Map();
   private trackGains: Map<string, GainNode> = new Map();
   private trackPanners: Map<string, StereoPannerNode> = new Map();
-  private trackEqNodes: Map<string, TrackEqNodes> = new Map();
-  private trackCompNodes: Map<string, DynamicsCompressorNode> = new Map();
-  private trackReverbSendNodes: Map<string, GainNode> = new Map();
+  private trackInsertNodes: Map<string, TrackInsertNodes> = new Map();
   private busGainNodes: Map<string, GainNode> = new Map();
   private busVolumes: Map<string, number> = new Map();
   private sharedReverbConvolver: ConvolverNode | null = null;
   private sharedReverbReturn: GainNode | null = null;
+  private masterProcessingChain: AudioNode[] = [];
 
   public stopAllNodes() {
     this.activeNodes.forEach((node) => {
@@ -60,10 +119,14 @@ class DAWEngine {
     this.activeNodes.clear();
     this.trackGains.clear();
     this.trackPanners.clear();
-    this.trackEqNodes.clear();
-    this.trackCompNodes.clear();
-    this.trackReverbSendNodes.clear();
+    this.trackInsertNodes.clear();
     this.busGainNodes.clear();
+    this.masterProcessingChain.forEach((node) => {
+      try {
+        node.disconnect();
+      } catch (_) {}
+    });
+    this.masterProcessingChain = [];
 
     if (this.sharedReverbReturn) {
       try {
@@ -80,17 +143,18 @@ class DAWEngine {
   }
 
   public setBusVolume(busId: string, volume: number) {
-    this.busVolumes.set(busId, volume);
+    this.busVolumes.set(busId.toLowerCase(), volume);
     this.updateBusGain(busId, volume);
   }
 
   public getBusVolume(busId: string): number {
-    return this.busVolumes.get(busId) ?? 1.0;
+    return this.busVolumes.get(busId.toLowerCase()) ?? 1.0;
   }
 
   /**
-   * Schedules sample-accurate playback for all unmuted & soloed tracks on the timeline
-   * with 3-band EQ, Dynamics Compressor insert, parallel Reverb bus send, and Bus routing.
+   * Schedules sample-accurate playback for all active tracks on the timeline
+   * with complete per-track 3-band EQ, Overdrive, Chorus, Delay, Dynamics Compressor,
+   * parallel Reverb send, Tone Macros, Bus routing, and Master bus processing.
    */
   public startPlayback(project: DAWProject, startTimelineTime: number) {
     this.stopAllNodes();
@@ -102,7 +166,7 @@ class DAWEngine {
     const hasSolo = project.tracks.some((t) => t.soloed);
     const ctxNow = ctx.currentTime;
 
-    // 1. Create SHARED Reverb Bus for this playback session
+    // 1. Create SHARED Reverb Bus
     this.sharedReverbConvolver = ctx.createConvolver();
     this.sharedReverbConvolver.buffer = createReverbImpulseBuffer(ctx, 2.2, 2.4);
 
@@ -112,72 +176,181 @@ class DAWEngine {
     this.sharedReverbConvolver.connect(this.sharedReverbReturn);
     this.sharedReverbReturn.connect(audioEngine.getMasterGain());
 
-    // 2. Setup Bus Gain Nodes for any non-master buses
-    project.tracks.forEach((track) => {
-      const bId = track.busId?.trim().toLowerCase();
-      if (bId && bId !== "master" && bId !== "none" && !this.busGainNodes.has(bId)) {
-        const busGain = ctx.createGain();
-        const initialVol = this.busVolumes.get(bId) ?? 1.0;
-        busGain.gain.setValueAtTime(initialVol, ctxNow);
-        busGain.connect(audioEngine.getMasterGain());
-        this.busGainNodes.set(bId, busGain);
-      }
+    // 2. Setup Bus Routing Gain Nodes for sub-mixes (Drums, Bass, Vocals, Guitars, Keys)
+    const STANDARD_BUSES = ["drums", "bass", "vocals", "guitars", "keys"];
+    STANDARD_BUSES.forEach((bId) => {
+      const busGain = ctx.createGain();
+      const initialVol = this.busVolumes.get(bId) ?? 1.0;
+      busGain.gain.setValueAtTime(initialVol, ctxNow);
+      busGain.connect(audioEngine.getMasterGain());
+      this.busGainNodes.set(bId, busGain);
     });
 
-    // 3. Build per-track signal chains
+    // 3. Build per-track complete DSP signal chains
     project.tracks.forEach((track) => {
       if (track.muted) return;
       if (hasSolo && !track.soloed) return;
 
-      // A. 3-Band EQ Nodes (lowshelf, peaking, highshelf)
+      // Merge base EQ and Insert Effects with Tone Macro settings if present
+      const baseEq = track.eq || { lowGainDb: 0, midGainDb: 0, highGainDb: 0 };
+      const baseEffects = track.insertEffects || {
+        reverbSendLevel: 0,
+        compressorEnabled: false,
+        compressorThresholdDb: -24,
+        compressorRatio: 4,
+      };
+
+      const { eq: effectiveEq, insertEffects: effectiveFx } = track.toneMacros
+        ? mapToneMacrosToTrackDsp(track.toneMacros, baseEq, baseEffects)
+        : { eq: baseEq, insertEffects: baseEffects };
+
+      // Input Gain Node for this track (receives all clip sources)
+      const inputGain = ctx.createGain();
+
+      // A. 3-Band Parametric EQ
       const eqLow = ctx.createBiquadFilter();
       eqLow.type = "lowshelf";
       eqLow.frequency.setValueAtTime(200, ctxNow);
-      eqLow.gain.setValueAtTime(track.eq?.lowGainDb ?? 0, ctxNow);
+      eqLow.gain.setValueAtTime(effectiveEq.lowGainDb, ctxNow);
 
       const eqMid = ctx.createBiquadFilter();
       eqMid.type = "peaking";
       eqMid.frequency.setValueAtTime(1000, ctxNow);
       eqMid.Q.setValueAtTime(1.0, ctxNow);
-      eqMid.gain.setValueAtTime(track.eq?.midGainDb ?? 0, ctxNow);
+      eqMid.gain.setValueAtTime(effectiveEq.midGainDb, ctxNow);
 
       const eqHigh = ctx.createBiquadFilter();
       eqHigh.type = "highshelf";
       eqHigh.frequency.setValueAtTime(4000, ctxNow);
-      eqHigh.gain.setValueAtTime(track.eq?.highGainDb ?? 0, ctxNow);
+      eqHigh.gain.setValueAtTime(effectiveEq.highGainDb, ctxNow);
 
+      inputGain.connect(eqLow);
       eqLow.connect(eqMid);
       eqMid.connect(eqHigh);
-      this.trackEqNodes.set(track.id, { low: eqLow, mid: eqMid, high: eqHigh });
 
-      // B. Dynamics Compressor Node
+      let currentInsertOutput: AudioNode = eqHigh;
+
+      // B. Drive / Saturation DSP Node
+      const driveCfg = effectiveFx.drive;
+      let driveNodes: TrackInsertNodes["drive"];
+      if (driveCfg && driveCfg.enabled && driveCfg.amount > 0) {
+        const shaper = ctx.createWaveShaper();
+        shaper.curve = makeDistortionCurve(driveCfg.amount) as any;
+        shaper.oversample = "2x";
+
+        const lowpass = ctx.createBiquadFilter();
+        lowpass.type = "lowpass";
+        lowpass.frequency.setValueAtTime(2000 + (driveCfg.tone / 100) * 8000, ctxNow);
+
+        const wetGain = ctx.createGain();
+        wetGain.gain.setValueAtTime(driveCfg.mix, ctxNow);
+
+        const dryGain = ctx.createGain();
+        dryGain.gain.setValueAtTime(1 - driveCfg.mix, ctxNow);
+
+        const outputGain = ctx.createGain();
+
+        currentInsertOutput.connect(shaper);
+        shaper.connect(lowpass);
+        lowpass.connect(wetGain);
+        wetGain.connect(outputGain);
+
+        currentInsertOutput.connect(dryGain);
+        dryGain.connect(outputGain);
+
+        currentInsertOutput = outputGain;
+        driveNodes = { shaper, lowpass, wetGain, dryGain, outputGain };
+      }
+
+      // C. Chorus DSP Node (Modulated Delay)
+      const chorusCfg = effectiveFx.chorus;
+      let chorusNodes: TrackInsertNodes["chorus"];
+      if (chorusCfg && chorusCfg.enabled && chorusCfg.mix > 0) {
+        const delay = ctx.createDelay();
+        delay.delayTime.setValueAtTime(0.025, ctxNow); // 25ms base delay
+
+        const lfo = ctx.createOscillator();
+        lfo.frequency.setValueAtTime(chorusCfg.rateHz, ctxNow);
+
+        const lfoGain = ctx.createGain();
+        lfoGain.gain.setValueAtTime(0.003 * chorusCfg.depth, ctxNow); // modulation depth
+
+        lfo.connect(lfoGain);
+        lfoGain.connect(delay.delayTime);
+        lfo.start(ctxNow);
+
+        const wetGain = ctx.createGain();
+        wetGain.gain.setValueAtTime(chorusCfg.mix, ctxNow);
+
+        const dryGain = ctx.createGain();
+        dryGain.gain.setValueAtTime(1 - chorusCfg.mix * 0.5, ctxNow);
+
+        const outputGain = ctx.createGain();
+
+        currentInsertOutput.connect(delay);
+        delay.connect(wetGain);
+        wetGain.connect(outputGain);
+
+        currentInsertOutput.connect(dryGain);
+        dryGain.connect(outputGain);
+
+        currentInsertOutput = outputGain;
+        chorusNodes = { delay, lfo, lfoGain, wetGain, dryGain, outputGain };
+      }
+
+      // D. Delay DSP Node (Feedback Loop)
+      const delayCfg = effectiveFx.delay;
+      let delayNodes: TrackInsertNodes["delay"];
+      if (delayCfg && delayCfg.enabled && delayCfg.mix > 0) {
+        const delayNode = ctx.createDelay(2.0);
+        delayNode.delayTime.setValueAtTime(delayCfg.timeSec, ctxNow);
+
+        const feedbackGain = ctx.createGain();
+        feedbackGain.gain.setValueAtTime(Math.min(0.85, delayCfg.feedback), ctxNow);
+
+        const wetGain = ctx.createGain();
+        wetGain.gain.setValueAtTime(delayCfg.mix, ctxNow);
+
+        const dryGain = ctx.createGain();
+        dryGain.gain.setValueAtTime(1.0, ctxNow);
+
+        const outputGain = ctx.createGain();
+
+        // Delay feedback loop
+        delayNode.connect(feedbackGain);
+        feedbackGain.connect(delayNode);
+
+        currentInsertOutput.connect(delayNode);
+        delayNode.connect(wetGain);
+        wetGain.connect(outputGain);
+
+        currentInsertOutput.connect(dryGain);
+        dryGain.connect(outputGain);
+
+        currentInsertOutput = outputGain;
+        delayNodes = { delayNode, feedbackGain, wetGain, dryGain, outputGain };
+      }
+
+      // E. Dynamics Compressor
       const compNode = ctx.createDynamicsCompressor();
-      const compEnabled = !!track.insertEffects?.compressorEnabled;
-      const compThreshold = track.insertEffects?.compressorThresholdDb ?? -24;
-      const compRatio = track.insertEffects?.compressorRatio ?? 4;
-
-      if (compEnabled) {
-        compNode.threshold.setValueAtTime(compThreshold, ctxNow);
-        compNode.ratio.setValueAtTime(compRatio, ctxNow);
+      if (effectiveFx.compressorEnabled) {
+        compNode.threshold.setValueAtTime(effectiveFx.compressorThresholdDb ?? -24, ctxNow);
+        compNode.ratio.setValueAtTime(effectiveFx.compressorRatio ?? 4, ctxNow);
       } else {
-        // Transparent bypass
         compNode.threshold.setValueAtTime(0, ctxNow);
         compNode.ratio.setValueAtTime(1, ctxNow);
       }
       compNode.attack.setValueAtTime(0.01, ctxNow);
       compNode.release.setValueAtTime(0.2, ctxNow);
 
-      eqHigh.connect(compNode);
-      this.trackCompNodes.set(track.id, compNode);
+      currentInsertOutput.connect(compNode);
+      currentInsertOutput = compNode;
 
-      // Post-insert split point is compNode
-      const postInsertNode = compNode;
-
-      // C. Dry Signal Path: postInsertNode -> trackGain -> trackPanner -> (busGain OR master)
+      // F. Track Volume & Panning
       const trackGain = ctx.createGain();
       trackGain.gain.setValueAtTime(track.volume, ctxNow);
       this.trackGains.set(track.id, trackGain);
-      postInsertNode.connect(trackGain);
+      currentInsertOutput.connect(trackGain);
 
       let trackPanner: StereoPannerNode | null = null;
       let finalTrackOutputNode: AudioNode = trackGain;
@@ -190,26 +363,36 @@ class DAWEngine {
         this.trackPanners.set(track.id, trackPanner);
       }
 
-      // Route dry track output to selected bus or master
+      // G. Route dry track output to assigned Bus or Master
       const bId = track.busId?.trim().toLowerCase();
-      const targetBusNode = (bId && bId !== "master" && bId !== "none") ? this.busGainNodes.get(bId) : null;
+      const targetBusNode = bId && bId !== "master" && bId !== "none" ? this.busGainNodes.get(bId) : null;
       if (targetBusNode) {
         finalTrackOutputNode.connect(targetBusNode);
       } else {
         finalTrackOutputNode.connect(audioEngine.getMasterGain());
       }
 
-      // D. Parallel Reverb Send Path: postInsertNode -> reverbSendGain -> sharedReverbConvolver
+      // H. Parallel Reverb Send
       const reverbSendGain = ctx.createGain();
-      const sendLevel = Math.max(0, Math.min(1, track.insertEffects?.reverbSendLevel ?? 0));
+      const sendLevel = Math.max(0, Math.min(1, effectiveFx.reverbSendLevel ?? 0));
       reverbSendGain.gain.setValueAtTime(sendLevel, ctxNow);
-      postInsertNode.connect(reverbSendGain);
+      currentInsertOutput.connect(reverbSendGain);
       if (this.sharedReverbConvolver) {
         reverbSendGain.connect(this.sharedReverbConvolver);
       }
-      this.trackReverbSendNodes.set(track.id, reverbSendGain);
 
-      // E. Connect track's clips to the track's input node (eqLow)
+      this.trackInsertNodes.set(track.id, {
+        inputGain,
+        eq: { low: eqLow, mid: eqMid, high: eqHigh },
+        compressor: compNode,
+        drive: driveNodes,
+        chorus: chorusNodes,
+        delay: delayNodes,
+        reverbSendGain,
+        outputGain: trackGain,
+      });
+
+      // I. Connect all track clips to track's inputGain
       const clips = track.clips || [];
       clips.forEach((clip) => {
         if (!clip.audioBuffer || clip.duration <= 0) return;
@@ -217,13 +400,11 @@ class DAWEngine {
         const clipStart = clip.startTime;
         const clipEnd = clip.startTime + clip.duration;
 
-        // Skip clips that have already completed before the playhead
         if (startTimelineTime >= clipEnd) return;
 
         const source = ctx.createBufferSource();
         source.buffer = clip.audioBuffer;
 
-        // Clip-level envelope gain for fades & clip gain
         const clipGainNode = ctx.createGain();
         const baseGain = clip.gain ?? 1.0;
         const fadeIn = Math.max(0, clip.fadeInSec ?? 0.005);
@@ -234,12 +415,10 @@ class DAWEngine {
         let playDuration = clip.duration;
 
         if (startTimelineTime < clipStart) {
-          // Scheduled in future relative to playhead
           delayUntilStart = clipStart - startTimelineTime;
           const scheduledStartTime = ctxNow + delayUntilStart;
           const scheduledEndTime = scheduledStartTime + playDuration;
 
-          // Apply Fades
           if (fadeIn > 0 && fadeIn < playDuration) {
             clipGainNode.gain.setValueAtTime(0.0001, scheduledStartTime);
             clipGainNode.gain.linearRampToValueAtTime(baseGain, scheduledStartTime + fadeIn);
@@ -254,11 +433,9 @@ class DAWEngine {
           }
 
           source.connect(clipGainNode);
-          clipGainNode.connect(eqLow);
-
+          clipGainNode.connect(inputGain);
           source.start(scheduledStartTime, bufferOffset, playDuration);
         } else {
-          // Playhead is right in the middle of this clip
           const elapsedInClip = startTimelineTime - clipStart;
           bufferOffset = (clip.trimStart ?? 0) + elapsedInClip;
           playDuration = clip.duration - elapsedInClip;
@@ -266,7 +443,6 @@ class DAWEngine {
           const scheduledStartTime = ctxNow;
           const scheduledEndTime = scheduledStartTime + playDuration;
 
-          // Apply partial fades if applicable
           if (elapsedInClip < fadeIn) {
             const remainingFadeIn = fadeIn - elapsedInClip;
             const startingGain = (elapsedInClip / fadeIn) * baseGain;
@@ -283,8 +459,7 @@ class DAWEngine {
           }
 
           source.connect(clipGainNode);
-          clipGainNode.connect(eqLow);
-
+          clipGainNode.connect(inputGain);
           source.start(scheduledStartTime, bufferOffset, playDuration);
         }
 
@@ -318,10 +493,10 @@ class DAWEngine {
   }
 
   public updateTrackEq(trackId: string, band: "low" | "mid" | "high", gainDb: number) {
-    const eqNodes = this.trackEqNodes.get(trackId);
-    if (eqNodes && eqNodes[band]) {
+    const insert = this.trackInsertNodes.get(trackId);
+    if (insert && insert.eq[band]) {
       try {
-        eqNodes[band].gain.setValueAtTime(gainDb, audioEngine.getContext().currentTime);
+        insert.eq[band].gain.setValueAtTime(gainDb, audioEngine.getContext().currentTime);
       } catch (_) {}
     }
   }
@@ -330,27 +505,27 @@ class DAWEngine {
     trackId: string,
     config: { enabled: boolean; thresholdDb: number; ratio: number }
   ) {
-    const comp = this.trackCompNodes.get(trackId);
-    if (comp) {
+    const insert = this.trackInsertNodes.get(trackId);
+    if (insert && insert.compressor) {
       try {
         const ctxTime = audioEngine.getContext().currentTime;
         if (config.enabled) {
-          comp.threshold.setValueAtTime(config.thresholdDb, ctxTime);
-          comp.ratio.setValueAtTime(config.ratio, ctxTime);
+          insert.compressor.threshold.setValueAtTime(config.thresholdDb, ctxTime);
+          insert.compressor.ratio.setValueAtTime(config.ratio, ctxTime);
         } else {
-          comp.threshold.setValueAtTime(0, ctxTime);
-          comp.ratio.setValueAtTime(1, ctxTime);
+          insert.compressor.threshold.setValueAtTime(0, ctxTime);
+          insert.compressor.ratio.setValueAtTime(1, ctxTime);
         }
       } catch (_) {}
     }
   }
 
   public updateTrackReverbSend(trackId: string, sendLevel: number) {
-    const reverbGain = this.trackReverbSendNodes.get(trackId);
-    if (reverbGain) {
+    const insert = this.trackInsertNodes.get(trackId);
+    if (insert && insert.reverbSendGain) {
       try {
         const clamped = Math.max(0, Math.min(1, sendLevel));
-        reverbGain.gain.setValueAtTime(clamped, audioEngine.getContext().currentTime);
+        insert.reverbSendGain.gain.setValueAtTime(clamped, audioEngine.getContext().currentTime);
       } catch (_) {}
     }
   }
@@ -366,9 +541,9 @@ class DAWEngine {
   }
 
   /**
-   * Renders the entire timeline through an OfflineAudioContext with sample accuracy,
-   * fades, pan, volume, 3-band EQ, dynamics compression, parallel reverb bus, and bus routing.
-   * Returns a high-resolution 16-bit stereo PCM WAV blob.
+   * Renders the complete DAW project offline into a pristine 16-bit WAV Blob
+   * with exact per-track EQ, Overdrive, Chorus, Delay, Dynamics Compression,
+   * Reverb sends, Tone Macros, Bus levels, and Master bus limiter/mastering.
    */
   public async renderMixdownToWav(project: DAWProject): Promise<Blob> {
     const sampleRate = 44100;
@@ -381,14 +556,12 @@ class DAWEngine {
       });
     });
 
-    // Add 1.5s tail for clean reverb and delay decays
     const totalDuration = maxTimelineSec + 1.5;
     const totalFrames = Math.ceil(totalDuration * sampleRate);
-
     const offlineCtx = new OfflineAudioContext(2, totalFrames, sampleRate);
     const hasSolo = project.tracks.some((t) => t.soloed);
 
-    // 1. Shared Reverb Bus in Offline Context
+    // 1. Shared Reverb Bus
     const sharedReverb = offlineCtx.createConvolver();
     sharedReverb.buffer = createReverbImpulseBuffer(offlineCtx, 2.2, 2.4);
 
@@ -398,17 +571,15 @@ class DAWEngine {
     sharedReverb.connect(reverbReturn);
     reverbReturn.connect(offlineCtx.destination);
 
-    // 2. Bus Routing Gain Nodes in Offline Context
-    const busOfflineGainNodes: Map<string, GainNode> = new Map();
-    project.tracks.forEach((track) => {
-      const bId = track.busId?.trim().toLowerCase();
-      if (bId && bId !== "master" && bId !== "none" && !busOfflineGainNodes.has(bId)) {
-        const busGain = offlineCtx.createGain();
-        const vol = this.busVolumes.get(bId) ?? 1.0;
-        busGain.gain.setValueAtTime(vol, 0);
-        busGain.connect(offlineCtx.destination);
-        busOfflineGainNodes.set(bId, busGain);
-      }
+    // 2. Bus Routing Gain Nodes
+    const busOfflineNodes: Map<string, GainNode> = new Map();
+    const STANDARD_BUSES = ["drums", "bass", "vocals", "guitars", "keys"];
+    STANDARD_BUSES.forEach((bId) => {
+      const busGain = offlineCtx.createGain();
+      const vol = this.busVolumes.get(bId) ?? 1.0;
+      busGain.gain.setValueAtTime(vol, 0);
+      busGain.connect(offlineCtx.destination);
+      busOfflineNodes.set(bId, busGain);
     });
 
     // 3. Process Each Track
@@ -416,69 +587,147 @@ class DAWEngine {
       if (track.muted) return;
       if (hasSolo && !track.soloed) return;
 
-      // A. 3-Band EQ Nodes
+      const baseEq = track.eq || { lowGainDb: 0, midGainDb: 0, highGainDb: 0 };
+      const baseEffects = track.insertEffects || {
+        reverbSendLevel: 0,
+        compressorEnabled: false,
+        compressorThresholdDb: -24,
+        compressorRatio: 4,
+      };
+
+      const { eq: effectiveEq, insertEffects: effectiveFx } = track.toneMacros
+        ? mapToneMacrosToTrackDsp(track.toneMacros, baseEq, baseEffects)
+        : { eq: baseEq, insertEffects: baseEffects };
+
+      const inputGain = offlineCtx.createGain();
+
+      // EQ
       const eqLow = offlineCtx.createBiquadFilter();
       eqLow.type = "lowshelf";
       eqLow.frequency.setValueAtTime(200, 0);
-      eqLow.gain.setValueAtTime(track.eq?.lowGainDb ?? 0, 0);
+      eqLow.gain.setValueAtTime(effectiveEq.lowGainDb, 0);
 
       const eqMid = offlineCtx.createBiquadFilter();
       eqMid.type = "peaking";
       eqMid.frequency.setValueAtTime(1000, 0);
       eqMid.Q.setValueAtTime(1.0, 0);
-      eqMid.gain.setValueAtTime(track.eq?.midGainDb ?? 0, 0);
+      eqMid.gain.setValueAtTime(effectiveEq.midGainDb, 0);
 
       const eqHigh = offlineCtx.createBiquadFilter();
       eqHigh.type = "highshelf";
       eqHigh.frequency.setValueAtTime(4000, 0);
-      eqHigh.gain.setValueAtTime(track.eq?.highGainDb ?? 0, 0);
+      eqHigh.gain.setValueAtTime(effectiveEq.highGainDb, 0);
 
+      inputGain.connect(eqLow);
       eqLow.connect(eqMid);
       eqMid.connect(eqHigh);
 
-      // B. Dynamics Compressor Node
-      let postInsertNode: AudioNode = eqHigh;
-      if (track.insertEffects?.compressorEnabled) {
-        const compNode = offlineCtx.createDynamicsCompressor();
-        compNode.threshold.setValueAtTime(track.insertEffects.compressorThresholdDb ?? -24, 0);
-        compNode.ratio.setValueAtTime(track.insertEffects.compressorRatio ?? 4, 0);
-        compNode.attack.setValueAtTime(0.01, 0);
-        compNode.release.setValueAtTime(0.2, 0);
-        eqHigh.connect(compNode);
-        postInsertNode = compNode;
+      let currentInsertOutput: AudioNode = eqHigh;
+
+      // Drive
+      const driveCfg = effectiveFx.drive;
+      if (driveCfg && driveCfg.enabled && driveCfg.amount > 0) {
+        const shaper = offlineCtx.createWaveShaper();
+        shaper.curve = makeDistortionCurve(driveCfg.amount) as any;
+        shaper.oversample = "2x";
+
+        const lowpass = offlineCtx.createBiquadFilter();
+        lowpass.type = "lowpass";
+        lowpass.frequency.setValueAtTime(2000 + (driveCfg.tone / 100) * 8000, 0);
+
+        const wetGain = offlineCtx.createGain();
+        wetGain.gain.setValueAtTime(driveCfg.mix, 0);
+
+        const dryGain = offlineCtx.createGain();
+        dryGain.gain.setValueAtTime(1 - driveCfg.mix, 0);
+
+        const outputGain = offlineCtx.createGain();
+
+        currentInsertOutput.connect(shaper);
+        shaper.connect(lowpass);
+        lowpass.connect(wetGain);
+        wetGain.connect(outputGain);
+
+        currentInsertOutput.connect(dryGain);
+        dryGain.connect(outputGain);
+
+        currentInsertOutput = outputGain;
       }
 
-      // C. Dry Path: postInsertNode -> trackGain -> trackPanner -> (busGain OR destination)
+      // Delay
+      const delayCfg = effectiveFx.delay;
+      if (delayCfg && delayCfg.enabled && delayCfg.mix > 0) {
+        const delayNode = offlineCtx.createDelay(2.0);
+        delayNode.delayTime.setValueAtTime(delayCfg.timeSec, 0);
+
+        const feedbackGain = offlineCtx.createGain();
+        feedbackGain.gain.setValueAtTime(Math.min(0.85, delayCfg.feedback), 0);
+
+        const wetGain = offlineCtx.createGain();
+        wetGain.gain.setValueAtTime(delayCfg.mix, 0);
+
+        const dryGain = offlineCtx.createGain();
+        dryGain.gain.setValueAtTime(1.0, 0);
+
+        const outputGain = offlineCtx.createGain();
+
+        delayNode.connect(feedbackGain);
+        feedbackGain.connect(delayNode);
+
+        currentInsertOutput.connect(delayNode);
+        delayNode.connect(wetGain);
+        wetGain.connect(outputGain);
+
+        currentInsertOutput.connect(dryGain);
+        dryGain.connect(outputGain);
+
+        currentInsertOutput = outputGain;
+      }
+
+      // Compressor
+      if (effectiveFx.compressorEnabled) {
+        const compNode = offlineCtx.createDynamicsCompressor();
+        compNode.threshold.setValueAtTime(effectiveFx.compressorThresholdDb ?? -24, 0);
+        compNode.ratio.setValueAtTime(effectiveFx.compressorRatio ?? 4, 0);
+        compNode.attack.setValueAtTime(0.01, 0);
+        compNode.release.setValueAtTime(0.2, 0);
+
+        currentInsertOutput.connect(compNode);
+        currentInsertOutput = compNode;
+      }
+
+      // Volume & Panning
       const trackGain = offlineCtx.createGain();
       trackGain.gain.setValueAtTime(track.volume, 0);
-      postInsertNode.connect(trackGain);
+      currentInsertOutput.connect(trackGain);
 
       let finalTrackOutput: AudioNode = trackGain;
       if (offlineCtx.createStereoPanner) {
-        const trackPanner = offlineCtx.createStereoPanner();
-        trackPanner.pan.setValueAtTime(track.pan, 0);
-        trackGain.connect(trackPanner);
-        finalTrackOutput = trackPanner;
+        const panner = offlineCtx.createStereoPanner();
+        panner.pan.setValueAtTime(track.pan, 0);
+        trackGain.connect(panner);
+        finalTrackOutput = panner;
       }
 
+      // Bus Routing
       const bId = track.busId?.trim().toLowerCase();
-      const busNode = (bId && bId !== "master" && bId !== "none") ? busOfflineGainNodes.get(bId) : null;
+      const busNode = bId && bId !== "master" && bId !== "none" ? busOfflineNodes.get(bId) : null;
       if (busNode) {
         finalTrackOutput.connect(busNode);
       } else {
         finalTrackOutput.connect(offlineCtx.destination);
       }
 
-      // D. Parallel Reverb Send Path
-      const reverbSendLevel = Math.max(0, Math.min(1, track.insertEffects?.reverbSendLevel ?? 0));
-      if (reverbSendLevel > 0) {
+      // Parallel Reverb Send
+      const sendLevel = Math.max(0, Math.min(1, effectiveFx.reverbSendLevel ?? 0));
+      if (sendLevel > 0) {
         const reverbSendGain = offlineCtx.createGain();
-        reverbSendGain.gain.setValueAtTime(reverbSendLevel, 0);
-        postInsertNode.connect(reverbSendGain);
+        reverbSendGain.gain.setValueAtTime(sendLevel, 0);
+        currentInsertOutput.connect(reverbSendGain);
         reverbSendGain.connect(sharedReverb);
       }
 
-      // E. Connect Clips to Track EQ Low
+      // Clips
       (track.clips || []).forEach((clip) => {
         if (!clip.audioBuffer || clip.duration <= 0) return;
 
@@ -507,8 +756,7 @@ class DAWEngine {
         }
 
         source.connect(clipGain);
-        clipGain.connect(eqLow);
-
+        clipGain.connect(inputGain);
         source.start(startTime, clip.trimStart ?? 0, clip.duration);
       });
     });

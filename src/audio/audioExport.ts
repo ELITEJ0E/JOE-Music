@@ -1,5 +1,6 @@
 import { Mp3Encoder } from "@breezystack/lamejs";
-import { DAWProject, DAWTrack } from "../types";
+import { DAWProject, DAWTrack, TrackEqConfig, TrackInsertEffectsConfig } from "../types";
+import { mapToneMacrosToTrackDsp } from "../types/toneAndEffects";
 import { audioBufferToWavBlob } from "./wavEncoder";
 
 export interface ExportFormatOptions {
@@ -76,14 +77,12 @@ export async function audioBufferToMp3Blob(
 
     for (let i = 0; i < currentBlockSize; i++) {
       const idx = offset + i;
-      // Clamp between -1 and 1 and convert to 16-bit signed integer
       const l = Math.max(-1, Math.min(1, leftFloat[idx]));
       const r = Math.max(-1, Math.min(1, rightFloat[idx]));
       leftInt16[i] = l < 0 ? l * 0x8000 : l * 0x7fff;
       rightInt16[i] = r < 0 ? r * 0x8000 : r * 0x7fff;
     }
 
-    // Zero-fill tail of last block if incomplete
     for (let i = currentBlockSize; i < blockSize; i++) {
       leftInt16[i] = 0;
       rightInt16[i] = 0;
@@ -185,6 +184,19 @@ export function audioBufferToHighQualityWavBlob(
   return new Blob([arrayBuffer], { type: "audio/wav" });
 }
 
+function createDistortionCurve(amount: number = 20): Float32Array {
+  const nSamples = 44100;
+  const curve = new Float32Array(nSamples);
+  const deg = Math.PI / 180;
+  const k = typeof amount === "number" ? Math.max(1, amount) : 20;
+
+  for (let i = 0; i < nSamples; ++i) {
+    const x = (i * 2) / nSamples - 1;
+    curve[i] = ((3 + k) * x * 20 * deg) / (Math.PI + k * Math.abs(x));
+  }
+  return curve;
+}
+
 function createOfflineReverbImpulse(
   ctx: BaseAudioContext,
   durationSec: number = 2.2,
@@ -207,7 +219,7 @@ function createOfflineReverbImpulse(
 
 /**
  * Renders the entire DAW project into an AudioBuffer with all track routing,
- * EQ, dynamics compressor, reverb send, and bus levels.
+ * EQ, drive, delay, chorus, dynamics compressor, reverb send, Tone Macros, and bus levels.
  */
 export async function renderProjectMixdownBuffer(
   project: DAWProject,
@@ -237,22 +249,20 @@ export async function renderProjectMixdownBuffer(
   const sharedReverb = offlineCtx.createConvolver();
   sharedReverb.buffer = createOfflineReverbImpulse(offlineCtx, 2.0, 2.2);
 
-  const sharedReverbReturn = offlineCtx.createGain();
-  sharedReverbReturn.gain.setValueAtTime(0.7, 0);
-  sharedReverb.connect(sharedReverbReturn);
-  sharedReverbReturn.connect(offlineCtx.destination);
+  const reverbReturn = offlineCtx.createGain();
+  reverbReturn.gain.setValueAtTime(0.7, 0);
+  sharedReverb.connect(reverbReturn);
+  reverbReturn.connect(offlineCtx.destination);
 
   // Bus Gain Nodes
   const busNodes: Map<string, GainNode> = new Map();
-  project.tracks.forEach((track) => {
-    const bId = track.busId?.trim().toLowerCase();
-    if (bId && bId !== "master" && bId !== "none" && !busNodes.has(bId)) {
-      const busGain = offlineCtx.createGain();
-      const vol = options?.busVolumes?.get(bId) ?? 1.0;
-      busGain.gain.setValueAtTime(vol, 0);
-      busGain.connect(offlineCtx.destination);
-      busNodes.set(bId, busGain);
-    }
+  const STANDARD_BUSES = ["drums", "bass", "vocals", "guitars", "keys"];
+  STANDARD_BUSES.forEach((bId) => {
+    const busGain = offlineCtx.createGain();
+    const vol = options?.busVolumes?.get(bId) ?? 1.0;
+    busGain.gain.setValueAtTime(vol, 0);
+    busGain.connect(offlineCtx.destination);
+    busNodes.set(bId, busGain);
   });
 
   const hasSolo = project.tracks.some((t) => t.soloed);
@@ -262,43 +272,118 @@ export async function renderProjectMixdownBuffer(
     if (track.muted) return;
     if (hasSolo && !track.soloed) return;
 
+    const baseEq = track.eq || { lowGainDb: 0, midGainDb: 0, highGainDb: 0 };
+    const baseEffects = track.insertEffects || {
+      reverbSendLevel: 0,
+      compressorEnabled: false,
+      compressorThresholdDb: -24,
+      compressorRatio: 4,
+    };
+
+    const { eq: effectiveEq, insertEffects: effectiveFx } = track.toneMacros
+      ? mapToneMacrosToTrackDsp(track.toneMacros, baseEq, baseEffects)
+      : { eq: baseEq, insertEffects: baseEffects };
+
+    const inputGain = offlineCtx.createGain();
+
     // 3-Band EQ
     const eqLow = offlineCtx.createBiquadFilter();
     eqLow.type = "lowshelf";
     eqLow.frequency.setValueAtTime(200, 0);
-    eqLow.gain.setValueAtTime(track.eq?.lowGainDb ?? 0, 0);
+    eqLow.gain.setValueAtTime(effectiveEq.lowGainDb, 0);
 
     const eqMid = offlineCtx.createBiquadFilter();
     eqMid.type = "peaking";
     eqMid.frequency.setValueAtTime(1000, 0);
     eqMid.Q.setValueAtTime(1.0, 0);
-    eqMid.gain.setValueAtTime(track.eq?.midGainDb ?? 0, 0);
+    eqMid.gain.setValueAtTime(effectiveEq.midGainDb, 0);
 
     const eqHigh = offlineCtx.createBiquadFilter();
     eqHigh.type = "highshelf";
     eqHigh.frequency.setValueAtTime(4000, 0);
-    eqHigh.gain.setValueAtTime(track.eq?.highGainDb ?? 0, 0);
+    eqHigh.gain.setValueAtTime(effectiveEq.highGainDb, 0);
 
+    inputGain.connect(eqLow);
     eqLow.connect(eqMid);
     eqMid.connect(eqHigh);
 
-    let postInsertNode: AudioNode = eqHigh;
+    let currentInsertOutput: AudioNode = eqHigh;
+
+    // Drive Insert
+    const driveCfg = effectiveFx.drive;
+    if (driveCfg && driveCfg.enabled && driveCfg.amount > 0) {
+      const shaper = offlineCtx.createWaveShaper();
+      shaper.curve = createDistortionCurve(driveCfg.amount) as any;
+      shaper.oversample = "2x";
+
+      const lowpass = offlineCtx.createBiquadFilter();
+      lowpass.type = "lowpass";
+      lowpass.frequency.setValueAtTime(2000 + (driveCfg.tone / 100) * 8000, 0);
+
+      const wetGain = offlineCtx.createGain();
+      wetGain.gain.setValueAtTime(driveCfg.mix, 0);
+
+      const dryGain = offlineCtx.createGain();
+      dryGain.gain.setValueAtTime(1 - driveCfg.mix, 0);
+
+      const outputGain = offlineCtx.createGain();
+
+      currentInsertOutput.connect(shaper);
+      shaper.connect(lowpass);
+      lowpass.connect(wetGain);
+      wetGain.connect(outputGain);
+
+      currentInsertOutput.connect(dryGain);
+      dryGain.connect(outputGain);
+
+      currentInsertOutput = outputGain;
+    }
+
+    // Delay Insert
+    const delayCfg = effectiveFx.delay;
+    if (delayCfg && delayCfg.enabled && delayCfg.mix > 0) {
+      const delayNode = offlineCtx.createDelay(2.0);
+      delayNode.delayTime.setValueAtTime(delayCfg.timeSec, 0);
+
+      const feedbackGain = offlineCtx.createGain();
+      feedbackGain.gain.setValueAtTime(Math.min(0.85, delayCfg.feedback), 0);
+
+      const wetGain = offlineCtx.createGain();
+      wetGain.gain.setValueAtTime(delayCfg.mix, 0);
+
+      const dryGain = offlineCtx.createGain();
+      dryGain.gain.setValueAtTime(1.0, 0);
+
+      const outputGain = offlineCtx.createGain();
+
+      delayNode.connect(feedbackGain);
+      feedbackGain.connect(delayNode);
+
+      currentInsertOutput.connect(delayNode);
+      delayNode.connect(wetGain);
+      wetGain.connect(outputGain);
+
+      currentInsertOutput.connect(dryGain);
+      dryGain.connect(outputGain);
+
+      currentInsertOutput = outputGain;
+    }
 
     // Dynamics Compressor Insert
-    if (track.insertEffects?.compressorEnabled) {
+    if (effectiveFx.compressorEnabled) {
       const compNode = offlineCtx.createDynamicsCompressor();
-      compNode.threshold.setValueAtTime(track.insertEffects.compressorThresholdDb ?? -24, 0);
-      compNode.ratio.setValueAtTime(track.insertEffects.compressorRatio ?? 4, 0);
+      compNode.threshold.setValueAtTime(effectiveFx.compressorThresholdDb ?? -24, 0);
+      compNode.ratio.setValueAtTime(effectiveFx.compressorRatio ?? 4, 0);
       compNode.attack.setValueAtTime(0.01, 0);
       compNode.release.setValueAtTime(0.2, 0);
-      eqHigh.connect(compNode);
-      postInsertNode = compNode;
+      currentInsertOutput.connect(compNode);
+      currentInsertOutput = compNode;
     }
 
     // Track Volume & Pan
     const trackGain = offlineCtx.createGain();
     trackGain.gain.setValueAtTime(track.volume, 0);
-    postInsertNode.connect(trackGain);
+    currentInsertOutput.connect(trackGain);
 
     let finalOutput: AudioNode = trackGain;
     if (offlineCtx.createStereoPanner) {
@@ -318,11 +403,11 @@ export async function renderProjectMixdownBuffer(
     }
 
     // Parallel Reverb Send
-    const sendLevel = Math.max(0, Math.min(1, track.insertEffects?.reverbSendLevel ?? 0));
+    const sendLevel = Math.max(0, Math.min(1, effectiveFx.reverbSendLevel ?? 0));
     if (sendLevel > 0) {
       const sendGain = offlineCtx.createGain();
       sendGain.gain.setValueAtTime(sendLevel, 0);
-      postInsertNode.connect(sendGain);
+      currentInsertOutput.connect(sendGain);
       sendGain.connect(sharedReverb);
     }
 
@@ -355,7 +440,7 @@ export async function renderProjectMixdownBuffer(
       }
 
       source.connect(clipGain);
-      clipGain.connect(eqLow);
+      clipGain.connect(inputGain);
 
       source.start(startTime, clip.trimStart ?? 0, clip.duration);
     });
@@ -365,7 +450,7 @@ export async function renderProjectMixdownBuffer(
 }
 
 /**
- * Renders an isolated track stem to an AudioBuffer.
+ * Renders an isolated track stem to an AudioBuffer with all track DSP.
  */
 export async function renderTrackStemBuffer(
   track: DAWTrack,
@@ -375,31 +460,46 @@ export async function renderTrackStemBuffer(
   const totalLengthSamples = Math.ceil(targetDuration * sampleRate);
   const offlineCtx = new OfflineAudioContext(2, totalLengthSamples, sampleRate);
 
+  const baseEq = track.eq || { lowGainDb: 0, midGainDb: 0, highGainDb: 0 };
+  const baseEffects = track.insertEffects || {
+    reverbSendLevel: 0,
+    compressorEnabled: false,
+    compressorThresholdDb: -24,
+    compressorRatio: 4,
+  };
+
+  const { eq: effectiveEq, insertEffects: effectiveFx } = track.toneMacros
+    ? mapToneMacrosToTrackDsp(track.toneMacros, baseEq, baseEffects)
+    : { eq: baseEq, insertEffects: baseEffects };
+
+  const inputGain = offlineCtx.createGain();
+
   const eqLow = offlineCtx.createBiquadFilter();
   eqLow.type = "lowshelf";
   eqLow.frequency.setValueAtTime(200, 0);
-  eqLow.gain.setValueAtTime(track.eq?.lowGainDb ?? 0, 0);
+  eqLow.gain.setValueAtTime(effectiveEq.lowGainDb, 0);
 
   const eqMid = offlineCtx.createBiquadFilter();
   eqMid.type = "peaking";
   eqMid.frequency.setValueAtTime(1000, 0);
   eqMid.Q.setValueAtTime(1.0, 0);
-  eqMid.gain.setValueAtTime(track.eq?.midGainDb ?? 0, 0);
+  eqMid.gain.setValueAtTime(effectiveEq.midGainDb, 0);
 
   const eqHigh = offlineCtx.createBiquadFilter();
   eqHigh.type = "highshelf";
   eqHigh.frequency.setValueAtTime(4000, 0);
-  eqHigh.gain.setValueAtTime(track.eq?.highGainDb ?? 0, 0);
+  eqHigh.gain.setValueAtTime(effectiveEq.highGainDb, 0);
 
+  inputGain.connect(eqLow);
   eqLow.connect(eqMid);
   eqMid.connect(eqHigh);
 
   let postInsertNode: AudioNode = eqHigh;
 
-  if (track.insertEffects?.compressorEnabled) {
+  if (effectiveFx.compressorEnabled) {
     const compNode = offlineCtx.createDynamicsCompressor();
-    compNode.threshold.setValueAtTime(track.insertEffects.compressorThresholdDb ?? -24, 0);
-    compNode.ratio.setValueAtTime(track.insertEffects.compressorRatio ?? 4, 0);
+    compNode.threshold.setValueAtTime(effectiveFx.compressorThresholdDb ?? -24, 0);
+    compNode.ratio.setValueAtTime(effectiveFx.compressorRatio ?? 4, 0);
     compNode.attack.setValueAtTime(0.01, 0);
     compNode.release.setValueAtTime(0.2, 0);
     eqHigh.connect(compNode);
@@ -448,7 +548,7 @@ export async function renderTrackStemBuffer(
     }
 
     source.connect(clipGain);
-    clipGain.connect(eqLow);
+    clipGain.connect(inputGain);
 
     source.start(startTime, clip.trimStart ?? 0, clip.duration);
   });

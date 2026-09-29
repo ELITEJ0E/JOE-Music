@@ -10,8 +10,19 @@ import {
   Gauge,
   Power,
   RotateCcw,
+  Sparkles,
 } from "lucide-react";
-import { DAWTrack, TrackEqConfig, TrackInsertEffectsConfig } from "../../types";
+import {
+  DAWTrack,
+  TrackEqConfig,
+  TrackInsertEffectsConfig,
+  TrackDelayConfig,
+  TrackChorusConfig,
+  TrackDriveConfig,
+  DEFAULT_TRACK_DELAY,
+  DEFAULT_TRACK_CHORUS,
+  DEFAULT_TRACK_DRIVE,
+} from "../../types";
 
 interface StudioEffectsRackProps {
   track: DAWTrack | null;
@@ -21,6 +32,9 @@ interface StudioEffectsRackProps {
     config: { enabled: boolean; thresholdDb: number; ratio: number }
   ) => void;
   onReverbSendChange: (trackId: string, value: number) => void;
+  onDelayChange?: (trackId: string, config: TrackDelayConfig) => void;
+  onChorusChange?: (trackId: string, config: TrackChorusConfig) => void;
+  onDriveChange?: (trackId: string, config: TrackDriveConfig) => void;
   onVolumeChange?: (trackId: string, val: number) => void;
   onPanChange?: (trackId: string, val: number) => void;
 }
@@ -30,17 +44,11 @@ export const StudioEffectsRack: React.FC<StudioEffectsRackProps> = ({
   onEqChange,
   onCompressorChange,
   onReverbSendChange,
+  onDelayChange,
+  onChorusChange,
+  onDriveChange,
 }) => {
   const [activeModule, setActiveModule] = useState<"eq" | "comp" | "reverb" | "delay" | "chorus" | "drive">("eq");
-
-  // Local effect simulation states for creative modules
-  const [delayMix, setDelayMix] = useState<number>(20);
-  const [delayTime, setDelayTime] = useState<number>(375); // ms
-  const [delayFeedback, setDelayFeedback] = useState<number>(35);
-  const [chorusDepth, setChorusDepth] = useState<number>(40);
-  const [chorusRate, setChorusRate] = useState<number>(1.2);
-  const [driveGain, setDriveGain] = useState<number>(25);
-  const [driveTone, setDriveTone] = useState<number>(60);
 
   if (!track) {
     return (
@@ -53,12 +61,16 @@ export const StudioEffectsRack: React.FC<StudioEffectsRackProps> = ({
   }
 
   const eq = track.eq || { lowGainDb: 0, midGainDb: 0, highGainDb: 0 };
-  const comp = track.insertEffects || {
+  const insertFx = track.insertEffects || {
     reverbSendLevel: 0,
     compressorEnabled: false,
     compressorThresholdDb: -24,
     compressorRatio: 4,
   };
+
+  const delayCfg = insertFx.delay || DEFAULT_TRACK_DELAY;
+  const chorusCfg = insertFx.chorus || DEFAULT_TRACK_CHORUS;
+  const driveCfg = insertFx.drive || DEFAULT_TRACK_DRIVE;
 
   return (
     <div className="h-full flex flex-col bg-[#0b0e14] text-white p-3 sm:p-4 overflow-y-auto select-none font-mono">
@@ -87,7 +99,7 @@ export const StudioEffectsRack: React.FC<StudioEffectsRackProps> = ({
             }`}
           >
             Compressor
-            {comp.compressorEnabled && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />}
+            {insertFx.compressorEnabled && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />}
           </button>
           <button
             onClick={() => setActiveModule("reverb")}
@@ -95,31 +107,34 @@ export const StudioEffectsRack: React.FC<StudioEffectsRackProps> = ({
               activeModule === "reverb" ? "bg-[#a3ff12] text-black shadow-[0_0_10px_rgba(163,255,18,0.3)]" : "text-zinc-400 hover:text-white"
             }`}
           >
-            Reverb Bus
+            Reverb Send
           </button>
           <button
             onClick={() => setActiveModule("delay")}
-            className={`px-3 py-1 rounded-lg transition-all cursor-pointer font-bold ${
+            className={`px-3 py-1 rounded-lg transition-all cursor-pointer font-bold flex items-center gap-1.5 ${
               activeModule === "delay" ? "bg-[#a3ff12] text-black shadow-[0_0_10px_rgba(163,255,18,0.3)]" : "text-zinc-400 hover:text-white"
             }`}
           >
             Delay
+            {delayCfg.enabled && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />}
           </button>
           <button
             onClick={() => setActiveModule("chorus")}
-            className={`px-3 py-1 rounded-lg transition-all cursor-pointer font-bold ${
+            className={`px-3 py-1 rounded-lg transition-all cursor-pointer font-bold flex items-center gap-1.5 ${
               activeModule === "chorus" ? "bg-[#a3ff12] text-black shadow-[0_0_10px_rgba(163,255,18,0.3)]" : "text-zinc-400 hover:text-white"
             }`}
           >
             Chorus
+            {chorusCfg.enabled && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />}
           </button>
           <button
             onClick={() => setActiveModule("drive")}
-            className={`px-3 py-1 rounded-lg transition-all cursor-pointer font-bold ${
+            className={`px-3 py-1 rounded-lg transition-all cursor-pointer font-bold flex items-center gap-1.5 ${
               activeModule === "drive" ? "bg-[#a3ff12] text-black shadow-[0_0_10px_rgba(163,255,18,0.3)]" : "text-zinc-400 hover:text-white"
             }`}
           >
             Overdrive
+            {driveCfg.enabled && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />}
           </button>
         </div>
       </div>
@@ -207,19 +222,19 @@ export const StudioEffectsRack: React.FC<StudioEffectsRackProps> = ({
               <button
                 onClick={() =>
                   onCompressorChange(track.id, {
-                    enabled: !comp.compressorEnabled,
-                    thresholdDb: comp.compressorThresholdDb,
-                    ratio: comp.compressorRatio,
+                    enabled: !insertFx.compressorEnabled,
+                    thresholdDb: insertFx.compressorThresholdDb,
+                    ratio: insertFx.compressorRatio,
                   })
                 }
                 className={`px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer border ${
-                  comp.compressorEnabled
+                  insertFx.compressorEnabled
                     ? "bg-[#a3ff12] text-black border-[#a3ff12] shadow-[0_0_12px_rgba(163,255,18,0.4)]"
                     : "bg-white/5 text-zinc-400 border-white/10"
                 }`}
               >
                 <Power className="w-3.5 h-3.5" />
-                <span>{comp.compressorEnabled ? "ENABLED" : "BYPASS"}</span>
+                <span>{insertFx.compressorEnabled ? "ENABLED" : "BYPASS"}</span>
               </button>
             </div>
 
@@ -227,19 +242,19 @@ export const StudioEffectsRack: React.FC<StudioEffectsRackProps> = ({
               <div className="bg-black/30 border border-white/5 rounded-xl p-3 space-y-2">
                 <div className="flex items-center justify-between text-[11px]">
                   <span className="text-zinc-400">Threshold</span>
-                  <span className="text-white font-bold">{comp.compressorThresholdDb} dB</span>
+                  <span className="text-white font-bold">{insertFx.compressorThresholdDb} dB</span>
                 </div>
                 <input
                   type="range"
                   min="-48"
                   max="-6"
                   step="1"
-                  value={comp.compressorThresholdDb}
+                  value={insertFx.compressorThresholdDb}
                   onChange={(e) =>
                     onCompressorChange(track.id, {
-                      enabled: comp.compressorEnabled,
+                      enabled: insertFx.compressorEnabled,
                       thresholdDb: parseFloat(e.target.value),
-                      ratio: comp.compressorRatio,
+                      ratio: insertFx.compressorRatio,
                     })
                   }
                   className="w-full accent-[#a3ff12] cursor-pointer"
@@ -249,18 +264,18 @@ export const StudioEffectsRack: React.FC<StudioEffectsRackProps> = ({
               <div className="bg-black/30 border border-white/5 rounded-xl p-3 space-y-2">
                 <div className="flex items-center justify-between text-[11px]">
                   <span className="text-zinc-400">Ratio</span>
-                  <span className="text-white font-bold">{comp.compressorRatio}:1</span>
+                  <span className="text-white font-bold">{insertFx.compressorRatio}:1</span>
                 </div>
                 <input
                   type="range"
-                  min="1"
-                  max="16"
+                  min="1.5"
+                  max="12"
                   step="0.5"
-                  value={comp.compressorRatio}
+                  value={insertFx.compressorRatio}
                   onChange={(e) =>
                     onCompressorChange(track.id, {
-                      enabled: comp.compressorEnabled,
-                      thresholdDb: comp.compressorThresholdDb,
+                      enabled: insertFx.compressorEnabled,
+                      thresholdDb: insertFx.compressorThresholdDb,
                       ratio: parseFloat(e.target.value),
                     })
                   }
@@ -271,115 +286,295 @@ export const StudioEffectsRack: React.FC<StudioEffectsRackProps> = ({
           </div>
         )}
 
-        {/* 3. STUDIO REVERB BUS */}
+        {/* 3. REVERB SEND */}
         {activeModule === "reverb" && (
           <div className="w-full max-w-2xl bg-[#0f121a] border border-white/10 rounded-2xl p-4 sm:p-6 space-y-6">
             <div className="flex items-center justify-between border-b border-white/5 pb-3">
               <div className="flex items-center gap-2">
-                <Waves className="w-4 h-4 text-[#a3ff12]" />
-                <span className="text-xs font-bold text-white">Convolution Studio Reverb Send</span>
+                <Waves className="w-4 h-4 text-purple-400" />
+                <span className="text-xs font-bold text-white">Studio Convolution Reverb Send</span>
               </div>
-              <span className="text-[10px] text-[#a3ff12] bg-[#a3ff12]/10 border border-[#a3ff12]/20 px-2 py-0.5 rounded">
-                Shared Bus Return
+              <span className="text-[10px] text-zinc-500 font-bold bg-white/5 px-2 py-0.5 rounded">
+                Shared Bus
               </span>
             </div>
 
             <div className="bg-black/30 border border-white/5 rounded-xl p-4 space-y-3">
               <div className="flex items-center justify-between text-xs">
                 <span className="text-zinc-300">Reverb Send Level</span>
-                <span className="text-[#a3ff12] font-bold">{Math.round((comp.reverbSendLevel || 0) * 100)}%</span>
+                <span className="text-purple-400 font-bold">
+                  {Math.round((insertFx.reverbSendLevel || 0) * 100)}%
+                </span>
               </div>
               <input
                 type="range"
                 min="0"
                 max="1"
                 step="0.01"
-                value={comp.reverbSendLevel || 0}
+                value={insertFx.reverbSendLevel || 0}
                 onChange={(e) => onReverbSendChange(track.id, parseFloat(e.target.value))}
-                className="w-full accent-[#a3ff12] cursor-pointer"
+                className="w-full accent-purple-400 cursor-pointer"
               />
-              <p className="text-[10px] text-zinc-500">
-                Sends audio into the shared convolution acoustic room impulse processor for lush spatial depth.
-              </p>
             </div>
           </div>
         )}
 
-        {/* 4. STEREO DELAY */}
+        {/* 4. DELAY */}
         {activeModule === "delay" && (
           <div className="w-full max-w-2xl bg-[#0f121a] border border-white/10 rounded-2xl p-4 sm:p-6 space-y-6">
             <div className="flex items-center justify-between border-b border-white/5 pb-3">
               <div className="flex items-center gap-2">
-                <Radio className="w-4 h-4 text-[#a3ff12]" />
-                <span className="text-xs font-bold text-white">Stereo Ping-Pong Delay</span>
+                <Radio className="w-4 h-4 text-sky-400" />
+                <span className="text-xs font-bold text-white">Stereo Feedback Delay</span>
               </div>
+              <button
+                onClick={() =>
+                  onDelayChange?.(track.id, {
+                    ...delayCfg,
+                    enabled: !delayCfg.enabled,
+                  })
+                }
+                className={`px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer border ${
+                  delayCfg.enabled
+                    ? "bg-sky-400 text-black border-sky-400 shadow-[0_0_12px_rgba(56,189,248,0.4)]"
+                    : "bg-white/5 text-zinc-400 border-white/10"
+                }`}
+              >
+                <Power className="w-3.5 h-3.5" />
+                <span>{delayCfg.enabled ? "ENABLED" : "BYPASS"}</span>
+              </button>
             </div>
 
             <div className="grid grid-cols-3 gap-3">
-              <div className="bg-black/30 border border-white/5 rounded-xl p-3 space-y-2">
-                <span className="text-[10px] text-zinc-400">Mix</span>
-                <input type="range" min="0" max="100" value={delayMix} onChange={(e) => setDelayMix(Number(e.target.value))} className="w-full accent-[#a3ff12] cursor-pointer" />
-                <span className="text-xs text-white font-bold block text-center">{delayMix}%</span>
+              <div className="bg-black/30 border border-white/5 rounded-xl p-3 space-y-2 text-center">
+                <span className="text-[10px] text-zinc-400 font-bold">TIME</span>
+                <input
+                  type="range"
+                  min="0.05"
+                  max="0.8"
+                  step="0.01"
+                  value={delayCfg.timeSec}
+                  onChange={(e) =>
+                    onDelayChange?.(track.id, {
+                      ...delayCfg,
+                      timeSec: parseFloat(e.target.value),
+                    })
+                  }
+                  className="w-full accent-sky-400 cursor-pointer"
+                />
+                <span className="text-xs font-bold text-white">{Math.round(delayCfg.timeSec * 1000)} ms</span>
               </div>
-              <div className="bg-black/30 border border-white/5 rounded-xl p-3 space-y-2">
-                <span className="text-[10px] text-zinc-400">Time (ms)</span>
-                <input type="range" min="50" max="1000" step="25" value={delayTime} onChange={(e) => setDelayTime(Number(e.target.value))} className="w-full accent-[#a3ff12] cursor-pointer" />
-                <span className="text-xs text-white font-bold block text-center">{delayTime} ms</span>
+
+              <div className="bg-black/30 border border-white/5 rounded-xl p-3 space-y-2 text-center">
+                <span className="text-[10px] text-zinc-400 font-bold">FEEDBACK</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="0.85"
+                  step="0.01"
+                  value={delayCfg.feedback}
+                  onChange={(e) =>
+                    onDelayChange?.(track.id, {
+                      ...delayCfg,
+                      feedback: parseFloat(e.target.value),
+                    })
+                  }
+                  className="w-full accent-sky-400 cursor-pointer"
+                />
+                <span className="text-xs font-bold text-white">{Math.round(delayCfg.feedback * 100)}%</span>
               </div>
-              <div className="bg-black/30 border border-white/5 rounded-xl p-3 space-y-2">
-                <span className="text-[10px] text-zinc-400">Feedback</span>
-                <input type="range" min="0" max="90" value={delayFeedback} onChange={(e) => setDelayFeedback(Number(e.target.value))} className="w-full accent-[#a3ff12] cursor-pointer" />
-                <span className="text-xs text-white font-bold block text-center">{delayFeedback}%</span>
+
+              <div className="bg-black/30 border border-white/5 rounded-xl p-3 space-y-2 text-center">
+                <span className="text-[10px] text-zinc-400 font-bold">MIX</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={delayCfg.mix}
+                  onChange={(e) =>
+                    onDelayChange?.(track.id, {
+                      ...delayCfg,
+                      mix: parseFloat(e.target.value),
+                    })
+                  }
+                  className="w-full accent-sky-400 cursor-pointer"
+                />
+                <span className="text-xs font-bold text-white">{Math.round(delayCfg.mix * 100)}%</span>
               </div>
             </div>
           </div>
         )}
 
-        {/* 5. STEREO CHORUS */}
+        {/* 5. CHORUS */}
         {activeModule === "chorus" && (
           <div className="w-full max-w-2xl bg-[#0f121a] border border-white/10 rounded-2xl p-4 sm:p-6 space-y-6">
             <div className="flex items-center justify-between border-b border-white/5 pb-3">
               <div className="flex items-center gap-2">
-                <Zap className="w-4 h-4 text-[#a3ff12]" />
-                <span className="text-xs font-bold text-white">Stereo Chorus & Dimension</span>
+                <Sparkles className="w-4 h-4 text-pink-400" />
+                <span className="text-xs font-bold text-white">Dimension Chorus & Width</span>
               </div>
+              <button
+                onClick={() =>
+                  onChorusChange?.(track.id, {
+                    ...chorusCfg,
+                    enabled: !chorusCfg.enabled,
+                  })
+                }
+                className={`px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer border ${
+                  chorusCfg.enabled
+                    ? "bg-pink-400 text-black border-pink-400 shadow-[0_0_12px_rgba(236,72,153,0.4)]"
+                    : "bg-white/5 text-zinc-400 border-white/10"
+                }`}
+              >
+                <Power className="w-3.5 h-3.5" />
+                <span>{chorusCfg.enabled ? "ENABLED" : "BYPASS"}</span>
+              </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="bg-black/30 border border-white/5 rounded-xl p-3 space-y-2">
-                <span className="text-[10px] text-zinc-400">Depth</span>
-                <input type="range" min="0" max="100" value={chorusDepth} onChange={(e) => setChorusDepth(Number(e.target.value))} className="w-full accent-[#a3ff12] cursor-pointer" />
-                <span className="text-xs text-white font-bold block text-center">{chorusDepth}%</span>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="bg-black/30 border border-white/5 rounded-xl p-3 space-y-2 text-center">
+                <span className="text-[10px] text-zinc-400 font-bold">RATE</span>
+                <input
+                  type="range"
+                  min="0.2"
+                  max="5.0"
+                  step="0.1"
+                  value={chorusCfg.rateHz}
+                  onChange={(e) =>
+                    onChorusChange?.(track.id, {
+                      ...chorusCfg,
+                      rateHz: parseFloat(e.target.value),
+                    })
+                  }
+                  className="w-full accent-pink-400 cursor-pointer"
+                />
+                <span className="text-xs font-bold text-white">{chorusCfg.rateHz.toFixed(1)} Hz</span>
               </div>
-              <div className="bg-black/30 border border-white/5 rounded-xl p-3 space-y-2">
-                <span className="text-[10px] text-zinc-400">Rate (Hz)</span>
-                <input type="range" min="0.1" max="5.0" step="0.1" value={chorusRate} onChange={(e) => setChorusRate(Number(e.target.value))} className="w-full accent-[#a3ff12] cursor-pointer" />
-                <span className="text-xs text-white font-bold block text-center">{chorusRate} Hz</span>
+
+              <div className="bg-black/30 border border-white/5 rounded-xl p-3 space-y-2 text-center">
+                <span className="text-[10px] text-zinc-400 font-bold">DEPTH</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={chorusCfg.depth}
+                  onChange={(e) =>
+                    onChorusChange?.(track.id, {
+                      ...chorusCfg,
+                      depth: parseFloat(e.target.value),
+                    })
+                  }
+                  className="w-full accent-pink-400 cursor-pointer"
+                />
+                <span className="text-xs font-bold text-white">{Math.round(chorusCfg.depth * 100)}%</span>
+              </div>
+
+              <div className="bg-black/30 border border-white/5 rounded-xl p-3 space-y-2 text-center">
+                <span className="text-[10px] text-zinc-400 font-bold">MIX</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={chorusCfg.mix}
+                  onChange={(e) =>
+                    onChorusChange?.(track.id, {
+                      ...chorusCfg,
+                      mix: parseFloat(e.target.value),
+                    })
+                  }
+                  className="w-full accent-pink-400 cursor-pointer"
+                />
+                <span className="text-xs font-bold text-white">{Math.round(chorusCfg.mix * 100)}%</span>
               </div>
             </div>
           </div>
         )}
 
-        {/* 6. OVERDRIVE & DISTORTION */}
+        {/* 6. OVERDRIVE / DRIVE */}
         {activeModule === "drive" && (
           <div className="w-full max-w-2xl bg-[#0f121a] border border-white/10 rounded-2xl p-4 sm:p-6 space-y-6">
             <div className="flex items-center justify-between border-b border-white/5 pb-3">
               <div className="flex items-center gap-2">
-                <Zap className="w-4 h-4 text-amber-400" />
-                <span className="text-xs font-bold text-white">Tube Harmonic Overdrive</span>
+                <Zap className="w-4 h-4 text-amber-500" />
+                <span className="text-xs font-bold text-white">Analog Warmth & Overdrive</span>
               </div>
+              <button
+                onClick={() =>
+                  onDriveChange?.(track.id, {
+                    ...driveCfg,
+                    enabled: !driveCfg.enabled,
+                  })
+                }
+                className={`px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer border ${
+                  driveCfg.enabled
+                    ? "bg-amber-500 text-black border-amber-500 shadow-[0_0_12px_rgba(245,158,11,0.4)]"
+                    : "bg-white/5 text-zinc-400 border-white/10"
+                }`}
+              >
+                <Power className="w-3.5 h-3.5" />
+                <span>{driveCfg.enabled ? "ENABLED" : "BYPASS"}</span>
+              </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="bg-black/30 border border-white/5 rounded-xl p-3 space-y-2">
-                <span className="text-[10px] text-zinc-400">Drive / Gain</span>
-                <input type="range" min="0" max="100" value={driveGain} onChange={(e) => setDriveGain(Number(e.target.value))} className="w-full accent-amber-400 cursor-pointer" />
-                <span className="text-xs text-amber-400 font-bold block text-center">{driveGain}%</span>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="bg-black/30 border border-white/5 rounded-xl p-3 space-y-2 text-center">
+                <span className="text-[10px] text-zinc-400 font-bold">DRIVE</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value={driveCfg.amount}
+                  onChange={(e) =>
+                    onDriveChange?.(track.id, {
+                      ...driveCfg,
+                      amount: parseFloat(e.target.value),
+                    })
+                  }
+                  className="w-full accent-amber-500 cursor-pointer"
+                />
+                <span className="text-xs font-bold text-white">{driveCfg.amount}</span>
               </div>
-              <div className="bg-black/30 border border-white/5 rounded-xl p-3 space-y-2">
-                <span className="text-[10px] text-zinc-400">Tone Brightness</span>
-                <input type="range" min="0" max="100" value={driveTone} onChange={(e) => setDriveTone(Number(e.target.value))} className="w-full accent-amber-400 cursor-pointer" />
-                <span className="text-xs text-white font-bold block text-center">{driveTone}%</span>
+
+              <div className="bg-black/30 border border-white/5 rounded-xl p-3 space-y-2 text-center">
+                <span className="text-[10px] text-zinc-400 font-bold">TONE</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value={driveCfg.tone}
+                  onChange={(e) =>
+                    onDriveChange?.(track.id, {
+                      ...driveCfg,
+                      tone: parseFloat(e.target.value),
+                    })
+                  }
+                  className="w-full accent-amber-500 cursor-pointer"
+                />
+                <span className="text-xs font-bold text-white">{driveCfg.tone}</span>
+              </div>
+
+              <div className="bg-black/30 border border-white/5 rounded-xl p-3 space-y-2 text-center">
+                <span className="text-[10px] text-zinc-400 font-bold">MIX</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={driveCfg.mix}
+                  onChange={(e) =>
+                    onDriveChange?.(track.id, {
+                      ...driveCfg,
+                      mix: parseFloat(e.target.value),
+                    })
+                  }
+                  className="w-full accent-amber-500 cursor-pointer"
+                />
+                <span className="text-xs font-bold text-white">{Math.round(driveCfg.mix * 100)}%</span>
               </div>
             </div>
           </div>

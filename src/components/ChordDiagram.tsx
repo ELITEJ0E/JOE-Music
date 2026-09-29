@@ -1,16 +1,12 @@
 import React from "react";
 
 export interface ChordDiagramProps {
-  frets: (number | "x")[];
-  fingers?: (number | 0)[];
-  barre?: {
-    fret: number;
-    fromString: number;
-    toString: number;
-  };
+  frets: (number | "x" | string)[];
+  fingers?: any;
+  barre?: any;
   position?: number;
   size?: "xxs" | "xs" | "sm" | "md" | "lg" | "xl";
-  cagedShape?: "C" | "A" | "G" | "E" | "D";
+  cagedShape?: any;
   title?: string;
   showPositionLabel?: boolean;
   onPluck?: (stringIdx: number, fret: number) => void;
@@ -26,8 +22,8 @@ export interface ChordDiagramProps {
  * For higher-position chords (e.g. 8th fret C Major barre [8,10,10,9,8,8]), returns 8.
  */
 export function calculateStartFret(
-  frets: (number | "x")[],
-  barre?: { fret: number; fromString: number; toString: number },
+  frets: (number | "x" | string)[],
+  barre?: { fret: number; fromString: number; toString: number } | any,
   position?: number
 ): number {
   if (position && position >= 1) {

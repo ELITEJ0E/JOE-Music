@@ -1,192 +1,182 @@
-export type TuningName = string;
+export type WorkstationMode =
+  | "home"
+  | "songs"
+  | "chords-ai"
+  | "practice"
+  | "tuner"
+  | "chord-dictionary"
+  | "fretboard"
+  | "scales"
+  | "rhythm"
+  | "studio"
+  | "multi-track"
+  | "looper"
+  | "tone-studio"
+  | "presets";
 
-export interface GuitarTuning {
-  name: TuningName;
-  notes: string[]; // e.g. ["E2", "A2", "D3", "G3", "B3", "E4"]
-  frequencies: number[];
-  description: string;
-}
-
-export interface TunerResult {
-  frequency: number;
-  note: string;
-  octave: number;
-  cents: number;
-  targetFrequency: number;
-  inTune: boolean;
-  stringIndex: number | null;
-  clarity: number;
-}
-
-export interface ChordVoicing {
-  id: string;
-  name: string;
-  root: string;
-  quality: string;
-  frets: (number | "x")[]; // 6 strings: 6th (low E) to 1st (high E), e.g. [3, 2, 0, 0, 3, 3] for G
-  fingers?: (number | 0)[]; // 1: Index, 2: Middle, 3: Ring, 4: Pinky, 0: Open/None
-  barre?: { fret: number; fromString: number; toString: number };
-  baseFret?: number;
-  position?: number;
-  notes: string[];
-  intervals?: string[];
-  cagedShape?: "C" | "A" | "G" | "E" | "D";
-  difficulty?: "Beginner" | "Intermediate" | "Advanced";
-  voicingType?: "exact" | "simplified" | "generated" | "none";
-  voicingConfidence?: number;
-}
-
-export interface ScaleDefinition {
-  name: string;
-  category: "Pentatonic" | "Diatonic" | "Modes" | "Symmetric" | "Exotic" | "Blues";
-  intervals: number[]; // Semitone steps from root [0, 2, 4, 5, 7, 9, 11]
-  formula: string[]; // e.g. ["1", "2", "3", "4", "5", "6", "7"]
-  description: string;
+export interface ChordSegment {
+  id?: string;
+  chord: string;
+  root?: string;
+  quality?: string;
+  bass?: string;
+  extensions?: string[] | any;
+  rawChord?: any;
+  startTime: number;
+  endTime: number;
+  durationBeats?: number;
+  confidence?: number;
+  stability?: number;
+  section?: string;
+  diagnostics?: any;
 }
 
 export interface SongSection {
   name: string;
   startTime: number;
-  bars: number;
-  chords: string[];
-  strummingPattern: string;
-  lyrics?: string;
-  confidence?: number;
-}
-
-export interface ChordSegment {
-  id: string;
-  chord: string;
-  root: string;
-  bass: string;
-  quality: string;
-  extensions: string[];
-  startTime: number;
   endTime: number;
-  rawStartTime?: number;
-  rawEndTime?: number;
-  confidence: number;
-  stability: number;
-  beatStart?: number;
-  beatEnd?: number;
-  detectionConfidence?: number;
-  voicingConfidence?: number;
-  displayChord?: string;
-  rawChord?: string;
-  stabilizedChord?: string;
-  durationBeats?: number;
-  candidateSupportFrames?: number;
-  changeMargin?: number;
-  snappedBoundary?: boolean;
-  beatIndex?: number;
-  voicingType?: "exact" | "simplified" | "generated" | "none";
-  simplificationReason?: string;
-  voicing?: ChordVoicing | null;
-  section?: string;
-  diagnostics?: any;
+  color?: string;
 }
 
 export interface SongAnalysis {
   id: string;
   title: string;
-  artist: string;
-  key: string;
-  tempo: number;
-  timeSignature: string;
-  suggestedCapo: number;
-  difficulty: "Beginner" | "Intermediate" | "Advanced";
-  chords: string[]; // List of unique chords used
-  chordSegments?: ChordSegment[]; // Timeline of chords
-  rawTimelinesForDebug?: any[]; // Raw MIR diagnostics
-  tuning: string;
-  tuningDeviation?: number; // Estimated cents deviation from A=440
-  sections: SongSection[];
-  beats?: number[]; // Timestamps of detected beats
-  waveformPeaks?: number[]; // High-precision waveform visual amplitudes
-  tips?: string;
-  youtubeUrl?: string;
-  sunoUrl?: string;
-  sunoId?: string;
+  artist?: string;
+  album?: string;
+  duration?: number;
+  key?: string;
+  tempo?: number;
+  suggestedCapo?: number;
+  difficulty?: "Beginner" | "Intermediate" | "Advanced" | string;
+  tuning?: string;
+  tuningDeviation?: number;
+  timeSignature?: string;
+  chords: string[];
+  chordSegments?: ChordSegment[];
+  waveformPeaks?: number[];
   audioUrl?: string;
   imageUrl?: string;
+  youtubeUrl?: string;
+  sunoId?: string;
+  sunoUrl?: string;
+  clipId?: string;
   lyrics?: string;
-  tags?: string[];
-  confidence?: number;
+  tags?: string | string[];
+  tips?: string | string[];
   audioBlob?: Blob;
-  duration?: number;
+  beats?: number[];
+  sections?: SongSection[] | any[];
+  rawTimelinesForDebug?: any;
+  confidence?: number;
   analysisVersion?: string;
-  diagnostics?: {
-    fileSize: number;
-    mimeType: string;
-    decodedDuration: number;
-    sampleRate: number;
-    numChannels: number;
-    numSamples: number;
-    workerStarted: boolean;
-    workerReceivedSamples: boolean;
-    workerSampleCount: number;
-    featureFrameCount: number;
-    chromaFrameCount: number;
-    bassFrameCount: number;
-    keyResult: string;
-    numChordStates: number;
-    observationMatrixDims: string;
-    hasNaNOrInf: boolean;
-    viterbiInputDims: string;
-    viterbiOutputLen: number;
-    rawChordSegmentCount: number;
-    finalChordSegmentCount: number;
-    rawSegmentCount?: number;
-    stabilizedSegmentCount?: number;
-    mergedSegments?: number;
-    rejectedTransientSlashSegments?: number;
-    finalProgression?: string[];
-    avgSegmentDuration?: number;
-    medianSegmentDuration?: number;
-    minSegmentDuration?: number;
-    maxSegmentDuration?: number;
-    numChordChanges?: number;
-    changesPerMinute?: number;
-    averageChordConfidence?: number;
-    averageTransitionConfidence?: number;
-    transitionsNearBeats?: number;
-    transitionsAwayFromBeats?: number;
-  };
+  diagnostics?: any;
+}
+
+export interface ChordVoicing {
+  id?: string;
+  name?: string;
+  root?: string;
+  quality?: string;
+  frets: (number | "x")[];
+  fingers?: any;
+  barres?: number[];
+  barre?: any;
+  baseFret?: number;
+  position?: number;
+  cagedShape?: any;
+  voicingType?: string;
+  difficulty?: "beginner" | "intermediate" | "advanced" | "Beginner" | "Intermediate" | "Advanced" | string;
+  rootString?: number;
+  description?: string;
+  notes?: string[];
+  intervals?: (number | string)[];
+  voicingConfidence?: number;
+}
+
+export interface TunerResult {
+  note: string;
+  octave: number;
+  frequency: number;
+  targetFrequency: number;
+  cents: number;
+  inTune: boolean;
+  clarity: number;
+  stringIndex?: number;
+  closestStringIndex?: number;
+}
+
+export interface ScaleDefinition {
+  name: string;
+  category: string;
+  intervals: number[];
+  formula: string[];
+  description: string;
+}
+
+export interface GuitarTuning {
+  name: string;
+  notes: string[];
+  frequencies: number[];
+  description: string;
 }
 
 export interface SavedSong extends SongAnalysis {
-  audioBlob?: Blob;
+  savedAt: number;
   lastPlayedAt?: number;
-  savedAt?: number;
-  sunoId?: string;
+  isUserEdited?: boolean;
+  transcriptionConfidence?: number;
+  rawHarmonicData?: any;
 }
 
-export type PedalType =
-  | "noiseGate"
-  | "compressor"
-  | "overdrive"
-  | "distortion"
-  | "ampHead"
-  | "chorus"
-  | "delay"
-  | "reverb"
-  | "limiter";
+export interface RecentSongItem {
+  id: string;
+  title: string;
+  artist: string;
+  album?: string;
+  duration?: number;
+  bpm?: number;
+  key?: string;
+  imageUrl?: string;
+  audioUrl?: string;
+  streamUrl?: string;
+  playedAt?: number;
+  playCount?: number;
+}
+
+export interface PedalParam {
+  id: string;
+  name: string;
+  value: number | string | boolean;
+  min?: number;
+  max?: number;
+  step?: number;
+  unit?: string;
+  type?: "slider" | "switch" | "select" | "knob";
+  options?: string[];
+}
 
 export interface PedalConfig {
   id: string;
-  type: PedalType;
+  type: string;
   name: string;
+  category?: "dynamics" | "drive" | "modulation" | "time" | "filter" | "amp" | "cab" | string;
   enabled: boolean;
-  color: string;
-  params: Record<string, number | string | boolean>;
+  color?: string;
+  icon?: string;
+  params: { [key: string]: number | string | boolean };
 }
 
 export interface TonePreset {
   id: string;
   name: string;
-  category: "Clean" | "Blues Crunch" | "Classic Rock" | "High Gain Metal" | "Ambient Dream" | "Acoustic Warmth" | "Funk Rhythm";
+  category: string;
   description: string;
+  author?: string;
   pedals: PedalConfig[];
+  favorite?: boolean;
+  tags?: string[];
+  createdAt?: number;
+  scope?: "GUITAR_RIG" | "STUDIO_TRACK" | "MASTER";
 }
 
 export interface LooperTrack {
@@ -214,6 +204,21 @@ export interface LooperSession {
 export type CountInSetting = "off" | "1bar" | "2bars";
 export type GridSnapSetting = "off" | "1bar" | "1/2" | "1/4" | "1/8" | "1/16" | "1beat";
 
+export type ClipSourceType =
+  | "USER_RECORDING"
+  | "USER_UPLOAD"
+  | "USER_GENERATED"
+  | "PROTECTED_CATALOG"
+  | "REMIXABLE_CATALOG";
+
+export interface ClipTake {
+  id: string;
+  name: string;
+  audioBuffer: AudioBuffer | null;
+  audioBlob?: Blob;
+  createdAt: number;
+}
+
 export interface AudioClip {
   id: string;
   name: string;
@@ -227,6 +232,14 @@ export interface AudioClip {
   fadeOutSec: number; // Fade-out ramp duration (seconds)
   gain: number; // Clip gain multiplier (1.0 = 0 dB)
   color?: string;
+  // Source metadata for export and rights verification
+  sourceAssetId?: string;
+  sourceType?: ClipSourceType;
+  sourceOwnershipType?: string;
+  sourceOrigin?: string;
+  // Take lane support
+  takes?: ClipTake[];
+  activeTakeId?: string;
 }
 
 export interface TrackEqConfig {
@@ -235,11 +248,35 @@ export interface TrackEqConfig {
   highGainDb: number;
 }
 
+export interface TrackDelayConfig {
+  enabled: boolean;
+  timeSec: number; // 0.05 to 1.0 (default 0.35s)
+  feedback: number; // 0 to 0.85 (default 0.35)
+  mix: number; // 0 to 1.0 (default 0.25)
+}
+
+export interface TrackChorusConfig {
+  enabled: boolean;
+  rateHz: number; // 0.1 to 6.0 (default 1.5 Hz)
+  depth: number; // 0 to 1.0 (default 0.4)
+  mix: number; // 0 to 1.0 (default 0.3)
+}
+
+export interface TrackDriveConfig {
+  enabled: boolean;
+  amount: number; // 0 to 100 (default 25)
+  tone: number; // 0 to 100 (default 50)
+  mix: number; // 0 to 1.0 (default 0.35)
+}
+
 export interface TrackInsertEffectsConfig {
   reverbSendLevel: number;
   compressorEnabled: boolean;
   compressorThresholdDb: number;
   compressorRatio: number;
+  delay?: TrackDelayConfig;
+  chorus?: TrackChorusConfig;
+  drive?: TrackDriveConfig;
 }
 
 export const DEFAULT_TRACK_EQ: TrackEqConfig = {
@@ -248,12 +285,66 @@ export const DEFAULT_TRACK_EQ: TrackEqConfig = {
   highGainDb: 0,
 };
 
+export const DEFAULT_TRACK_DELAY: TrackDelayConfig = {
+  enabled: false,
+  timeSec: 0.35,
+  feedback: 0.35,
+  mix: 0.25,
+};
+
+export const DEFAULT_TRACK_CHORUS: TrackChorusConfig = {
+  enabled: false,
+  rateHz: 1.5,
+  depth: 0.4,
+  mix: 0.3,
+};
+
+export const DEFAULT_TRACK_DRIVE: TrackDriveConfig = {
+  enabled: false,
+  amount: 25,
+  tone: 50,
+  mix: 0.35,
+};
+
 export const DEFAULT_TRACK_INSERT_EFFECTS: TrackInsertEffectsConfig = {
   reverbSendLevel: 0,
   compressorEnabled: false,
   compressorThresholdDb: -24,
   compressorRatio: 4,
+  delay: DEFAULT_TRACK_DELAY,
+  chorus: DEFAULT_TRACK_CHORUS,
+  drive: DEFAULT_TRACK_DRIVE,
 };
+
+export interface ToneMacroSettings {
+  warmth: number; // 0 - 100: low-mid body, saturation
+  brightness: number; // 0 - 100: high-end presence, shimmer
+  punch: number; // 0 - 100: compressor bite, transient snap
+  space: number; // 0 - 100: reverb decay & delay reflection
+  width: number; // 0 - 100: stereo spread & chorus
+  character: number; // 0 - 100: drive edge & harmonic tone
+}
+
+export const DEFAULT_TONE_MACROS: ToneMacroSettings = {
+  warmth: 50,
+  brightness: 55,
+  punch: 45,
+  space: 35,
+  width: 40,
+  character: 50,
+};
+
+export interface AutomationPoint {
+  time: number;
+  value: number;
+}
+
+export interface AutomationLane {
+  id: string;
+  parameter: "volume" | "pan" | "reverbSend" | "warmth" | "brightness";
+  enabled: boolean;
+  points: AutomationPoint[];
+}
 
 export interface DAWTrack {
   id: string;
@@ -268,7 +359,9 @@ export interface DAWTrack {
   clips: AudioClip[];
   eq?: TrackEqConfig;
   insertEffects?: TrackInsertEffectsConfig;
-  busId?: string; // which mix bus this track routes to, undefined / "master" = master
+  toneMacros?: ToneMacroSettings; // Real per-track sound macros
+  busId?: string; // "drums" | "bass" | "vocals" | "guitars" | "keys" | "master"
+  automationLanes?: AutomationLane[];
   // Legacy / convenience fields
   audioBuffer?: AudioBuffer | null;
   audioBlob?: Blob;
@@ -279,6 +372,22 @@ export interface DAWTrack {
   inputSource?: "processed" | "dry";
 }
 
+export interface MasteringConfig {
+  enabled: boolean;
+  profile: "Natural" | "Warm" | "Punch" | "Bright" | "Wide";
+  intensity: "Light" | "Normal" | "Strong";
+  targetLufs?: number;
+  ceilingDb?: number;
+}
+
+export const DEFAULT_MASTERING_CONFIG: MasteringConfig = {
+  enabled: false,
+  profile: "Natural",
+  intensity: "Normal",
+  targetLufs: -14,
+  ceilingDb: -0.3,
+};
+
 export interface DAWProject {
   id: string;
   name: string;
@@ -286,6 +395,7 @@ export interface DAWProject {
   keySig: string;
   timeSig: string;
   tracks: DAWTrack[];
+  mastering?: MasteringConfig;
   createdAt: number;
   updatedAt: number;
   tonePresetId?: string;
@@ -320,28 +430,10 @@ export interface DrumStep {
   tom?: boolean;
 }
 
-export interface DrumPatternConfig {
+export interface DrumPattern {
   id: string;
   name: string;
-  timeSignature: "4/4" | "3/4" | "6/8" | "12/8";
-  stepsCount: number;
-  swing: number;
+  genre: "rock" | "pop" | "funk" | "blues" | "jazz" | "metal" | "acoustic";
+  timeSignature: "4/4" | "3/4" | "6/8";
   steps: DrumStep[];
 }
-
-export type WorkstationMode =
-  | "home"
-  | "songs"
-  | "chords-ai"
-  | "tuner"
-  | "tone-studio"
-  | "fretboard"
-  | "chord-dictionary"
-  | "scales"
-  | "looper"
-  | "multi-track"
-  | "rhythm"
-  | "practice"
-  | "studio"
-  | "presets"
-  | "devices";

@@ -507,15 +507,7 @@ Provide a concise, practical, high-value guitar instruction response. Mention sp
           : Array.isArray(tagsStr) ? tagsStr : ["Guitar", "Original"];
 
         const clipId = clip.id || clip.clip_id || `trk-${Math.random().toString(36).slice(2, 9)}`;
-        const cloudfrontUrl = `https://d2lwuy8qc234o3.cloudfront.net/1/clip/${clipId}.m4a`;
-        const rawMediaUrl = Array.isArray(clip.media_urls) && clip.media_urls.length > 0
-          ? (clip.media_urls.find((m: any) => m.url && !m.url.includes("forbidden") && !m.url.includes("cdn1.suno.ai"))?.url || clip.media_urls[0]?.url)
-          : null;
-        const audioUrl = (rawMediaUrl && !rawMediaUrl.includes("forbidden") && !rawMediaUrl.includes("cdn1.suno.ai"))
-          ? rawMediaUrl
-          : (clip.audio_url && !clip.audio_url.includes("forbidden") && !clip.audio_url.includes("cdn1.suno.ai"))
-          ? clip.audio_url
-          : cloudfrontUrl;
+        const streamUrl = `/api/suno-audio/${clipId}`;
         const rawImg = clip.image_large_url || clip.image_url || clip.imageUrl;
         const imageUrl = rawImg || `https://cdn2.suno.ai/image_${clipId}.jpeg`;
 
@@ -531,8 +523,8 @@ Provide a concise, practical, high-value guitar instruction response. Mention sp
           artist: clip.display_name || clip.handle || userDisplayName || "ELITEJOE",
           album: clip.album || playlistTitle,
           duration: durationVal,
-          audioUrl: audioUrl,
-          streamUrl: `/api/suno-audio/${clipId}`,
+          audioUrl: streamUrl,
+          streamUrl: streamUrl,
           videoUrl: clip.video_url || clip.videoUrl || null,
           imageUrl: imageUrl,
           lyrics: clip.metadata?.prompt || clip.metadata?.text || clip.prompt || clip.lyrics || "[Instrumental Audio Track]",
@@ -541,7 +533,7 @@ Provide a concise, practical, high-value guitar instruction response. Mention sp
           playCount: clip.play_count ?? clip.playCount ?? 1250,
           upvoteCount: clip.upvote_count ?? clip.upvoteCount ?? 88,
           // Compatibility aliases
-          audio_url: audioUrl,
+          audio_url: streamUrl,
           image_url: imageUrl,
           created_at: item.created_at || clip.created_at || clip.createdAt || new Date().toISOString(),
         };
@@ -785,12 +777,42 @@ Provide a concise, practical, high-value guitar instruction response. Mention sp
     return decryptPromise;
   }
 
+  // Strict validation helper to prevent SSRF
+  function isAllowedAudioCdnUrl(urlStr: string): boolean {
+    try {
+      const parsed = new URL(urlStr);
+      if (parsed.protocol !== "https:") return false;
+      const host = parsed.hostname.toLowerCase();
+      // Allow only official media delivery domains
+      const ALLOWED_CDN_HOSTS = [
+        "d2lwuy8qc234o3.cloudfront.net",
+        "cdn1.suno.ai",
+        "cdn2.suno.ai",
+        "audiopipe.suno.ai",
+        "suno.com",
+      ];
+      return ALLOWED_CDN_HOSTS.some((allowed) => host === allowed || host.endsWith("." + allowed));
+    } catch {
+      return false;
+    }
+  }
+
   // Audio Streaming Proxy Endpoint with Full HTTP 206 Partial Content / Range Request Support
   app.get(["/api/suno-audio/:clipId", "/api/suno-audio", "/api/proxy-audio"], async (req, res) => {
     const clipId = ((req.params.clipId || req.query.id || req.query.clipId || "") as string).trim();
-    const directUrl = (req.query.url as string)?.trim();
+    let directUrl = (req.query.url as string)?.trim();
 
-    res.setHeader("Access-Control-Allow-Origin", "*");
+    // SSRF & Direct URL safety filtering
+    if (directUrl && !isAllowedAudioCdnUrl(directUrl)) {
+      console.warn(`[Security] Blocked unauthorized audio URL attempt: ${directUrl}`);
+      directUrl = "";
+    }
+
+    // Set restricted streaming headers (avoid wildcard CORS for protected media)
+    const requestOrigin = req.headers.origin;
+    if (requestOrigin) {
+      res.setHeader("Access-Control-Allow-Origin", requestOrigin);
+    }
     res.setHeader("Accept-Ranges", "bytes");
 
     try {
@@ -830,6 +852,27 @@ Provide a concise, practical, high-value guitar instruction response. Mention sp
       console.error("[Audio API] Stream error:", err);
       return res.status(502).json({ error: "Audio streaming error", message: err?.message });
     }
+  });
+
+  // Authoritative Track Capabilities Server Endpoint
+  app.get(["/api/track-capabilities/:clipId", "/api/track-capabilities"], (req, res) => {
+    const clipId = ((req.params.clipId || req.query.id || req.query.clipId || "") as string).trim();
+    
+    // Server-side authoritative capabilities for protected catalog
+    const capabilities = {
+      canPlay: true,
+      canDownload: false,
+      canOpenInStudio: false,
+      canRemix: false,
+      canSeparateStems: false,
+      canExport: false,
+      canEdit: false,
+      ownershipType: "JOE_CATALOG",
+      clipId: clipId,
+      protectionNotice: "Protected Joel / JOE artist catalog. Streaming and harmonic analysis only.",
+    };
+
+    res.json(capabilities);
   });
 
   // Suno Rights Proxy Endpoint (Fast JSON metadata token)

@@ -118,7 +118,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
     onClearInitialSong?.();
   };
 
-  const handleTranscribeSong = async (targetSong: SunoSong | SavedSong, forceFresh = false) => {
+  const handleTranscribeSong = async (targetSong: SunoSong | SavedSong | SongAnalysis, forceFresh = false) => {
     const sunoId = (targetSong as any).sunoId || targetSong.id || "";
     const deterministicId = sunoId
       ? (sunoId.startsWith("suno-") ? sunoId : `suno-${sunoId}`)
