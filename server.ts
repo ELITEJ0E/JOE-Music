@@ -91,8 +91,8 @@ async function startServer() {
         </head>
         <body>
           <h2>Chord Sheet Expired or Not Found</h2>
-          <p>Please open or re-export the chord sheet from Guitar Studio AI.</p>
-          <a href="/">Return to Guitar Studio</a>
+          <p>Please open or re-export the chord sheet from JOE Guitar Studio.</p>
+          <a href="/">Return to JOE Guitar Studio</a>
         </body>
       </html>
     `);

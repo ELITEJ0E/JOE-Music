@@ -225,13 +225,16 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
   // Find active segment index
   const activeSegmentIdx = useMemo(() => {
     if (!segments || segments.length === 0) return -1;
+    if (currentTime < segments[0].startTime) return 0;
     for (let i = 0; i < segments.length; i++) {
       const seg = segments[i];
-      if (currentTime >= seg.startTime && (currentTime < seg.endTime || i === segments.length - 1)) {
+      const nextSeg = segments[i + 1];
+      const segEnd = nextSeg ? nextSeg.startTime : seg.endTime;
+      if (currentTime >= seg.startTime && currentTime < segEnd) {
         return i;
       }
     }
-    return 0;
+    return segments.length - 1;
   }, [currentTime, segments]);
 
   const activeSegment = segments[activeSegmentIdx];
@@ -283,32 +286,18 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
     return map;
   }, [uniqueChordVoicings]);
 
-  // Smooth auto-scroll to the currently active chord positioned near the top of the screen
+  // Smooth auto-scroll to the currently active chord during song playback
   useEffect(() => {
     if (!autoScroll || activeSegmentIdx === -1) return;
 
     if (activeChordRef.current) {
-      const el = activeChordRef.current;
-      const container = el.closest("main");
-      if (container) {
-        const containerRect = container.getBoundingClientRect();
-        const elRect = el.getBoundingClientRect();
-        const offsetFromTop = elRect.top - containerRect.top;
-
-        // Position active chord near the top (~70px to 95px below container top)
-        // If it's already in the comfortable upper band (between 45px and 210px), avoid jumping
-        if (offsetFromTop < 45 || offsetFromTop > 210) {
-          container.scrollTo({
-            top: Math.max(0, container.scrollTop + offsetFromTop - 85),
-            behavior: "smooth",
-          });
-        }
-      } else {
-        el.scrollIntoView({
+      try {
+        activeChordRef.current.scrollIntoView({
           behavior: "smooth",
-          block: "start",
+          block: "center",
+          inline: "nearest",
         });
-      }
+      } catch (_) {}
     }
   }, [activeSegmentIdx, autoScroll]);
 
@@ -609,6 +598,46 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
               margin-bottom: 20px;
             }
 
+            /* Flex alignment & icon bounds for clean multi-page document */
+            .flex { display: flex !important; align-items: center !important; }
+            .items-center { align-items: center !important; }
+            .justify-between { justify-content: space-between !important; }
+            .gap-1 { gap: 4px !important; }
+            .gap-1.5, .gap-1\.5 { gap: 6px !important; }
+            .gap-2 { gap: 8px !important; }
+            .shrink-0 { flex-shrink: 0 !important; }
+
+            /* Constrain SVG icons so section header icons do not blow up or overlap text */
+            svg.w-4, svg.h-4, .w-4, .h-4 {
+              width: 16px !important;
+              height: 16px !important;
+              min-width: 16px !important;
+              min-height: 16px !important;
+              max-width: 16px !important;
+              max-height: 16px !important;
+              display: inline-block !important;
+              flex-shrink: 0 !important;
+              vertical-align: middle !important;
+            }
+            svg.w-3.5, svg.h-3.5, svg.w-3\.5, svg.h-3\.5, .w-3\.5, .h-3\.5 {
+              width: 14px !important;
+              height: 14px !important;
+              min-width: 14px !important;
+              min-height: 14px !important;
+              display: inline-block !important;
+              flex-shrink: 0 !important;
+              vertical-align: middle !important;
+            }
+            svg.w-3, svg.h-3, .w-3, .h-3 {
+              width: 12px !important;
+              height: 12px !important;
+              min-width: 12px !important;
+              min-height: 12px !important;
+              display: inline-block !important;
+              flex-shrink: 0 !important;
+              vertical-align: middle !important;
+            }
+
             /* Container resets */
             #chord-sheet-printable {
               box-shadow: none !important;
@@ -635,12 +664,6 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
               background: #ffffff !important;
             }
 
-            /* Diagrams sizing */
-            svg {
-              max-width: 100% !important;
-              height: auto !important;
-            }
-
             button, .print-hidden, .editor-instruction-footer, [data-footer-instruction] {
               display: none !important;
             }
@@ -648,6 +671,9 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
         </head>
         <body>
           ${clone.outerHTML}
+          <div style="text-align: center; font-size: 11px; color: #64748b; font-family: ui-monospace, monospace; padding-top: 16px; margin-top: 24px; border-top: 1px solid #e2e8f0;">
+            JOE Guitar Studio &bull; ${song.title || "Chord Sheet"} &bull; Full Lead Sheet
+          </div>
         </body>
       </html>
     `);
@@ -852,6 +878,46 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
       margin: 0 auto;
     }
 
+    /* Flex alignment & icon bounds for clean standalone HTML sheet */
+    .flex { display: flex !important; align-items: center !important; }
+    .items-center { align-items: center !important; }
+    .justify-between { justify-content: space-between !important; }
+    .gap-1 { gap: 4px !important; }
+    .gap-1.5, .gap-1\.5 { gap: 6px !important; }
+    .gap-2 { gap: 8px !important; }
+    .shrink-0 { flex-shrink: 0 !important; }
+
+    /* Constrain SVG icons so section header icons do not blow up or overlap text */
+    svg.w-4, svg.h-4, .w-4, .h-4 {
+      width: 16px !important;
+      height: 16px !important;
+      min-width: 16px !important;
+      min-height: 16px !important;
+      max-width: 16px !important;
+      max-height: 16px !important;
+      display: inline-block !important;
+      flex-shrink: 0 !important;
+      vertical-align: middle !important;
+    }
+    svg.w-3.5, svg.h-3.5, svg.w-3\.5, svg.h-3\.5, .w-3\.5, .h-3\.5 {
+      width: 14px !important;
+      height: 14px !important;
+      min-width: 14px !important;
+      min-height: 14px !important;
+      display: inline-block !important;
+      flex-shrink: 0 !important;
+      vertical-align: middle !important;
+    }
+    svg.w-3, svg.h-3, .w-3, .h-3 {
+      width: 12px !important;
+      height: 12px !important;
+      min-width: 12px !important;
+      min-height: 12px !important;
+      display: inline-block !important;
+      flex-shrink: 0 !important;
+      vertical-align: middle !important;
+    }
+
     /* Sections */
     section, .section-block, [aria-label="Chord Voicings"] {
       margin-bottom: 24px;
@@ -925,7 +991,7 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
   <main class="sheet-wrapper">
     ${clone.outerHTML}
     <div class="clean-footer">
-      Guitar Studio AI &bull; ${songTitle} &bull; Full Lead Chord Sheet
+      JOE Guitar Studio &bull; ${songTitle} &bull; Full Lead Chord Sheet
     </div>
   </main>
 </body>
@@ -946,7 +1012,7 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           html,
-          title: `${song.title || "Chord Sheet"} - Guitar Studio AI`,
+          title: `${song.title || "Chord Sheet"} - JOE Guitar Studio`,
           id: `sheet-${(song.title || "chords").toLowerCase().replace(/[^a-z0-9]/g, "-")}-${Date.now().toString(36)}`,
         }),
       });
@@ -1032,7 +1098,7 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
       });
     });
 
-    text += `\nGenerated with Guitar Studio AI Chord Finder\n`;
+    text += `\nGenerated with JOE Guitar Studio Chord Finder\n`;
     return text;
   };
 
@@ -1593,9 +1659,9 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
         <section aria-label="Progression Timeline" className="space-y-4">
           {/* Section Toolbar / Helper */}
           <div className="flex items-center justify-between gap-2 px-1">
-            <div className="flex items-center gap-1.5 text-xs font-mono text-zinc-700 font-bold">
-              <Layers className="w-4 h-4 text-emerald-700" />
-              <span>SONG SECTIONS ({sections.length})</span>
+            <div className="flex items-center gap-2 text-xs font-mono text-zinc-700 font-bold">
+              <Layers className="w-4 h-4 text-emerald-700 shrink-0 inline-block align-middle" />
+              <span className="inline-block align-middle">SONG SECTIONS ({sections.length})</span>
             </div>
 
             <div className="flex items-center gap-1.5">
@@ -1893,7 +1959,7 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
             isLightSheet ? "border-zinc-200 text-zinc-400" : "border-white/10 text-zinc-500"
           }`}
         >
-          <span>Guitar Studio AI • Lead Chord Sheet</span>
+          <span>JOE Guitar Studio • Lead Chord Sheet</span>
           <span>Click any chord to seek • Tap tag to split sections • Tap trash to remove</span>
         </div>
       </main>
