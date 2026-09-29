@@ -383,7 +383,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
             className="px-3.5 py-2 rounded-2xl bg-[#a3ff12]/10 hover:bg-[#a3ff12]/20 border border-[#a3ff12]/30 text-xs font-bold text-[#a3ff12] flex items-center gap-2 transition-all hover:scale-105"
           >
             <Mic className="w-3.5 h-3.5 text-[#a3ff12]" />
-            <span>New DAW Project</span>
+            <span>JOE Studio</span>
           </button>
         </div>
       </div>

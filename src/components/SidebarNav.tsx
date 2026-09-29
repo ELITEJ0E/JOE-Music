@@ -40,7 +40,7 @@ export const SIDEBAR_ITEMS: {
   { id: "tuner", label: "Tuner", icon: SlidersHorizontal },
   { id: "chord-dictionary", label: "Chord Library", icon: BookOpen },
   { id: "fretboard", label: "Scales & Fretboard", icon: Grid },
-  { id: "studio", label: "JOE Studio DAW", icon: Mic, badge: "PRO" },
+  { id: "studio", label: "JOE Studio", icon: Mic },
   { id: "looper", label: "Looper Station", icon: Repeat },
   { id: "tone-studio", label: "Tone Studio", icon: Sliders },
   { id: "presets", label: "Presets Vault", icon: Layers },
