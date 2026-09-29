@@ -458,6 +458,10 @@ class AudioEngineManager {
     return this.inputDeviceId;
   }
 
+  public getInputStream(): MediaStream | null {
+    return this.micStream;
+  }
+
   public async setOutputDevice(deviceId: string): Promise<boolean> {
     this.outputDeviceId = deviceId;
     const ctx = this.getContext();

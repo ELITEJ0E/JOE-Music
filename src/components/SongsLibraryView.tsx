@@ -33,6 +33,7 @@ import {
 import { useSunoPlaylist } from "../hooks/useSunoPlaylist";
 import { recordRecentSongPlay } from "../utils/recentSongs";
 import { getSunoStreamUrl, resolveClientDecryptedAudioBlob } from "../utils/sunoAudioResolver";
+import { getTrackCapabilities } from "../utils/trackPermissions";
 
 // Backward-compatible alias
 export type SunoSong = SunoTrack;
@@ -46,6 +47,7 @@ interface SongsLibraryViewProps {
 export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
   onAnalyzeSong,
   onOpenInStudio,
+  onUseAsPractice,
 }) => {
   // Fixed playlists by Joel - cannot be deleted or modified
   const playlists = MY_SUNO_PLAYLISTS;
@@ -841,6 +843,7 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
               {filteredTracks.map((track, idx) => {
                 const isCurrent = currentTrack?.id === track.id;
                 const isThisPlaying = isCurrent && isPlaying;
+                const capabilities = getTrackCapabilities(track);
 
                 return (
                   <div
@@ -899,8 +902,13 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
                       className="flex items-center justify-between sm:justify-end gap-3 sm:gap-4 shrink-0 pt-1 sm:pt-0 border-t border-white/5 sm:border-t-0"
                       onClick={(e) => e.stopPropagation()}
                     >
-                      <div className="hidden sm:block font-mono text-[11px] text-zinc-400 w-12 text-right">
-                        {formatDuration(track.duration)}
+                      <div className="hidden sm:flex items-center gap-2 font-mono text-[11px] text-zinc-400">
+                        {capabilities.ownershipType === "JOE_CATALOG" && (
+                          <span className="text-[10px] font-mono font-medium text-zinc-500 bg-white/5 px-2 py-0.5 rounded border border-white/5">
+                            Catalog
+                          </span>
+                        )}
+                        <span className="w-12 text-right">{formatDuration(track.duration)}</span>
                       </div>
 
                       <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
@@ -914,15 +922,17 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
                           <span>Extract Chords</span>
                         </button>
 
-                        {/* Open in Studio DAW Action */}
-                        <button
-                          onClick={() => onOpenInStudio(track)}
-                          className="flex-1 sm:flex-initial px-3 py-1.5 rounded-lg bg-[#a3ff12]/15 hover:bg-[#a3ff12]/25 border border-[#a3ff12]/30 text-xs font-mono font-bold text-[#a3ff12] transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
-                          title="Import into Multi-Track Studio"
-                        >
-                          <ListMusic className="w-3.5 h-3.5" />
-                          <span>DAW</span>
-                        </button>
+                        {/* Open in Studio DAW Action (User & Remixable tracks) */}
+                        {capabilities.canOpenInStudio && (
+                          <button
+                            onClick={() => onOpenInStudio(track)}
+                            className="flex-1 sm:flex-initial px-3 py-1.5 rounded-lg bg-[#a3ff12]/15 hover:bg-[#a3ff12]/25 border border-[#a3ff12]/30 text-xs font-mono font-bold text-[#a3ff12] transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                            title="Open in Multi-Track Studio"
+                          >
+                            <ListMusic className="w-3.5 h-3.5" />
+                            <span>DAW</span>
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -988,14 +998,16 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
                 >
                   Chords
                 </button>
-                <button
-                  id="btn-player-daw-mobile"
-                  onClick={() => onOpenInStudio(currentTrack)}
-                  className="px-2 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white text-[10px] font-mono font-bold transition-colors cursor-pointer"
-                  title="Open in Studio DAW"
-                >
-                  DAW
-                </button>
+                {getTrackCapabilities(currentTrack).canOpenInStudio && (
+                  <button
+                    id="btn-player-daw-mobile"
+                    onClick={() => onOpenInStudio(currentTrack)}
+                    className="px-2 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white text-[10px] font-mono font-bold transition-colors cursor-pointer"
+                    title="Open in Studio DAW"
+                  >
+                    DAW
+                  </button>
+                )}
                 <button
                   id="btn-player-close-mobile"
                   onClick={handleClosePlayer}
@@ -1126,14 +1138,16 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
                 >
                   Chords
                 </button>
-                <button
-                  id="btn-player-daw-desktop"
-                  onClick={() => onOpenInStudio(currentTrack)}
-                  className="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white text-[10px] font-mono font-bold transition-colors cursor-pointer"
-                  title="Open in Studio DAW"
-                >
-                  DAW
-                </button>
+                {getTrackCapabilities(currentTrack).canOpenInStudio && (
+                  <button
+                    id="btn-player-daw-desktop"
+                    onClick={() => onOpenInStudio(currentTrack)}
+                    className="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white text-[10px] font-mono font-bold transition-colors cursor-pointer"
+                    title="Open in Studio DAW"
+                  >
+                    DAW
+                  </button>
+                )}
                 <button
                   id="btn-player-close-desktop"
                   onClick={handleClosePlayer}

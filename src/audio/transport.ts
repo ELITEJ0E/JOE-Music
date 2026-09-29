@@ -108,6 +108,12 @@ class TransportClock {
     this.notifyState();
   }
 
+  public toggleLoop(): boolean {
+    this.isLooping = !this.isLooping;
+    this.notifyState();
+    return this.isLooping;
+  }
+
   public setLoopLength(len: number) {
     this.loopLengthSec = Math.max(1, len);
     this.notifyState();

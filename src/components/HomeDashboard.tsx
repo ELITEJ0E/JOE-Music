@@ -36,6 +36,7 @@ import {
 import { loadRecordingsFromDB } from "../utils/storage";
 import { guitarSynth } from "../audio/guitarSynth";
 import { getSunoStreamUrl, resolveClientDecryptedAudioBlob } from "../utils/sunoAudioResolver";
+import { getTrackCapabilities } from "../utils/trackPermissions";
 
 interface HomeDashboardProps {
   onSelectMode: (mode: WorkstationMode) => void;
@@ -691,20 +692,37 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                 <span>CHORDS</span>
               </button>
 
-              <button
-                onClick={() => {
-                  if (activeSong) {
-                    onOpenInStudio?.(activeSong as any);
-                  } else {
-                    onSelectMode("studio");
-                  }
-                }}
-                className="sm:col-span-3 py-3 px-3 bg-white/5 hover:bg-white/10 border border-white/10 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 transition-all hover:scale-[1.02]"
-                title="Open Stems in Studio DAW"
-              >
-                <Mic className="w-3.5 h-3.5 text-rose-400" />
-                <span>DAW</span>
-              </button>
+              {getTrackCapabilities(activeSong).canOpenInStudio ? (
+                <button
+                  onClick={() => {
+                    if (activeSong) {
+                      onOpenInStudio?.(activeSong as any);
+                    } else {
+                      onSelectMode("studio");
+                    }
+                  }}
+                  className="sm:col-span-3 py-3 px-3 bg-white/5 hover:bg-white/10 border border-white/10 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 transition-all hover:scale-[1.02] cursor-pointer"
+                  title="Open Project in JOE Studio"
+                >
+                  <Mic className="w-3.5 h-3.5 text-rose-400" />
+                  <span>DAW</span>
+                </button>
+              ) : (
+                <button
+                  onClick={() => {
+                    if (activeSong) {
+                      onUseAsPractice?.(activeSong as any);
+                    } else {
+                      onSelectMode("practice");
+                    }
+                  }}
+                  className="sm:col-span-3 py-3 px-3 bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-300 hover:text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 transition-all hover:scale-[1.02] cursor-pointer"
+                  title="Practice guitar with this song"
+                >
+                  <Music className="w-3.5 h-3.5 text-[#a3ff12]" />
+                  <span>PRACTICE</span>
+                </button>
+              )}
             </div>
           </div>
         </div>
