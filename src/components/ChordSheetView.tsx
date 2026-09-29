@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import {
   FileText,
   Printer,
@@ -66,6 +66,18 @@ const PRESET_SECTION_TAGS = [
   "Hook",
 ];
 
+// Map section names to music icons
+export const getSectionIcon = (name: string) => {
+  const lower = name.toLowerCase();
+  if (lower.includes("chorus") || lower.includes("hook")) return Sparkles;
+  if (lower.includes("verse")) return Music;
+  if (lower.includes("bridge") || lower.includes("pre-chorus")) return Layers;
+  if (lower.includes("intro")) return Play;
+  if (lower.includes("outro")) return SkipForward;
+  if (lower.includes("solo") || lower.includes("interlude")) return Music;
+  return Tag;
+};
+
 // Color mapping for common section tags in clean paper lead sheet styling
 const getSectionBadgeStyle = (name: string) => {
   const lower = name.toLowerCase();
@@ -74,7 +86,12 @@ const getSectionBadgeStyle = (name: string) => {
       badgeBg: "bg-amber-100 text-amber-900 border-amber-300",
       accentBorder: "border-l-amber-500",
       dot: "bg-amber-500",
+      iconColor: "text-amber-700",
       headerBg: "bg-amber-50/60",
+      hexAccent: "#f59e0b",
+      hexBadgeBg: "#fef3c7",
+      hexText: "#78350f",
+      hexBorder: "#fcd34d",
     };
   }
   if (lower.includes("verse")) {
@@ -82,15 +99,25 @@ const getSectionBadgeStyle = (name: string) => {
       badgeBg: "bg-emerald-100 text-emerald-900 border-emerald-300",
       accentBorder: "border-l-emerald-500",
       dot: "bg-emerald-600",
+      iconColor: "text-emerald-700",
       headerBg: "bg-emerald-50/60",
+      hexAccent: "#10b981",
+      hexBadgeBg: "#d1fae5",
+      hexText: "#065f46",
+      hexBorder: "#6ee7b7",
     };
   }
-  if (lower.includes("bridge")) {
+  if (lower.includes("bridge") || lower.includes("pre-chorus")) {
     return {
       badgeBg: "bg-purple-100 text-purple-900 border-purple-300",
       accentBorder: "border-l-purple-500",
       dot: "bg-purple-500",
+      iconColor: "text-purple-700",
       headerBg: "bg-purple-50/60",
+      hexAccent: "#8b5cf6",
+      hexBadgeBg: "#ede9fe",
+      hexText: "#5b21b6",
+      hexBorder: "#c4b5fd",
     };
   }
   if (lower.includes("intro")) {
@@ -98,7 +125,12 @@ const getSectionBadgeStyle = (name: string) => {
       badgeBg: "bg-sky-100 text-sky-900 border-sky-300",
       accentBorder: "border-l-sky-500",
       dot: "bg-sky-500",
+      iconColor: "text-sky-700",
       headerBg: "bg-sky-50/60",
+      hexAccent: "#0ea5e9",
+      hexBadgeBg: "#e0f2fe",
+      hexText: "#075985",
+      hexBorder: "#7dd3fc",
     };
   }
   if (lower.includes("outro")) {
@@ -106,7 +138,12 @@ const getSectionBadgeStyle = (name: string) => {
       badgeBg: "bg-rose-100 text-rose-900 border-rose-300",
       accentBorder: "border-l-rose-500",
       dot: "bg-rose-500",
+      iconColor: "text-rose-700",
       headerBg: "bg-rose-50/60",
+      hexAccent: "#f43f5e",
+      hexBadgeBg: "#ffe4e6",
+      hexText: "#9f1239",
+      hexBorder: "#fecdd3",
     };
   }
   if (lower.includes("solo") || lower.includes("interlude")) {
@@ -114,14 +151,24 @@ const getSectionBadgeStyle = (name: string) => {
       badgeBg: "bg-cyan-100 text-cyan-900 border-cyan-300",
       accentBorder: "border-l-cyan-500",
       dot: "bg-cyan-600",
+      iconColor: "text-cyan-700",
       headerBg: "bg-cyan-50/60",
+      hexAccent: "#06b6d4",
+      hexBadgeBg: "#cffafe",
+      hexText: "#155e75",
+      hexBorder: "#67e8f9",
     };
   }
   return {
     badgeBg: "bg-zinc-100 text-zinc-900 border-zinc-300",
     accentBorder: "border-l-zinc-700",
     dot: "bg-zinc-700",
+    iconColor: "text-zinc-700",
     headerBg: "bg-zinc-50/70",
+    hexAccent: "#64748b",
+    hexBadgeBg: "#f1f5f9",
+    hexText: "#1e293b",
+    hexBorder: "#cbd5e1",
   };
 };
 
@@ -286,20 +333,95 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
     return map;
   }, [uniqueChordVoicings]);
 
-  // Smooth auto-scroll to the currently active chord during song playback
+  const lastScrolledIdxRef = useRef<number>(-1);
+
+  // Smoothly scroll the active chord row to the VERY TOP of the scroll viewport
+  const scrollToChord = useCallback((index: number, smooth: boolean = true) => {
+    if (index < 0) return;
+    const targetEl =
+      document.getElementById(`chord-cell-${index}`) ||
+      (activeChordRef.current && index === activeSegmentIdx ? activeChordRef.current : null);
+    if (!targetEl) return;
+
+    // Detect the true scrollable container: App.tsx's <main> element or parent
+    let container: HTMLElement | null = null;
+    const mainEl = document.querySelector("main");
+    if (
+      mainEl &&
+      (mainEl.scrollHeight > mainEl.clientHeight || window.getComputedStyle(mainEl).overflowY === "auto")
+    ) {
+      container = mainEl;
+    } else {
+      let p = targetEl.parentElement;
+      while (p && p !== document.body && p !== document.documentElement) {
+        const style = window.getComputedStyle(p);
+        if (
+          (style.overflowY === "auto" || style.overflowY === "scroll") &&
+          p.scrollHeight > p.clientHeight
+        ) {
+          container = p;
+          break;
+        }
+        p = p.parentElement;
+      }
+    }
+
+    const elRect = targetEl.getBoundingClientRect();
+
+    if (container && container.scrollHeight > container.clientHeight) {
+      const containerRect = container.getBoundingClientRect();
+      const offsetFromTop = elRect.top - containerRect.top;
+      // Position active chord row at the VERY TOP of the visible viewport (with 16px breathing room)
+      const targetScrollTop = container.scrollTop + offsetFromTop - 16;
+
+      container.scrollTo({
+        top: Math.max(0, targetScrollTop),
+        behavior: smooth ? "smooth" : "auto",
+      });
+    } else {
+      // Window / documentElement scrolling fallback (at the VERY TOP)
+      const windowOffset = window.scrollY + elRect.top - 16;
+      window.scrollTo({
+        top: Math.max(0, windowOffset),
+        behavior: smooth ? "smooth" : "auto",
+      });
+    }
+  }, [activeSegmentIdx]);
+
+  // Smooth auto-scroll to show the active chord row at the VERY TOP during playback
   useEffect(() => {
     if (!autoScroll || activeSegmentIdx === -1) return;
+    if (lastScrolledIdxRef.current === activeSegmentIdx) return;
+    lastScrolledIdxRef.current = activeSegmentIdx;
 
-    if (activeChordRef.current) {
-      try {
-        activeChordRef.current.scrollIntoView({
-          behavior: "smooth",
-          block: "center",
-          inline: "nearest",
-        });
-      } catch (_) {}
+    const frameId = requestAnimationFrame(() => {
+      scrollToChord(activeSegmentIdx, true);
+    });
+    return () => cancelAnimationFrame(frameId);
+  }, [activeSegmentIdx, autoScroll, scrollToChord]);
+
+  // Immediately scroll active chord to top when playback begins or autoScroll is re-enabled
+  useEffect(() => {
+    if (autoScroll && isPlaying && activeSegmentIdx !== -1) {
+      scrollToChord(activeSegmentIdx, true);
     }
-  }, [activeSegmentIdx, autoScroll]);
+  }, [isPlaying, autoScroll, scrollToChord]);
+
+  // Unified seek & follow helper
+  const handleSeekAndFollow = (time: number) => {
+    onSeek(time);
+    if (autoScroll && segments && segments.length > 0) {
+      const targetIdx = segments.findIndex(
+        (s, i) =>
+          time >= s.startTime &&
+          (i === segments.length - 1 || time < (segments[i + 1]?.startTime ?? s.endTime))
+      );
+      if (targetIdx !== -1) {
+        lastScrolledIdxRef.current = targetIdx;
+        requestAnimationFrame(() => scrollToChord(targetIdx, true));
+      }
+    }
+  };
 
   // Group segments into sections based on `seg.section`
   interface SectionGroup {
@@ -561,11 +683,11 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
       <html lang="en">
         <head>
           <meta charset="utf-8" />
-          <title>${song.title || "Chord Sheet"} - Guitar Lead Sheet</title>
+          <title>${song.title || "Chord Sheet"} - JOE Guitar Studio Lead Sheet</title>
           <style>
             @page {
               size: auto;
-              margin: 14mm 16mm;
+              margin: 12mm 14mm;
             }
             * {
               box-sizing: border-box;
@@ -575,27 +697,29 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
             body {
               font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
               background: #ffffff !important;
-              color: #111827 !important;
+              color: #0f172a !important;
               margin: 0;
               padding: 0;
               font-size: 12px;
+              line-height: 1.4;
             }
-            h1, h2, h3, p {
+            h1, h2, h3, h4, p {
               margin: 0;
-              color: #000000;
+              color: #0f172a;
             }
             .font-mono {
               font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
             }
             .font-bold { font-weight: 700; }
             .font-black { font-weight: 900; }
+            .font-extrabold { font-weight: 800; }
             .uppercase { text-transform: uppercase; }
 
             /* Break rules to prevent breaking elements across page cuts */
-            section, .section-block, [aria-label="Chord Voicings"] {
+            section, .section-block, [aria-label="Chord Voicings"], [aria-label="Progression Timeline"] > div {
               page-break-inside: avoid !important;
               break-inside: avoid !important;
-              margin-bottom: 20px;
+              margin-bottom: 18px;
             }
 
             /* Flex alignment & icon bounds for clean multi-page document */
@@ -605,37 +729,49 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
             .gap-1 { gap: 4px !important; }
             .gap-1.5, .gap-1\.5 { gap: 6px !important; }
             .gap-2 { gap: 8px !important; }
+            .gap-3 { gap: 12px !important; }
             .shrink-0 { flex-shrink: 0 !important; }
 
-            /* Constrain SVG icons so section header icons do not blow up or overlap text */
-            svg.w-4, svg.h-4, .w-4, .h-4 {
-              width: 16px !important;
-              height: 16px !important;
-              min-width: 16px !important;
-              min-height: 16px !important;
-              max-width: 16px !important;
-              max-height: 16px !important;
-              display: inline-block !important;
-              flex-shrink: 0 !important;
+            /* Section badges and inline icons */
+            .section-badge, [class*="rounded-lg"][class*="font-mono"][class*="font-extrabold"] {
+              display: inline-flex !important;
+              align-items: center !important;
+              gap: 6px !important;
+              padding: 3px 8px !important;
+              border-radius: 6px !important;
+              font-size: 11px !important;
+              font-weight: 800 !important;
               vertical-align: middle !important;
+            }
+
+            /* Inline SVG icons (Music, Tag, Sparkles, etc.) */
+            svg:not(.chord-diagram-svg) {
+              display: inline-block !important;
+              vertical-align: middle !important;
+              margin: 0 !important;
+              flex-shrink: 0 !important;
+            }
+            svg.w-4, svg.h-4, .w-4, .h-4 {
+              width: 15px !important;
+              height: 15px !important;
+              min-width: 15px !important;
+              min-height: 15px !important;
             }
             svg.w-3.5, svg.h-3.5, svg.w-3\.5, svg.h-3\.5, .w-3\.5, .h-3\.5 {
-              width: 14px !important;
-              height: 14px !important;
-              min-width: 14px !important;
-              min-height: 14px !important;
-              display: inline-block !important;
-              flex-shrink: 0 !important;
-              vertical-align: middle !important;
+              width: 13px !important;
+              height: 13px !important;
+              min-width: 13px !important;
+              min-height: 13px !important;
             }
-            svg.w-3, svg.h-3, .w-3, .h-3 {
-              width: 12px !important;
-              height: 12px !important;
-              min-width: 12px !important;
-              min-height: 12px !important;
-              display: inline-block !important;
-              flex-shrink: 0 !important;
-              vertical-align: middle !important;
+
+            /* Strictly constrained chord diagram SVGs for uniform neat display */
+            svg.chord-diagram-svg,
+            .chord-diagram-svg {
+              display: block !important;
+              margin: 2px auto !important;
+              width: 72px !important;
+              height: 80px !important;
+              max-width: 100% !important;
             }
 
             /* Container resets */
@@ -646,22 +782,28 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
               margin: 0 !important;
               max-width: 100% !important;
               width: 100% !important;
+              background: #ffffff !important;
             }
 
-            /* Chords layout for print */
+            /* Chords 4-column layout for print matching PDF export */
             .grid {
               display: grid !important;
               grid-template-columns: repeat(4, 1fr) !important;
-              gap: 10px !important;
+              gap: 8px !important;
+              margin-top: 6px !important;
             }
 
             .group {
               page-break-inside: avoid !important;
               break-inside: avoid !important;
-              border: 1px solid #d1d5db !important;
+              border: 1px solid #cbd5e1 !important;
               border-radius: 8px !important;
-              padding: 8px !important;
+              padding: 7px 9px !important;
               background: #ffffff !important;
+              display: flex !important;
+              flex-direction: column !important;
+              justify-content: space-between !important;
+              min-height: 120px !important;
             }
 
             button, .print-hidden, .editor-instruction-footer, [data-footer-instruction] {
@@ -671,7 +813,7 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
         </head>
         <body>
           ${clone.outerHTML}
-          <div style="text-align: center; font-size: 11px; color: #64748b; font-family: ui-monospace, monospace; padding-top: 16px; margin-top: 24px; border-top: 1px solid #e2e8f0;">
+          <div style="text-align: center; font-size: 11px; color: #64748b; font-family: ui-monospace, monospace; padding-top: 16px; margin-top: 24px; border-top: 1px solid #e2e8f0; letter-spacing: 0.5px;">
             JOE Guitar Studio &bull; ${song.title || "Chord Sheet"} &bull; Full Lead Sheet
           </div>
         </body>
@@ -711,7 +853,7 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>${songTitle} - Guitar Lead Sheet</title>
+  <title>${songTitle} - JOE Guitar Studio Lead Sheet</title>
   <style>
     :root {
       --bg: #f8fafc;
@@ -719,8 +861,7 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
       --text: #0f172a;
       --text-muted: #64748b;
       --border: #e2e8f0;
-      --accent: #15803d;
-      --accent-light: #f0fdf4;
+      --border-card: #cbd5e1;
     }
     * {
       box-sizing: border-box;
@@ -735,21 +876,26 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
       color: var(--text);
       line-height: 1.5;
       padding: 0 0 60px 0;
+      font-size: 13px;
     }
     .font-mono {
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     }
+    .font-bold { font-weight: 700; }
+    .font-black { font-weight: 900; }
+    .font-extrabold { font-weight: 800; }
+    .uppercase { text-transform: uppercase; }
 
     /* Top Floating Navigation Toolbar (Screen Only) */
     .top-toolbar {
       position: sticky;
       top: 0;
       z-index: 100;
-      background: rgba(15, 23, 42, 0.95);
+      background: rgba(15, 23, 42, 0.96);
       backdrop-filter: blur(12px);
       -webkit-backdrop-filter: blur(12px);
-      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-      padding: 10px 20px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+      padding: 10px 24px;
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -781,7 +927,7 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-      max-width: 380px;
+      max-width: 420px;
     }
     .top-toolbar .actions {
       display: flex;
@@ -793,7 +939,7 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      padding: 6px 14px;
+      padding: 7px 16px;
       border-radius: 8px;
       font-size: 12px;
       font-weight: 700;
@@ -822,7 +968,7 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
     /* Paper Lead Sheet Container */
     .sheet-wrapper {
       max-width: 960px;
-      margin: 24px auto;
+      margin: 28px auto;
       padding: 0 16px;
     }
     #chord-sheet-printable {
@@ -833,112 +979,120 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
       box-shadow: 0 8px 30px rgba(0,0,0,0.06);
     }
 
-    /* Lead sheet typography */
-    h1, h2, h3, h4 {
-      color: #0f172a;
-    }
-    .uppercase { text-transform: uppercase; }
-    .font-bold { font-weight: 700; }
-    .font-black { font-weight: 900; }
-
-    /* Chord Diagrams Grid */
-    .grid {
-      display: grid !important;
-      gap: 10px !important;
-    }
-    @media (min-width: 768px) {
-      .grid {
-        grid-template-columns: repeat(4, 1fr) !important;
-      }
-    }
-    @media (max-width: 767px) {
-      .grid {
-        grid-template-columns: repeat(3, 1fr) !important;
-      }
-    }
-
-    /* Chord Boxes */
-    .group {
-      border: 1px solid #e2e8f0 !important;
-      border-radius: 10px !important;
-      padding: 8px !important;
-      background: #ffffff !important;
-      display: flex;
-      flex-direction: column;
-      justify-content: space-between;
-      break-inside: avoid !important;
+    /* Section Structure & Break Isolation */
+    section, .section-block, [aria-label="Chord Voicings"], [aria-label="Progression Timeline"] > div {
       page-break-inside: avoid !important;
+      break-inside: avoid !important;
+      margin-bottom: 22px;
     }
 
-    /* SVG diagrams */
-    svg {
-      max-width: 100% !important;
-      height: auto !important;
-      display: block;
-      margin: 0 auto;
-    }
-
-    /* Flex alignment & icon bounds for clean standalone HTML sheet */
+    /* Flex alignment utilities */
     .flex { display: flex !important; align-items: center !important; }
     .items-center { align-items: center !important; }
     .justify-between { justify-content: space-between !important; }
     .gap-1 { gap: 4px !important; }
-    .gap-1.5, .gap-1\.5 { gap: 6px !important; }
+    .gap-1\.5, .gap-1\.5 { gap: 6px !important; }
     .gap-2 { gap: 8px !important; }
+    .gap-3 { gap: 12px !important; }
     .shrink-0 { flex-shrink: 0 !important; }
 
-    /* Constrain SVG icons so section header icons do not blow up or overlap text */
+    /* SECTION BADGE & ICON PLACEMENT:
+       Ensure section icons (Music, Sparkles, Layers, Tag, Play, etc.)
+       are placed inline with section title, perfectly centered, never wrapped */
+    .section-badge, [class*="rounded-lg"][class*="font-mono"][class*="font-extrabold"] {
+      display: inline-flex !important;
+      align-items: center !important;
+      gap: 6px !important;
+      padding: 4px 10px !important;
+      border-radius: 8px !important;
+      font-size: 11.5px !important;
+      font-weight: 800 !important;
+      white-space: nowrap !important;
+      vertical-align: middle !important;
+    }
+
+    /* Target ALL Lucide icons / inline SVG icons */
+    svg:not(.chord-diagram-svg) {
+      display: inline-block !important;
+      vertical-align: middle !important;
+      margin: 0 !important;
+      flex-shrink: 0 !important;
+    }
+    svg.w-3\.5, svg.h-3\.5, .w-3\.5, .h-3\.5 {
+      width: 14px !important;
+      height: 14px !important;
+      min-width: 14px !important;
+      min-height: 14px !important;
+    }
     svg.w-4, svg.h-4, .w-4, .h-4 {
       width: 16px !important;
       height: 16px !important;
       min-width: 16px !important;
       min-height: 16px !important;
-      max-width: 16px !important;
-      max-height: 16px !important;
-      display: inline-block !important;
-      flex-shrink: 0 !important;
-      vertical-align: middle !important;
-    }
-    svg.w-3.5, svg.h-3.5, svg.w-3\.5, svg.h-3\.5, .w-3\.5, .h-3\.5 {
-      width: 14px !important;
-      height: 14px !important;
-      min-width: 14px !important;
-      min-height: 14px !important;
-      display: inline-block !important;
-      flex-shrink: 0 !important;
-      vertical-align: middle !important;
-    }
-    svg.w-3, svg.h-3, .w-3, .h-3 {
-      width: 12px !important;
-      height: 12px !important;
-      min-width: 12px !important;
-      min-height: 12px !important;
-      display: inline-block !important;
-      flex-shrink: 0 !important;
-      vertical-align: middle !important;
     }
 
-    /* Sections */
-    section, .section-block, [aria-label="Chord Voicings"] {
-      margin-bottom: 24px;
+    /* CHORD DIAGRAM SVGS:
+       Strictly constrain width and height so diagrams are uniform, neat, and razor-sharp */
+    svg.chord-diagram-svg,
+    .chord-diagram-svg {
+      display: block !important;
+      margin: 2px auto !important;
+      width: 74px !important;
+      height: 82px !important;
+      max-width: 100% !important;
+    }
+
+    /* CHORD BOXES & 4-COLUMN GRID LAYOUT (Matching PDF Export) */
+    .grid {
+      display: grid !important;
+      grid-template-columns: repeat(4, 1fr) !important;
+      gap: 10px !important;
+      margin-top: 6px !important;
+    }
+
+    @media (max-width: 640px) {
+      @media screen {
+        .grid {
+          grid-template-columns: repeat(3, 1fr) !important;
+          gap: 6px !important;
+        }
+      }
+    }
+
+    .group, .chord-card {
+      border: 1px solid #cbd5e1 !important;
+      border-radius: 10px !important;
+      padding: 8px 10px !important;
+      background: #ffffff !important;
+      display: flex !important;
+      flex-direction: column !important;
+      justify-content: space-between !important;
       break-inside: avoid !important;
       page-break-inside: avoid !important;
+      min-height: 125px !important;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03) !important;
     }
 
     .clean-footer {
       text-align: center;
       font-size: 11px;
-      color: #94a3b8;
+      color: #64748b;
       font-family: ui-monospace, monospace;
-      padding-top: 24px;
-      margin-top: 32px;
+      padding-top: 22px;
+      margin-top: 30px;
       border-top: 1px solid #e2e8f0;
+      letter-spacing: 0.5px;
+    }
+
+    button, .print-hidden, .editor-instruction-footer, [data-footer-instruction] {
+      display: none !important;
     }
 
     /* Print Styles */
     @media print {
       body {
         background: #ffffff !important;
+        color: #000000 !important;
         padding: 0 !important;
         margin: 0 !important;
       }
@@ -961,8 +1115,19 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
         size: auto;
         margin: 12mm 14mm;
       }
-      .group {
+      .grid {
+        grid-template-columns: repeat(4, 1fr) !important;
+        gap: 8px !important;
+      }
+      .group, .chord-card {
         border: 1px solid #cbd5e1 !important;
+        box-shadow: none !important;
+        min-height: 118px !important;
+      }
+      svg.chord-diagram-svg,
+      .chord-diagram-svg {
+        width: 70px !important;
+        height: 78px !important;
       }
       .clean-footer {
         display: block !important;
@@ -1683,6 +1848,7 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
           {sections.map((section, sIdx) => {
             const isSectionActive = sIdx === activeSectionIdx;
             const style = getSectionBadgeStyle(section.name);
+            const SectionIcon = getSectionIcon(section.name);
 
             return (
               <div
@@ -1704,7 +1870,7 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
                   }`}
                 >
                   <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-                    {/* Section Tag Badge / Editable input */}
+                    {/* Section Tag Badge with properly placed icon */}
                     {editingSectionIdx === sIdx ? (
                       <div className="flex items-center gap-1.5">
                         <input
@@ -1742,10 +1908,10 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
                             setEditingSectionIdx(sIdx);
                             setEditSectionNameInput(section.name);
                           }}
-                          className={`px-2.5 py-0.5 rounded-lg border font-mono font-extrabold text-xs flex items-center gap-1.5 cursor-pointer hover:opacity-85 transition-opacity ${style.badgeBg}`}
+                          className={`px-2.5 py-1 rounded-lg border font-mono font-extrabold text-xs flex items-center gap-1.5 cursor-pointer hover:opacity-85 transition-opacity ${style.badgeBg}`}
                           title="Click to rename this section"
                         >
-                          <span className={`w-1.5 h-1.5 rounded-full ${style.dot}`} />
+                          <SectionIcon className={`w-3.5 h-3.5 shrink-0 ${style.iconColor}`} />
                           <span>{section.name}</span>
                           <Edit3 className="w-2.5 h-2.5 opacity-60 ml-0.5 print:hidden" />
                         </span>
@@ -1773,7 +1939,7 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
                     {/* Play from section start */}
                     <button
                       onClick={() => {
-                        onSeek(section.startTime);
+                        handleSeekAndFollow(section.startTime);
                         if (!isPlaying) onPlayPause();
                       }}
                       className={`px-2 py-1 rounded-lg text-[10px] font-mono font-bold flex items-center gap-1 transition-all cursor-pointer shadow-xs ${
@@ -1801,7 +1967,6 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
                 </div>
 
                 {/* COMPACT CHORDS GRID (Fits more chords across mobile & desktop) */}
-                {/* 3 cols on mobile, 4 on sm, 5 on md, 6 on lg */}
                 <div className={`p-2 sm:p-3 transition-colors ${isLightSheet ? "bg-white" : "bg-[#0d1117]"}`}>
                   <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-1.5 sm:gap-2 print:grid print:grid-cols-4">
                     {section.items.map(({ seg, originalIndex }) => {
@@ -1809,6 +1974,9 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
                       const chordLabel = capo > 0 && state.isValid ? state.shapeChord : state.transposedChord;
                       const isActive = originalIndex === activeSegmentIdx;
                       const segDuration = (seg.endTime - seg.startTime).toFixed(1);
+                      const timeInSeg = Math.max(0, currentTime - seg.startTime);
+                      const segTotal = Math.max(0.1, seg.endTime - seg.startTime);
+                      const segProgressPct = isActive ? Math.min(100, Math.max(0, (timeInSeg / segTotal) * 100)) : 0;
 
                       // Resolve miniature voicing for this specific chord
                       const resolved = chordVoicingMap.get(seg.chord);
@@ -1821,26 +1989,40 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
 
                       return (
                         <div
+                          id={`chord-cell-${originalIndex}`}
                           key={seg.id || `chord-${originalIndex}-${seg.startTime}`}
                           ref={isActive ? activeChordRef : null}
-                          onClick={() => onSeek(seg.startTime)}
-                          className={`group relative rounded-xl p-1.5 sm:p-2 border transition-all duration-150 cursor-pointer flex flex-col justify-between select-none scroll-mt-24 sm:scroll-mt-28 md:scroll-mt-32 print-break-inside-avoid ${
+                          data-active-chord={isActive ? "true" : "false"}
+                          onClick={() => handleSeekAndFollow(seg.startTime)}
+                          className={`group relative rounded-xl p-1.5 sm:p-2 border transition-all duration-150 cursor-pointer flex flex-col justify-between select-none scroll-mt-24 sm:scroll-mt-28 md:scroll-mt-32 print-break-inside-avoid overflow-hidden ${
                             isActive
                               ? isLightSheet
-                                ? "bg-[#ecfdf5] border-2 border-[#10b981] ring-2 ring-[#10b981]/30 shadow-md scale-[1.02] text-zinc-950"
-                                : "bg-[#10b981]/15 border-2 border-[#10b981] ring-2 ring-[#10b981]/40 shadow-md scale-[1.02] text-white"
+                                ? "bg-[#ecfdf5] border-2 border-[#10b981] ring-2 ring-[#10b981]/30 shadow-lg scale-[1.02] text-zinc-950"
+                                : "bg-[#10b981]/15 border-2 border-[#a3ff12] ring-2 ring-[#a3ff12]/40 shadow-[0_0_20px_rgba(163,255,18,0.25)] scale-[1.02] text-white"
                               : isLightSheet
                               ? "bg-white hover:bg-zinc-50 border border-zinc-200/90 text-zinc-800 shadow-xs"
                               : "bg-[#1c2128] hover:bg-[#252c36] border border-white/10 text-zinc-200 shadow-xs"
                           }`}
                           title={`Jump to ${chordLabel} at ${formatTime(seg.startTime)}`}
                         >
+                          {/* Active Chord Real-time Progress Bar */}
+                          {isActive && (
+                            <div className="absolute top-0 left-0 right-0 h-1 bg-black/10 overflow-hidden print:hidden">
+                              <div
+                                className={`h-full transition-all duration-75 ${
+                                  isLightSheet ? "bg-[#10b981]" : "bg-[#a3ff12]"
+                                }`}
+                                style={{ width: `${segProgressPct}%` }}
+                              />
+                            </div>
+                          )}
+
                           {/* Top: Timestamp & Duration */}
                           <div className={`flex items-center justify-between text-[8.5px] sm:text-[9.5px] font-mono mb-0.5 ${isLightSheet ? "text-zinc-500" : "text-zinc-400"}`}>
                             <span
                               className={`px-1.5 py-0.2 sm:px-2 sm:py-0.5 rounded font-bold ${
                                 isActive
-                                  ? "bg-[#84cc16] text-black font-extrabold shadow-xs"
+                                  ? isLightSheet ? "bg-[#10b981] text-white font-extrabold shadow-xs" : "bg-[#a3ff12] text-black font-extrabold shadow-xs"
                                   : isLightSheet ? "bg-zinc-100 text-zinc-700 border border-zinc-200" : "bg-white/5 text-zinc-300 border border-white/10"
                               }`}
                             >
@@ -1854,7 +2036,7 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
                             <span
                               className={`text-base sm:text-lg md:text-xl font-mono font-black tracking-tight transition-transform ${
                                 isActive
-                                  ? isLightSheet ? "text-zinc-950 scale-105 inline-block" : "text-[#10b981] scale-105 inline-block"
+                                  ? isLightSheet ? "text-emerald-700 scale-105 inline-block" : "text-[#a3ff12] scale-105 inline-block"
                                   : isLightSheet ? "text-zinc-900" : "text-white"
                               }`}
                             >
@@ -1893,13 +2075,13 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
                             <span
                               className={`text-[8.5px] sm:text-[9px] font-mono flex items-center gap-0.5 sm:gap-1 ${
                                 isActive
-                                  ? "text-[#10b981] font-bold"
+                                  ? isLightSheet ? "text-emerald-700 font-bold" : "text-[#a3ff12] font-bold"
                                   : isLightSheet ? "text-zinc-400 group-hover:text-zinc-600" : "text-zinc-500 group-hover:text-zinc-300"
                               }`}
                             >
                               {isActive ? (
                                 <>
-                                  <Play className="w-2 h-2 fill-current animate-pulse text-[#10b981]" />
+                                  <Play className={`w-2 h-2 fill-current animate-pulse ${isLightSheet ? "text-emerald-700" : "text-[#a3ff12]"}`} />
                                   <span className="hidden sm:inline">PLAY</span>
                                 </>
                               ) : (
@@ -1959,7 +2141,7 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
             isLightSheet ? "border-zinc-200 text-zinc-400" : "border-white/10 text-zinc-500"
           }`}
         >
-          <span>JOE Guitar Studio • Lead Chord Sheet</span>
+          <span className="font-bold">JOE Guitar Studio • Lead Chord Sheet</span>
           <span>Click any chord to seek • Tap tag to split sections • Tap trash to remove</span>
         </div>
       </main>
@@ -1982,7 +2164,7 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
             max={duration || 1}
             step={0.05}
             value={Math.min(duration || 1, Math.max(0, currentTime))}
-            onChange={(e) => onSeek(parseFloat(e.target.value))}
+            onChange={(e) => handleSeekAndFollow(parseFloat(e.target.value))}
             className="flex-1 accent-[#a3ff12] h-1.5 bg-white/10 rounded-lg cursor-pointer"
             aria-label="Seek timeline"
           />
@@ -2043,7 +2225,7 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
           {/* Center: Transport Play/Pause, Rewind, Fast-Forward */}
           <div className="flex items-center gap-1.5 sm:gap-2">
             <button
-              onClick={() => onSeek(Math.max(0, currentTime - 4))}
+              onClick={() => handleSeekAndFollow(Math.max(0, currentTime - 4))}
               className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center text-zinc-300 hover:text-white transition-colors cursor-pointer"
               title="Rewind 4s"
             >
@@ -2063,7 +2245,7 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
             </button>
 
             <button
-              onClick={() => onSeek(Math.min(duration, currentTime + 4))}
+              onClick={() => handleSeekAndFollow(Math.min(duration, currentTime + 4))}
               className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center text-zinc-300 hover:text-white transition-colors cursor-pointer"
               title="Forward 4s"
             >
@@ -2071,8 +2253,28 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
             </button>
           </div>
 
-          {/* Right: Active chord badge */}
-          <div className="text-right">
+          {/* Right: Follow Chords Toggle & Active chord badge */}
+          <div className="flex items-center gap-1.5 sm:gap-2 text-right">
+            <button
+              onClick={() => {
+                const next = !autoScroll;
+                setAutoScroll(next);
+                if (next && activeSegmentIdx !== -1) {
+                  scrollToChord(activeSegmentIdx, true);
+                }
+              }}
+              className={`px-2 py-1 rounded-lg border text-[10px] sm:text-[11px] font-mono font-bold flex items-center gap-1 transition-all cursor-pointer shrink-0 ${
+                autoScroll
+                  ? "bg-[#a3ff12]/20 border-[#a3ff12]/50 text-[#a3ff12] shadow-[0_0_10px_rgba(163,255,18,0.2)]"
+                  : "bg-white/5 border-white/10 text-zinc-400 hover:text-white"
+              }`}
+              title={autoScroll ? "Following chords during playback (Click to pause)" : "Auto-scroll paused (Click to follow)"}
+            >
+              <Clock className="w-3 h-3" />
+              <span className="hidden sm:inline">Follow:</span>
+              <span>{autoScroll ? "ON" : "OFF"}</span>
+            </button>
+
             {activeResolvedChord && activeResolvedChord.isValid ? (
               <span className="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg bg-[#a3ff12] text-black font-mono font-black text-xs shadow-sm">
                 {capo > 0 ? activeResolvedChord.shapeChord : activeResolvedChord.transposedChord}
