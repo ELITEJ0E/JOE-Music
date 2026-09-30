@@ -506,28 +506,6 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
           {/* Action Bar */}
           <div className="flex items-center gap-2 self-start md:self-auto flex-wrap">
             <button
-              onClick={() => setShowSunoAuthModal(true)}
-              className={`px-3 py-1.5 rounded-xl border font-mono text-xs flex items-center gap-2 transition-all cursor-pointer ${
-                hasSunoOwnerCredentials
-                  ? "bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/30 text-emerald-400"
-                  : "bg-amber-500/10 hover:bg-amber-500/20 border-amber-500/30 text-amber-400"
-              }`}
-              title="Connect Suno Account / Paste Token / Import JSON for Private & Unlisted Playlists"
-            >
-              {hasSunoOwnerCredentials ? (
-                <>
-                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Owner Auth</span>
-                </>
-              ) : (
-                <>
-                  <KeyRound className="w-3.5 h-3.5 text-amber-400" />
-                  <span>Suno Sync &amp; Auth</span>
-                </>
-              )}
-            </button>
-
-            <button
               onClick={handleSyncPlaylist}
               disabled={isLoading || isSyncing}
               className={`px-3.5 py-1.5 rounded-xl border font-mono text-xs flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50 ${

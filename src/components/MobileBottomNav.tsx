@@ -145,7 +145,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
               aria-hidden="true"
             />
 
-            {/* Full-screen slide-up action sheet */}
+            {/* Half-screen slide-up action sheet */}
             <motion.div
               role="dialog"
               aria-modal="true"
@@ -154,14 +154,14 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
               animate={{ y: 0 }}
               exit={{ y: "100%" }}
               transition={{ type: "spring", damping: 28, stiffness: 260 }}
-              className="fixed inset-0 top-0 bottom-0 left-0 right-0 h-[100dvh] max-h-[100dvh] w-screen bg-[#090b0e] text-white flex flex-col z-50 overflow-hidden shadow-2xl"
+              className="fixed inset-x-0 bottom-0 h-[50dvh] max-h-[50dvh] w-full bg-[#090b0e] text-white flex flex-col z-50 overflow-hidden shadow-2xl rounded-t-3xl border-t border-white/10"
             >
               {/* Top Handle and Header with Safe Area Inset */}
-              <div className="shrink-0 pt-[calc(0.75rem+env(safe-area-inset-top,0px))] px-5 pb-3 border-b border-white/10 bg-[#0d1015]/90 backdrop-blur-xl">
+              <div className="shrink-0 pt-3 px-5 pb-3 border-b border-white/10 bg-[#0d1015]/90 backdrop-blur-xl">
                 {/* Pull down indicator pill */}
                 <div
                   onClick={() => setIsSheetOpen(false)}
-                  className="w-12 h-1.5 bg-white/20 hover:bg-white/40 rounded-full mx-auto mb-3 cursor-pointer transition-colors"
+                  className="w-12 h-1.5 bg-white/20 hover:bg-white/40 rounded-full mx-auto mb-2.5 cursor-pointer transition-colors"
                   title="Close launcher"
                 />
 
@@ -175,28 +175,23 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
                         <span>JOE Studio</span>
                         <span className="text-[#a3ff12]">Launcher</span>
                       </h2>
-                      <p className="text-[11px] text-zinc-400 font-mono">
-                        Select a workstation module ({ALL_NAV_ITEMS.length} Available)
-                      </p>
                     </div>
                   </div>
 
                   <button
                     onClick={() => setIsSheetOpen(false)}
                     className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white border border-white/10 text-xs font-mono transition-all cursor-pointer active:scale-95"
-                    title="Close Launcher (Press Esc)"
+                    title="Close Launcher"
                     aria-label="Close Launcher"
                   >
                     <X className="w-4 h-4" />
-                    <span className="hidden sm:inline font-bold">Close</span>
-                    <kbd className="text-[10px] bg-white/10 px-1 py-0.2 rounded text-zinc-400 font-mono hidden sm:inline">Esc</kbd>
                   </button>
                 </div>
               </div>
 
-              {/* Scrollable Grid of All Workstation Modules (Fills entire screen cleanly) */}
-              <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-5 space-y-5">
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 sm:gap-4 max-w-4xl mx-auto">
+              {/* Scrollable Grid of All Workstation Modules */}
+              <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 space-y-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 max-w-4xl mx-auto">
                   {ALL_NAV_ITEMS.map((item) => {
                     const Icon = item.icon;
                     const isActive = activeMode === item.id;
@@ -206,7 +201,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
                         key={item.id}
                         id={`launcher-module-${item.id}`}
                         onClick={() => handleSelect(item.id)}
-                        className={`group relative flex flex-col items-center justify-between p-4 sm:p-5 rounded-2xl border transition-all duration-200 cursor-pointer text-center select-none ${
+                        className={`group relative flex flex-col items-center justify-between p-3.5 sm:p-4 rounded-2xl border transition-all duration-200 cursor-pointer text-center select-none ${
                           isActive
                             ? "bg-[#a3ff12]/15 text-white border-[#a3ff12] shadow-[0_0_20px_rgba(163,255,18,0.2)] scale-[1.02]"
                             : "bg-[#12151c] hover:bg-[#181d26] text-zinc-300 border-white/10 hover:border-white/20 hover:text-white"
@@ -214,29 +209,29 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
                       >
                         {/* Active Checkmark Badge */}
                         {isActive && (
-                          <span className="absolute top-2.5 right-2.5 w-5 h-5 rounded-full bg-[#a3ff12] text-black flex items-center justify-center text-[10px] font-black shadow-sm">
-                            <Check className="w-3 h-3 stroke-[3]" />
+                          <span className="absolute top-2 right-2 w-4 h-4 rounded-full bg-[#a3ff12] text-black flex items-center justify-center text-[9px] font-black shadow-sm">
+                            <Check className="w-2.5 h-2.5 stroke-[3]" />
                           </span>
                         )}
 
                         {/* Module Icon Container */}
                         <div
-                          className={`w-12 h-12 rounded-2xl flex items-center justify-center mb-3 transition-all duration-300 ${
+                          className={`w-10 h-10 rounded-xl flex items-center justify-center mb-2 transition-all duration-300 ${
                             isActive
                               ? "bg-[#a3ff12] text-black shadow-[0_0_15px_rgba(163,255,18,0.4)]"
                               : "bg-white/5 text-zinc-400 group-hover:scale-110 group-hover:bg-[#a3ff12]/20 group-hover:text-[#a3ff12]"
                           }`}
                         >
-                          <Icon className="w-6 h-6" />
+                          <Icon className="w-5 h-5" />
                         </div>
 
                         {/* Title & Badge */}
                         <div className="w-full min-w-0">
-                          <span className="block text-xs sm:text-sm font-mono font-bold tracking-tight text-white group-hover:text-[#a3ff12] transition-colors truncate">
+                          <span className="block text-xs font-mono font-bold tracking-tight text-white group-hover:text-[#a3ff12] transition-colors truncate">
                             {item.label}
                           </span>
                           {item.badge && (
-                            <span className="inline-block mt-1 px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-[#a3ff12]/20 text-[#a3ff12] border border-[#a3ff12]/30">
+                            <span className="inline-block mt-0.5 px-1.5 py-0.2 rounded text-[8.5px] font-mono font-bold bg-[#a3ff12]/20 text-[#a3ff12] border border-[#a3ff12]/30">
                               {item.badge}
                             </span>
                           )}
@@ -247,35 +242,22 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
                 </div>
               </div>
 
-              {/* Bottom Footer Actions with Safe Area Inset */}
-              <div className="shrink-0 p-4 sm:p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom,0px))] border-t border-white/10 bg-[#0d1015]/95 backdrop-blur-xl flex flex-col sm:flex-row items-center justify-between gap-3 max-w-4xl mx-auto w-full">
-                <div className="text-xs font-mono text-zinc-400 text-center sm:text-left">
-                  <span>Press <kbd className="bg-white/10 px-1.5 py-0.5 rounded text-zinc-300 text-[10px] border border-white/10">Esc</kbd> or tap anywhere to close</span>
-                </div>
-
-                <div className="flex items-center gap-2.5 w-full sm:w-auto">
-                  {!isInstalled && onInstallApp && (
-                    <button
-                      id="btn-mobile-install-pwa"
-                      onClick={() => {
-                        setIsSheetOpen(false);
-                        onInstallApp();
-                      }}
-                      className="flex-1 sm:flex-initial px-4 py-2.5 rounded-xl bg-[#a3ff12]/15 hover:bg-[#a3ff12]/25 border border-[#a3ff12]/40 text-[#a3ff12] flex items-center justify-center gap-2 text-xs font-mono font-bold cursor-pointer transition-all active:scale-95"
-                    >
-                      <Download className="w-4 h-4" />
-                      <span>Install App</span>
-                    </button>
-                  )}
-
+              {/* Bottom Footer Actions with Safe Area Inset (if Install App is available) */}
+              {!isInstalled && onInstallApp && (
+                <div className="shrink-0 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))] border-t border-white/10 bg-[#0d1015]/95 backdrop-blur-xl flex items-center justify-center max-w-4xl mx-auto w-full">
                   <button
-                    onClick={() => setIsSheetOpen(false)}
-                    className="flex-1 sm:flex-initial px-5 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-mono font-bold text-xs cursor-pointer transition-all text-center"
+                    id="btn-mobile-install-pwa"
+                    onClick={() => {
+                      setIsSheetOpen(false);
+                      onInstallApp();
+                    }}
+                    className="w-full max-w-xs px-4 py-2 rounded-xl bg-[#a3ff12]/15 hover:bg-[#a3ff12]/25 border border-[#a3ff12]/40 text-[#a3ff12] flex items-center justify-center gap-2 text-xs font-mono font-bold cursor-pointer transition-all active:scale-95"
                   >
-                    Close
+                    <Download className="w-4 h-4" />
+                    <span>Install App</span>
                   </button>
                 </div>
-              </div>
+              )}
             </motion.div>
           </div>
         )}
