@@ -18,6 +18,7 @@ export interface ChordCandidate {
   thirdEvidence: number;
   thirdMargin?: number;
   thirdConfidence?: number;
+  qualityAmbiguous?: boolean;
   isSlash: boolean;
   bassEvidence: number;
   scoreMargin?: number;
@@ -27,11 +28,24 @@ export interface ChordCandidate {
     rootCandidates: Array<{ note: string; score: number }>;
     maj3Evidence: number;
     min3Evidence: number;
+    maj3Persistence: number;
+    min3Persistence: number;
+    maj3Peak?: number;
+    min3Peak?: number;
+    maj3Mean?: number;
+    min3Mean?: number;
+    maj3Occupancy?: number;
+    min3Occupancy?: number;
     thirdMargin: number;
     thirdConfidence: number;
+    qualityAmbiguous: boolean;
     fifthEvidence: number;
     definingEvidence: number;
     slashBassRatio: number;
+    bassOccupancy?: number;
+    bassPersistence?: number;
+    bassPeakStrength?: number;
+    bassMedianStrength?: number;
     scoreMargin?: number;
     neighborSupport?: number;
     persistenceScore?: number;
@@ -71,70 +85,118 @@ export function parseDiatonicProfile(keyString: string): DiatonicProfile {
 
 /**
  * Stage 1: Root Estimation
- * Evaluates candidate roots using bass fundamental (35-260 Hz), mid-chroma fundamental,
- * fifth reinforcement, and diatonic key context.
+ * Evaluates candidate roots using low-mid harmonic fundamental (90-500 Hz), fifth reinforcement,
+ * temporal bass persistence (35-265 Hz), and diatonic key context.
  */
 export function estimateRootCandidates(
   chroma: Float32Array,
   bassChroma: Float32Array,
   keyProfile: DiatonicProfile,
-  maxCandidates: number = 4
-): Array<{ rootIdx: number; note: string; score: number; bassEv: number }> {
+  maxCandidates: number = 4,
+  options: {
+    lowMidChroma?: Float32Array;
+    midChroma?: Float32Array;
+    frameBassChromas?: Float32Array[];
+  } = {}
+): Array<{
+  rootIdx: number;
+  note: string;
+  score: number;
+  bassEv: number;
+  bassOccupancy: number;
+  bassPeakStrength?: number;
+  bassMedianStrength?: number;
+}> {
   const rootScores = new Array(12);
+  const lowMidChroma = options.lowMidChroma || chroma;
 
   for (let r = 0; r < 12; r++) {
-    const bassEv = bassChroma[r];
-    const trebleRootEv = chroma[r];
-    const fifthEv = chroma[(r + 7) % 12];
-    const maj3Ev = chroma[(r + 4) % 12];
-    const min3Ev = chroma[(r + 3) % 12];
-    const octaveBassEv = (bassEv > 0.3 && trebleRootEv > 0.3) ? 0.15 : 0.0;
+    const rawBassEv = bassChroma[r];
+    const lowMidRootEv = lowMidChroma[r];
+    const fifthEv = lowMidChroma[(r + 7) % 12];
+
+    // Section 4 & 5: Temporal Bass Persistence & Occupancy
+    let bassOccupancy = 1.0;
+    let effectiveBassEv = rawBassEv;
+    let bassPeakStrength = rawBassEv;
+    let bassMedianStrength = rawBassEv;
+
+    if (options.frameBassChromas && options.frameBassChromas.length > 0) {
+      const frames = options.frameBassChromas.length;
+      let activeFrames = 0;
+      let peakB = 0;
+      const bVals: number[] = [];
+      for (const fb of options.frameBassChromas) {
+        const val = fb[r];
+        if (val >= 0.28) activeFrames++;
+        if (val > peakB) peakB = val;
+        bVals.push(val);
+      }
+      bVals.sort((a, b) => a - b);
+      bassPeakStrength = peakB;
+      bassMedianStrength = bVals[Math.floor(bVals.length / 2)] ?? rawBassEv;
+      bassOccupancy = activeFrames / frames;
+      
+      // Persistence depends on occupancy and median strength
+      const persistence = bassOccupancy * bassMedianStrength;
+      effectiveBassEv = rawBassEv * Math.pow(bassOccupancy, 0.65);
+
+      if (bassOccupancy < 0.25) {
+        effectiveBassEv *= 0.35; // Heavily downweight short transient bass pickups
+      } else if (bassOccupancy >= 0.60) {
+        effectiveBassEv += 0.08; // Reward sustained bass notes
+      }
+    }
+
+    const octaveBassEv = (effectiveBassEv > 0.30 && lowMidRootEv > 0.30) ? 0.15 : 0.0;
 
     // Diatonic bonus
     const diatonicIdx = keyProfile.diatonicRoots.indexOf(r);
     const diatonicBonus = diatonicIdx !== -1 ? 0.08 : 0.0;
 
-    // Separate bass movement from harmonic movement (Section 9):
-    // Check if r is an isolated bass note lacking harmonic 5th resonance in mid-chroma,
-    // while another root H for which r is a 3rd or 5th has a complete harmonic triad.
-    let bassWeight = 0.42;
+    let bassWeight = 0.40;
 
-    const parentMajRoot = (r - 4 + 12) % 12; // r is major 3rd of parentMajRoot
-    const parentMinRoot = (r - 3 + 12) % 12; // r is minor 3rd of parentMinRoot
-    const parentFifthRoot = (r - 7 + 12) % 12; // r is 5th of parentFifthRoot
+    const parentMajRoot = (r - 4 + 12) % 12;
+    const parentMinRoot = (r - 3 + 12) % 12;
+    const parentFifthRoot = (r - 7 + 12) % 12;
 
-    const parentMajHarmonic = chroma[parentMajRoot] * 0.5 + chroma[(parentMajRoot + 7) % 12] * 0.5;
-    const parentMinHarmonic = chroma[parentMinRoot] * 0.5 + chroma[(parentMinRoot + 7) % 12] * 0.5;
-    const parentFifthHarmonic = chroma[parentFifthRoot] * 0.5 + chroma[(parentFifthRoot + 4) % 12] * 0.5;
+    const parentMajHarmonic = lowMidChroma[parentMajRoot] * 0.5 + lowMidChroma[(parentMajRoot + 7) % 12] * 0.5;
+    const parentMinHarmonic = lowMidChroma[parentMinRoot] * 0.5 + lowMidChroma[(parentMinRoot + 7) % 12] * 0.5;
+    const parentFifthHarmonic = lowMidChroma[parentFifthRoot] * 0.5 + lowMidChroma[(parentFifthRoot + 4) % 12] * 0.5;
     const maxParentHarmonic = Math.max(parentMajHarmonic, parentMinHarmonic, parentFifthHarmonic);
 
-    if (fifthEv < 0.20 && maxParentHarmonic > 0.55 && trebleRootEv < maxParentHarmonic * 1.1) {
-      // r is an inversion bass note or passing bass note, not an independent harmonic root
+    if (fifthEv < 0.20 && maxParentHarmonic > 0.55 && lowMidRootEv < maxParentHarmonic * 1.1) {
       bassWeight = 0.16;
     }
 
-    // Root score formulation:
-    // Bass fundamental anchored with harmonic chroma root & fifth
-    let score = (bassEv * bassWeight) +
-                (trebleRootEv * 0.32) +
-                (fifthEv * 0.18) +
+    let score = (effectiveBassEv * bassWeight) +
+                (lowMidRootEv * 0.34) +
+                (fifthEv * 0.20) +
                 octaveBassEv +
                 diatonicBonus;
 
-    // If bass is playing a legitimate chord tone (3rd or 5th) of r, r receives inversion bass support
+    // Inversion bass support if bass is playing a legitimate 3rd or 5th
     const bassMaj3 = bassChroma[(r + 4) % 12];
     const bassMin3 = bassChroma[(r + 3) % 12];
     const bass5th = bassChroma[(r + 7) % 12];
     const chordToneBassEv = Math.max(bassMaj3, bassMin3, bass5th);
-    if (bassEv < 0.25 && chordToneBassEv > 0.40 && trebleRootEv > 0.40 && fifthEv > 0.30) {
+    if (rawBassEv < 0.25 && chordToneBassEv > 0.40 && lowMidRootEv > 0.40 && fifthEv > 0.30) {
       score += chordToneBassEv * 0.26;
+    }
+
+    // Prune roots that lack fifth support AND have transient-only bass
+    if (fifthEv < 0.12 && lowMidRootEv < 0.15 && bassOccupancy < 0.25) {
+      score *= 0.40;
     }
 
     rootScores[r] = {
       rootIdx: r,
       note: NOTE_NAMES[r],
       score,
-      bassEv
+      bassEv: effectiveBassEv,
+      bassOccupancy,
+      bassPeakStrength,
+      bassMedianStrength
     };
   }
 
@@ -173,16 +235,72 @@ export function evaluateQualityForRoot(
   chroma: Float32Array,
   bassChroma: Float32Array,
   keyProfile: DiatonicProfile,
-  rootBaseScore: number
+  rootBaseScore: number,
+  options: {
+    lowMidChroma?: Float32Array;
+    midChroma?: Float32Array;
+    fullChroma?: Float32Array;
+    frameBassChromas?: Float32Array[];
+    frameMidChromas?: Float32Array[];
+  } = {}
 ): ChordCandidate {
   const rootName = NOTE_NAMES[rootIdx];
-  const maj3Ev = chroma[(rootIdx + 4) % 12];
-  const min3Ev = chroma[(rootIdx + 3) % 12];
-  const fifthEv = chroma[(rootIdx + 7) % 12];
-  const fourthEv = chroma[(rootIdx + 5) % 12];
-  const secondEv = chroma[(rootIdx + 2) % 12];
-  const min7Ev = chroma[(rootIdx + 10) % 12];
-  const maj7Ev = chroma[(rootIdx + 11) % 12];
+  const midChroma = options.midChroma || chroma;
+  const lowMidChroma = options.lowMidChroma || chroma;
+
+  const maj3Ev = midChroma[(rootIdx + 4) % 12];
+  const min3Ev = midChroma[(rootIdx + 3) % 12];
+  const fifthEv = lowMidChroma[(rootIdx + 7) % 12];
+
+  // Section 6 & 7: Stable-Harmonic Third Analysis & Third Persistence
+  let maj3Persistence = maj3Ev;
+  let min3Persistence = min3Ev;
+  let maj3Peak = maj3Ev;
+  let min3Peak = min3Ev;
+  let maj3Mean = maj3Ev;
+  let min3Mean = min3Ev;
+  let maj3Occupancy = 1.0;
+  let min3Occupancy = 1.0;
+
+  if (options.frameMidChromas && options.frameMidChromas.length >= 3) {
+    const totalF = options.frameMidChromas.length;
+    const attackF = Math.max(1, Math.floor(totalF * 0.18)); // Exclude initial attack transient (~0-80ms)
+    const stableFrames = options.frameMidChromas.slice(attackF);
+
+    let activeMaj = 0, activeMin = 0;
+    let sumMaj = 0, sumMin = 0;
+    let peakMaj = 0, peakMin = 0;
+
+    for (const fmc of stableFrames) {
+      const vMaj = fmc[(rootIdx + 4) % 12];
+      const vMin = fmc[(rootIdx + 3) % 12];
+
+      if (vMaj >= 0.25) activeMaj++;
+      if (vMin >= 0.25) activeMin++;
+
+      if (vMaj > peakMaj) peakMaj = vMaj;
+      if (vMin > peakMin) peakMin = vMin;
+
+      sumMaj += vMaj;
+      sumMin += vMin;
+    }
+
+    maj3Occupancy = Number((activeMaj / stableFrames.length).toFixed(3));
+    min3Occupancy = Number((activeMin / stableFrames.length).toFixed(3));
+
+    maj3Mean = Number((sumMaj / stableFrames.length).toFixed(3));
+    min3Mean = Number((sumMin / stableFrames.length).toFixed(3));
+
+    maj3Peak = Number(peakMaj.toFixed(3));
+    min3Peak = Number(peakMin.toFixed(3));
+
+    maj3Persistence = Number((maj3Occupancy * maj3Mean).toFixed(3));
+    min3Persistence = Number((min3Occupancy * min3Mean).toFixed(3));
+  }
+
+  const thirdMargin = Number(Math.abs(maj3Persistence - min3Persistence).toFixed(3));
+  const thirdConfidence = Number(Math.min(1.0, thirdMargin / 0.25).toFixed(3));
+  const qualityAmbiguous = thirdMargin < 0.10;
 
   // Scale degree 5 in minor key
   const isMinorKeyDegree5 = !keyProfile.isMajor && keyProfile.harmonicMinorVRoot === rootIdx;
@@ -193,7 +311,7 @@ export function evaluateQualityForRoot(
 
   let bestQualityDef = QUALITY_DEFINITIONS[0]; // default maj
   let bestQualityScore = -Infinity;
-  let bestThirdEvidence = maj3Ev;
+  let bestThirdEvidence = maj3Persistence;
   let bestDefiningEv = 0;
 
   for (const qDef of QUALITY_DEFINITIONS) {
@@ -203,7 +321,7 @@ export function evaluateQualityForRoot(
 
     for (const iv of qDef.intervals) {
       const pc = (rootIdx + iv) % 12;
-      const ev = chroma[pc];
+      const ev = (iv === 3 || iv === 4) ? midChroma[pc] : (iv === 7 ? lowMidChroma[pc] : chroma[pc]);
       toneSum += ev;
 
       if (qDef.definingIntervals.includes(iv)) {
@@ -213,45 +331,37 @@ export function evaluateQualityForRoot(
       if (ev < 0.20) {
         missingPenalty += (0.20 - ev) * 1.5;
         if (qDef.definingIntervals.includes(iv)) {
-          missingPenalty += 0.8; // Heavily penalize missing defining interval (e.g. 3rd or 7th)
+          missingPenalty += 0.8;
         }
       }
     }
 
     const meanToneStrength = toneSum / qDef.intervals.length;
 
-    // Specific quality acoustic anti-rules:
-    // 1. Sus4: if major 3rd is strong, heavily penalize sus4
     if (qDef.quality === "sus4" && maj3Ev > 0.28) {
       missingPenalty += maj3Ev * 1.5;
     }
-    // 2. Sus2: if either 3rd is strong, penalize sus2
     if (qDef.quality === "sus2" && Math.max(maj3Ev, min3Ev) > 0.28) {
       missingPenalty += Math.max(maj3Ev, min3Ev) * 1.5;
     }
-    // 3. Power chord 5: only when NO 3rd is present (strict requirement)
     if (qDef.quality === "5" && Math.max(maj3Ev, min3Ev) > 0.18) {
       missingPenalty += 0.8;
     }
 
-    // Diatonic consistency bonus
     let diatonicBonus = 0;
     if (qDef.quality === expectedQuality) {
       diatonicBonus = 0.08;
     } else if (isMinorKeyDegree5 && (qDef.quality === "maj" || qDef.quality === "7")) {
-      // Harmonic minor dominant V / V7 bonus for scale degree 5 in minor key
       diatonicBonus = 0.08;
     } else if (qDef.quality === expectedQuality + "7") {
       diatonicBonus = 0.04;
     }
 
-    // Extensions require strong, sustained defining evidence (>= 0.45) and clear separation from passing notes
     if (["7", "maj7", "min7", "add9"].includes(qDef.quality)) {
-      const triadStrength = (chroma[rootIdx] + (qDef.quality.includes("min") ? min3Ev : maj3Ev) + fifthEv) / 3;
+      const triadStrength = (chroma[rootIdx] + (qDef.quality.includes("min") ? min3Persistence : maj3Persistence) + fifthEv) / 3;
       if (definingEv < 0.45) {
         missingPenalty += (0.45 - definingEv) * 2.5;
       }
-      // Passing melodic notes: if the defining tone is significantly weaker than the fundamental triad tones, penalize it
       if (definingEv < triadStrength * 0.65) {
         missingPenalty += 0.35;
       }
@@ -262,16 +372,12 @@ export function evaluateQualityForRoot(
     if (qScore > bestQualityScore) {
       bestQualityScore = qScore;
       bestQualityDef = qDef;
-      bestThirdEvidence = qDef.intervals.includes(3) ? min3Ev : qDef.intervals.includes(4) ? maj3Ev : 0;
+      bestThirdEvidence = qDef.intervals.includes(3) ? min3Persistence : qDef.intervals.includes(4) ? maj3Persistence : 0;
       bestDefiningEv = definingEv;
     }
   }
 
-  // Section 5: Calculate Third Margin and Third Confidence Metrics
-  const thirdMargin = Number(Math.abs(maj3Ev - min3Ev).toFixed(3));
-  const thirdConfidence = Number(Math.min(1.0, thirdMargin / 0.25).toFixed(3));
-
-  // Major vs Minor decision with Key Scale Awareness & Harmonic Minor Support
+  // Major vs Minor decision with Persistent Thirds & Harmonic Minor Support
   let finalQuality = bestQualityDef.quality;
   if (finalQuality === "maj" || finalQuality === "min") {
     const maj3PitchClass = (rootIdx + 4) % 12;
@@ -280,47 +386,43 @@ export function evaluateQualityForRoot(
     let min3InScale = keyProfile.diatonicRoots.includes(min3PitchClass);
 
     if (isMinorKeyDegree5) {
-      // Scale degree 5 in minor key: major 3rd is the raised 7th (harmonic minor leading tone)
       maj3InScale = true;
       min3InScale = true;
     }
 
-    // If margin is strong (>= 0.12), acoustic third evidence overrides key prior!
-    if (thirdMargin >= 0.12) {
-      finalQuality = maj3Ev > min3Ev ? "maj" : "min";
-      bestThirdEvidence = maj3Ev > min3Ev ? maj3Ev : min3Ev;
+    if (thirdMargin >= 0.10) {
+      finalQuality = maj3Persistence > min3Persistence ? "maj" : "min";
+      bestThirdEvidence = Math.max(maj3Persistence, min3Persistence);
     } else if (maj3InScale && !min3InScale) {
-      if (min3Ev > maj3Ev + 0.10 && min3Ev >= 0.25) {
+      if (min3Persistence > maj3Persistence + 0.08 && min3Persistence >= 0.22) {
         finalQuality = "min";
-        bestThirdEvidence = min3Ev;
+        bestThirdEvidence = min3Persistence;
       } else {
         finalQuality = "maj";
-        bestThirdEvidence = maj3Ev;
+        bestThirdEvidence = maj3Persistence;
       }
     } else if (min3InScale && !maj3InScale) {
-      if (maj3Ev > min3Ev + 0.10 && maj3Ev >= 0.25) {
+      if (maj3Persistence > min3Persistence + 0.08 && maj3Persistence >= 0.22) {
         finalQuality = "maj";
-        bestThirdEvidence = maj3Ev;
+        bestThirdEvidence = maj3Persistence;
       } else {
         finalQuality = "min";
-        bestThirdEvidence = min3Ev;
+        bestThirdEvidence = min3Persistence;
       }
     } else {
-      // Both in scale or both outside: compare directly
-      if (min3Ev > maj3Ev + 0.06 && min3Ev >= 0.20) {
+      if (min3Persistence > maj3Persistence + 0.05 && min3Persistence >= 0.18) {
         finalQuality = "min";
-        bestThirdEvidence = min3Ev;
-      } else if (maj3Ev > min3Ev + 0.06 && maj3Ev >= 0.20) {
+        bestThirdEvidence = min3Persistence;
+      } else if (maj3Persistence > min3Persistence + 0.05 && maj3Persistence >= 0.18) {
         finalQuality = "maj";
-        bestThirdEvidence = maj3Ev;
+        bestThirdEvidence = maj3Persistence;
       } else {
-        // Tie or small margin: prefer expected quality
         if (isMinorKeyDegree5) {
-          finalQuality = maj3Ev >= min3Ev - 0.02 ? "maj" : "min";
+          finalQuality = maj3Persistence >= min3Persistence - 0.02 ? "maj" : "min";
         } else {
           finalQuality = expectedQuality === "min" ? "min" : "maj";
         }
-        bestThirdEvidence = finalQuality === "min" ? min3Ev : maj3Ev;
+        bestThirdEvidence = finalQuality === "min" ? min3Persistence : maj3Persistence;
       }
     }
   }
@@ -359,10 +461,9 @@ export function evaluateQualityForRoot(
     bass: isSlash ? bassNoteName : undefined
   }, keyContext);
 
-  // Reflect third margin ambiguity in confidence (Section 12 & 13)
   let qualityFactor = bestQualityScore;
-  if ((finalQuality === "maj" || finalQuality === "min") && thirdMargin < 0.08) {
-    qualityFactor *= 0.82; // Lower score for tied/ambiguous third decisions
+  if (qualityAmbiguous) {
+    qualityFactor *= 0.80; // Cap ambiguous quality confidence
   }
 
   const totalScore = Math.max(0.05, Math.min(0.99, (rootBaseScore * 0.55) + (qualityFactor * 0.45)));
@@ -379,14 +480,24 @@ export function evaluateQualityForRoot(
     thirdEvidence: Number(bestThirdEvidence.toFixed(3)),
     thirdMargin,
     thirdConfidence,
+    qualityAmbiguous,
     isSlash,
     bassEvidence: Number(maxBassEv.toFixed(3)),
     diagnostics: {
       rootCandidates: [],
       maj3Evidence: Number(maj3Ev.toFixed(3)),
       min3Evidence: Number(min3Ev.toFixed(3)),
+      maj3Persistence: Number(maj3Persistence.toFixed(3)),
+      min3Persistence: Number(min3Persistence.toFixed(3)),
+      maj3Peak,
+      min3Peak,
+      maj3Mean,
+      min3Mean,
+      maj3Occupancy,
+      min3Occupancy,
       thirdMargin,
       thirdConfidence,
+      qualityAmbiguous,
       fifthEvidence: Number(fifthEv.toFixed(3)),
       definingEvidence: Number(bestDefiningEv.toFixed(3)),
       slashBassRatio: Number(slashBassRatio.toFixed(3))
@@ -396,20 +507,31 @@ export function evaluateQualityForRoot(
 
 /**
  * Full Candidate Ranking for a Given Time Unit
- * Generates the top scored chord candidates for a frame or beat window.
+ * Generates top scored chord candidates with multi-band, bass persistence, and third persistence options.
  */
 export function rankChordCandidatesForWindow(
   chroma: Float32Array,
   bassChroma: Float32Array,
   keyProfile: DiatonicProfile,
-  maxCandidates: number = 3
+  maxCandidates: number = 3,
+  options: {
+    lowMidChroma?: Float32Array;
+    midChroma?: Float32Array;
+    fullChroma?: Float32Array;
+    frameBassChromas?: Float32Array[];
+    frameMidChromas?: Float32Array[];
+  } = {}
 ): ChordCandidate[] {
-  const rootCandidates = estimateRootCandidates(chroma, bassChroma, keyProfile, maxCandidates);
+  const rootCandidates = estimateRootCandidates(chroma, bassChroma, keyProfile, maxCandidates, options);
   const results: ChordCandidate[] = [];
 
   for (const rc of rootCandidates) {
-    const candidate = evaluateQualityForRoot(rc.rootIdx, chroma, bassChroma, keyProfile, rc.score);
+    const candidate = evaluateQualityForRoot(rc.rootIdx, chroma, bassChroma, keyProfile, rc.score, options);
     candidate.diagnostics.rootCandidates = rootCandidates.map(r => ({ note: r.note, score: Number(r.score.toFixed(3)) }));
+    candidate.diagnostics.bassOccupancy = Number((rc.bassOccupancy ?? 1.0).toFixed(2));
+    candidate.diagnostics.bassPersistence = Number((rc.bassEv ?? 1.0).toFixed(2));
+    if (rc.bassPeakStrength !== undefined) candidate.diagnostics.bassPeakStrength = Number(rc.bassPeakStrength.toFixed(3));
+    if (rc.bassMedianStrength !== undefined) candidate.diagnostics.bassMedianStrength = Number(rc.bassMedianStrength.toFixed(3));
     results.push(candidate);
   }
 

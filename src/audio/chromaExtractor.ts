@@ -80,7 +80,11 @@ export function getInterpolatedPeakFreq(
 }
 
 export interface SpectralAnalysisResult {
-  chromagram: Float32Array[];       // Harmonic chroma per frame [numFrames][12]
+  chromagram: Float32Array[];       // Full harmonic chroma per frame [numFrames][12]
+  lowMidChromagram: Float32Array[]; // Low-Mid harmonic chroma (90-500 Hz)
+  midChromagram: Float32Array[];    // Mid harmonic chroma (180-1100 Hz)
+  trebleChromagram: Float32Array[]; // Treble/High harmonic chroma (1100-4500 Hz)
+  fullChromagram: Float32Array[];   // Full harmonic chroma (65-2400 Hz)
   bassChromagram: Float32Array[];   // Bass chroma per frame [numFrames][12]
   onsetEnvelope: Float32Array;      // Onset detection curve
   tuningDeviationCents: number;     // Estimated cents deviation from A=440
@@ -116,6 +120,10 @@ export function extractEnhancedChromagram(
   }
 
   const chromagram: Float32Array[] = [];
+  const lowMidChromagram: Float32Array[] = [];
+  const midChromagram: Float32Array[] = [];
+  const trebleChromagram: Float32Array[] = [];
+  const fullChromagram: Float32Array[] = [];
   const bassChromagram: Float32Array[] = [];
   const onsetEnvelope = new Float32Array(numFrames);
   const peakDeviations: number[] = [];
@@ -171,12 +179,15 @@ export function extractEnhancedChromagram(
     const noiseFloor = Math.max(0.005, frameMeanMag * 0.4);
 
     const frameChroma = new Float32Array(12);
+    const frameLowMidChroma = new Float32Array(12);
+    const frameMidChroma = new Float32Array(12);
+    const frameTrebleChroma = new Float32Array(12);
+    const frameFullChroma = new Float32Array(12);
     const frameBassChroma = new Float32Array(12);
 
     // 1. Bass Pass: Local spectral peaks between 35 Hz and 270 Hz
     for (let i = minBassBin; i <= maxBassBin; i++) {
       const mag = spectrum[i];
-      // Peak-picking: only consider true spectral peaks (rejects flat drum noise)
       if (mag > noiseFloor && mag > spectrum[i - 1] && mag >= spectrum[i + 1]) {
         const { freq, peakMag } = getInterpolatedPeakFreq(spectrum, i, sampleRate, fftSize);
         if (freq >= 35 && freq <= 265) {
@@ -184,13 +195,8 @@ export function extractEnhancedChromagram(
           const pitchClass = ((Math.round(exactMidi) % 12) + 12) % 12;
           const centsError = exactMidi - Math.round(exactMidi);
 
-          // Sub-semitone Gaussian weighting
           const centsWeight = Math.exp(-Math.pow(centsError / 0.38, 2));
-
-          // Logarithmic dynamic range compression
           const logMag = Math.log1p(25 * peakMag);
-
-          // Perceptual low-frequency emphasis (slight roll-off for extreme sub-rumble below 40Hz)
           const bassFreqWeight = freq < 45 ? 0.8 : 1.0;
 
           frameBassChroma[pitchClass] += logMag * centsWeight * bassFreqWeight;
@@ -198,7 +204,7 @@ export function extractEnhancedChromagram(
       }
     }
 
-    // 2. Harmonic Pass: Local spectral peaks between 65 Hz and 2400 Hz
+    // 2. Multi-Band Harmonic Pass: Local spectral peaks between 65 Hz and 2400 Hz
     for (let i = minHarmonicBin; i <= maxHarmonicBin; i++) {
       const mag = spectrum[i];
       if (mag > noiseFloor && mag > spectrum[i - 1] && mag >= spectrum[i + 1]) {
@@ -210,25 +216,38 @@ export function extractEnhancedChromagram(
 
           const centsWeight = Math.exp(-Math.pow(centsError / 0.38, 2));
           const logMag = Math.log1p(20 * peakMag);
+          const rawEnergy = logMag * centsWeight;
 
-          // Frequency-Band-Aware weighting (Section 8):
-          // LOW-MID HARMONY (~90-500 Hz): strongest weight for root structure and bass fundamentals
-          // MID HARMONY (~180-1000 Hz): strongest weight for major/minor third and fifth (core triad)
-          // HIGH HARMONY (>1100 Hz): lower relative weight so lead female vocals & bright synths don't alter chord decisions
-          let octaveWeight = 1.0;
+          // Band 1: Low-Mid (90-500 Hz) - Fundamental & Root resonance
           if (freq >= 90 && freq <= 500) {
-            octaveWeight = 1.35; // Low-mid fundamental and bass resonance
-          } else if (freq > 500 && freq <= 1100) {
-            octaveWeight = 1.20; // Core triad harmonics (thirds and fifths)
-          } else if (freq > 1100 && freq <= 1800) {
-            octaveWeight = 0.65; // High vocal/lead synth attenuation
-          } else if (freq > 1800) {
-            octaveWeight = 0.40; // High sparkle/overtone attenuation
+            frameLowMidChroma[pitchClass] += rawEnergy * 1.35;
           }
 
-          frameChroma[pitchClass] += logMag * centsWeight * octaveWeight;
+          // Band 2: Mid (180-1100 Hz) - Core Triad (Thirds & Fifths)
+          if (freq >= 180 && freq <= 1100) {
+            frameMidChroma[pitchClass] += rawEnergy * 1.20;
+          }
 
-          // Collect tuning deviation from high-confidence harmonic peaks
+          // Band 3: Treble / High (1100-4500 Hz) - Vocal lead, high synths, overtones
+          if (freq >= 1100 && freq <= 4500) {
+            frameTrebleChroma[pitchClass] += rawEnergy * 1.0;
+          }
+
+          // Band 3: Full Harmonic Chroma (65-2400 Hz) with Octave Weighting
+          let octaveWeight = 1.0;
+          if (freq >= 90 && freq <= 500) {
+            octaveWeight = 1.35;
+          } else if (freq > 500 && freq <= 1100) {
+            octaveWeight = 1.20;
+          } else if (freq > 1100 && freq <= 1800) {
+            octaveWeight = 0.65;
+          } else if (freq > 1800) {
+            octaveWeight = 0.40;
+          }
+
+          frameFullChroma[pitchClass] += rawEnergy * octaveWeight;
+          frameChroma[pitchClass] += rawEnergy * octaveWeight;
+
           if (peakMag > 0.15 && Math.abs(centsError) < 0.45) {
             peakDeviations.push(centsError);
           }
@@ -236,42 +255,38 @@ export function extractEnhancedChromagram(
       }
     }
 
-    // Normalize frame chromas (L2 / Max norm with stability floor)
-    let maxC = 0, maxB = 0;
+    // Normalize each band array per frame
+    let maxC = 0, maxLM = 0, maxM = 0, maxTr = 0, maxFull = 0, maxB = 0;
     for (let k = 0; k < 12; k++) {
       if (frameChroma[k] > maxC) maxC = frameChroma[k];
+      if (frameLowMidChroma[k] > maxLM) maxLM = frameLowMidChroma[k];
+      if (frameMidChroma[k] > maxM) maxM = frameMidChroma[k];
+      if (frameTrebleChroma[k] > maxTr) maxTr = frameTrebleChroma[k];
+      if (frameFullChroma[k] > maxFull) maxFull = frameFullChroma[k];
       if (frameBassChroma[k] > maxB) maxB = frameBassChroma[k];
     }
-    if (maxC > 1e-5) {
-      for (let k = 0; k < 12; k++) {
-        frameChroma[k] /= maxC;
-      }
-    }
-    if (maxB > 1e-5) {
-      for (let k = 0; k < 12; k++) {
-        frameBassChroma[k] /= maxB;
-      }
-    }
 
-    // 3. Transient Dampening & Spectral Flux Gating
-    // Drum hits (kick, snare, crash) and pick attacks produce brief broadband noise across all 12 bins.
-    // Detect transient bursts where pitch clarity (top 3 bins vs sum of all bins) is low.
+    if (maxC > 1e-5) { for (let k = 0; k < 12; k++) frameChroma[k] /= maxC; }
+    if (maxLM > 1e-5) { for (let k = 0; k < 12; k++) frameLowMidChroma[k] /= maxLM; }
+    if (maxM > 1e-5) { for (let k = 0; k < 12; k++) frameMidChroma[k] /= maxM; }
+    if (maxTr > 1e-5) { for (let k = 0; k < 12; k++) frameTrebleChroma[k] /= maxTr; }
+    if (maxFull > 1e-5) { for (let k = 0; k < 12; k++) frameFullChroma[k] /= maxFull; }
+    if (maxB > 1e-5) { for (let k = 0; k < 12; k++) frameBassChroma[k] /= maxB; }
+
+    // Transient Dampening & Spectral Flux Gating
     let chromaSum = 0;
     for (let k = 0; k < 12; k++) chromaSum += frameChroma[k];
     
-    // Sort bin values to assess energy concentration
     const sortedChroma = Array.from(frameChroma).sort((a, b) => b - a);
     const top3Energy = sortedChroma[0] + sortedChroma[1] + sortedChroma[2];
     const pitchClarity = chromaSum > 1e-5 ? top3Energy / chromaSum : 0;
 
-    // If a broadband transient occurs (low pitch clarity with energy spread across many bins)
-    // and we have a preceding harmonic frame, attenuate the transient distortion by blending with previous frame
     if (pitchClarity < 0.45 && chromagram.length > 0 && chromaSum > 1.0) {
       const prevChroma = chromagram[chromagram.length - 1];
       const prevBass = bassChromagram[bassChromagram.length - 1];
       for (let k = 0; k < 12; k++) {
-        // Favor previous harmonic profile (75%) over the noisy transient burst (25%)
         frameChroma[k] = (prevChroma[k] * 0.75) + (frameChroma[k] * 0.25);
+        frameFullChroma[k] = (prevChroma[k] * 0.75) + (frameFullChroma[k] * 0.25);
         frameBassChroma[k] = (prevBass[k] * 0.75) + (frameBassChroma[k] * 0.25);
       }
     }
@@ -281,6 +296,10 @@ export function extractEnhancedChromagram(
     }
 
     chromagram.push(frameChroma);
+    lowMidChromagram.push(frameLowMidChroma);
+    midChromagram.push(frameMidChroma);
+    trebleChromagram.push(frameTrebleChroma);
+    fullChromagram.push(frameFullChroma);
     bassChromagram.push(frameBassChroma);
   }
 
@@ -314,6 +333,10 @@ export function extractEnhancedChromagram(
 
   return {
     chromagram,
+    lowMidChromagram,
+    midChromagram,
+    trebleChromagram,
+    fullChromagram,
     bassChromagram,
     onsetEnvelope,
     tuningDeviationCents,

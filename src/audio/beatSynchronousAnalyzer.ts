@@ -435,6 +435,40 @@ function getHarmonicTransitionScore(
       if (rootAIdx === tonicIdx && rootBIdx === subtonicIdx) {
         transitionBonus += 0.18;
       }
+
+      // Non-diatonic quality mismatch suppression (Sections 8 & 9):
+      // e.g. Am or C major or Fm in G minor context
+      const isDiatonicB = keyProfile.diatonicRoots.includes(rootBIdx);
+      if (isDiatonicB) {
+        const diatonicPos = keyProfile.diatonicRoots.indexOf(rootBIdx);
+        const expectedQ = keyProfile.diatonicQualities[diatonicPos];
+        // Scale degree 2 in minor key (e.g. A in Gm): expected dim. Am is non-diatonic.
+        if (diatonicPos === 1 && expectedQ === "dim" && (chordB.quality === "min" || chordB.quality === "maj")) {
+          if ((chordB.thirdMargin ?? 0) < 0.20 && (chordB.diagnostics?.bassOccupancy ?? 1.0) < 0.50) {
+            transitionBonus -= 0.60;
+          }
+        }
+        // Scale degree 4 in minor key (e.g. C in Gm): expected Cm. C major is non-diatonic.
+        if (diatonicPos === 3 && expectedQ === "min" && chordB.quality === "maj") {
+          if ((chordB.thirdMargin ?? 0) < 0.20) {
+            transitionBonus -= 0.55;
+          }
+        }
+        // Scale degree 7 in minor key (e.g. F in Gm): expected F major. Fm is non-diatonic.
+        if (diatonicPos === 6 && expectedQ === "maj" && chordB.quality === "min") {
+          if ((chordB.thirdMargin ?? 0) < 0.20) {
+            transitionBonus -= 0.55;
+          }
+        }
+      } else {
+        // Entirely non-diatonic root in minor key (unless dominant V like D or D7)
+        const isDominantV = rootBIdx === (keyRoot + 7) % 12 && (chordB.quality === "maj" || chordB.quality === "7");
+        if (!isDominantV) {
+          if ((chordB.thirdMargin ?? 0) < 0.20 && (chordB.diagnostics?.bassOccupancy ?? 1.0) < 0.50) {
+            transitionBonus -= 0.65;
+          }
+        }
+      }
     }
   }
 
@@ -991,12 +1025,22 @@ export function analyzeBeatSynchronousHarmonics(
   );
 
   // 3. Two-Stage Chord Candidate generation for each beat unit
+  const frameDuration = config.hopSize / config.sampleRate;
   for (const unit of units) {
+    const startF = Math.max(0, Math.floor(unit.startTime / frameDuration));
+    const endF = Math.max(startF, Math.min(chromagram.length - 1, Math.ceil(unit.endTime / frameDuration)));
+    const unitBassFrames = bassChromagram.slice(startF, endF + 1);
+    const unitMidFrames = chromagram.slice(startF, endF + 1);
+
     unit.candidates = rankChordCandidatesForWindow(
       unit.blendedChroma,
       unit.localBassChroma,
       keyProfile,
-      4
+      4,
+      {
+        frameBassChromas: unitBassFrames,
+        frameMidChromas: unitMidFrames
+      }
     );
   }
 

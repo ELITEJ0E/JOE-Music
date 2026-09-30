@@ -328,6 +328,31 @@ export function stabilizeChordSegments(
       } else if (dur < adaptiveMinDuration * 0.85 && scoreMargin < 0.15 && !seg.diagnostics?.confirmedByPendingEngine) {
         viability -= 1.5;
       }
+
+      // Non-diatonic / quality mismatch transient suppression (Sections 8 & 9):
+      // e.g. Am or C major or Fm in G minor key context
+      if (options.keyContext && dur < Math.max(0.75, adaptiveMinDuration * 1.35)) {
+        const keyParts = options.keyContext.trim().split(" ");
+        const keyNote = keyParts[0];
+        const isMinorKey = (keyParts[1] || "").toLowerCase().includes("min");
+        if (isMinorKey && seg.root) {
+          const keyPc = getPitchClass(keyNote);
+          const rootPc = getPitchClass(seg.root);
+          if (keyPc !== -1 && rootPc !== -1) {
+            const relPc = (rootPc - keyPc + 12) % 12;
+            const thirdMarginVal = diag?.thirdMargin ?? 0;
+            // Degree 2 (A in Gm) -> Expected dim/min7b5. Am is non-diatonic.
+            // Degree 4 (C in Gm) -> Expected Cm. C major is non-diatonic.
+            // Degree 7 (F in Gm) -> Expected F. Fm is non-diatonic.
+            const isNonDiatonicInMinor = (relPc === 2 && (seg.quality === "min" || seg.quality === "maj")) ||
+                                         (relPc === 5 && seg.quality === "maj") ||
+                                         (relPc === 10 && seg.quality === "min");
+            if (isNonDiatonicInMinor && thirdMarginVal < 0.22) {
+              viability -= 3.5;
+            }
+          }
+        }
+      }
       
       // Power chords / extensions resolving to root
       if (prev && prev.root === seg.root && seg.quality === "5") {
