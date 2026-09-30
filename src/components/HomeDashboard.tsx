@@ -420,7 +420,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
             </div>
             <div>
               <span className="text-[11px] font-mono font-bold tracking-wider text-zinc-400 group-hover:text-white uppercase block">
-                CHORD AI
+                CHORD FINDER
               </span>
               <span className="text-[10px] text-zinc-500 font-mono">Extract & Voicings</span>
             </div>
@@ -686,7 +686,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                   }
                 }}
                 className="sm:col-span-3 py-3 px-3 bg-white/5 hover:bg-white/10 border border-white/10 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 transition-all hover:scale-[1.02]"
-                title="Extract Chords in Chord AI"
+                title="Extract Chords in Chord Finder"
               >
                 <LayoutGrid className="w-3.5 h-3.5 text-[#a3ff12]" />
                 <span>CHORDS</span>

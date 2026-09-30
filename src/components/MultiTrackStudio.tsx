@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { createPortal } from "react-dom";
 import {
   X,
   Plus,
@@ -25,11 +26,11 @@ import {
   ZoomIn,
   ZoomOut,
   Maximize2,
+  Minimize2,
   ChevronUp,
   ChevronDown,
   Layers,
   Activity,
-  Zap,
 } from "lucide-react";
 import { audioEngine, AudioInputLevel } from "../audio/audioContext";
 import { transport, TransportState } from "../audio/transport";
@@ -71,7 +72,6 @@ import { ProjectsModal } from "./daw/ProjectsModal";
 import { SessionExportModal } from "./daw/SessionExportModal";
 import { StudioEffectsRack } from "./daw/StudioEffectsRack";
 import { StudioToneMacros } from "./daw/StudioToneMacros";
-import { StudioAIAssistant } from "./daw/StudioAIAssistant";
 import { LooperStation } from "./LooperStation";
 import { DrumMetronome } from "./DrumMetronome";
 import { CustomConfirmDialog } from "./ui/CustomConfirmDialog";
@@ -95,8 +95,17 @@ const DEFAULT_BUS_CHANNELS: BusChannelState[] = [
 
 const DEFAULT_PROJECT_ID = "project-default-session";
 
-type StudioDeckTab = "inspector" | "mixer" | "effects" | "tone" | "drums" | "looper" | "ai";
-type MobileNavTab = "tracks" | "mix" | "fx" | "tone" | "ai";
+type StudioDeckTab = "inspector" | "mixer" | "effects" | "tone" | "drums" | "looper";
+type MobileNavTab = "tracks" | "mix" | "fx" | "tone";
+
+const DECK_TABS: { id: StudioDeckTab; label: string; icon: React.ElementType }[] = [
+  { id: "mixer", label: "Mixer", icon: Sliders },
+  { id: "effects", label: "FX Rack", icon: Activity },
+  { id: "tone", label: "Tone Macros", icon: Sparkles },
+  { id: "inspector", label: "Inspector", icon: SlidersHorizontal },
+  { id: "drums", label: "Rhythm", icon: Clock },
+  { id: "looper", label: "Looper", icon: RotateCcw },
+];
 
 interface MultiTrackStudioProps {
   initialSong?: SunoSong | null;
@@ -191,8 +200,50 @@ export const MultiTrackStudio: React.FC<MultiTrackStudioProps> = ({ initialSong 
   // Studio Deck & Layout Controls
   const [activeDeckTab, setActiveDeckTab] = useState<StudioDeckTab>("mixer");
   const [isDeckExpanded, setIsDeckExpanded] = useState<boolean>(true);
+  const [isDeckFullScreen, setIsDeckFullScreen] = useState<boolean>(false);
   const [mobileNavTab, setMobileNavTab] = useState<MobileNavTab>("tracks");
   const [isMobileSheetOpen, setIsMobileSheetOpen] = useState<boolean>(false);
+
+  // Swipe down to dismiss fullscreen action sheet
+  const touchStartY = useRef<number | null>(null);
+  const [dragOffsetY, setDragOffsetY] = useState<number>(0);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartY.current = e.touches[0].clientY;
+    setDragOffsetY(0);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (touchStartY.current === null) return;
+    const currentY = e.touches[0].clientY;
+    const diff = currentY - touchStartY.current;
+    if (diff > 0) {
+      setDragOffsetY(diff);
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (dragOffsetY > 70) {
+      setIsDeckFullScreen(false);
+    }
+    setDragOffsetY(0);
+    touchStartY.current = null;
+  };
+
+  // Close / Exit Fullscreen Studio Deck with Escape key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" || e.key === "Esc") {
+        if (isDeckFullScreen) {
+          setIsDeckFullScreen(false);
+        } else if (isDeckExpanded) {
+          setIsDeckExpanded(false);
+        }
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isDeckFullScreen, isDeckExpanded]);
 
   // Tone Macros State
   const [toneMacros, setToneMacros] = useState<ToneMacroSettings>({ ...DEFAULT_TONE_MACROS });
@@ -1107,7 +1158,7 @@ export const MultiTrackStudio: React.FC<MultiTrackStudioProps> = ({ initialSong 
   const selectedTrack = project.tracks.find((t) => t.id === selectedTrackId) || project.tracks[0] || null;
 
   return (
-    <div id="panel-multitrack-studio" className="flex flex-col h-full w-full bg-[#090b10] text-white overflow-hidden select-none font-mono">
+    <div id="panel-multitrack-studio" className="flex flex-col h-full w-full bg-[#090b10] text-white overflow-hidden select-none font-mono pb-16 md:pb-0">
       {/* Toast Notification Banner */}
       {toastMessage && (
         <div className="fixed top-16 right-6 z-50 bg-[#12151e] border border-[#a3ff12] text-[#a3ff12] px-4 py-2.5 rounded-2xl shadow-[0_0_25px_rgba(163,255,18,0.25)] text-xs font-mono font-bold flex items-center gap-2 animate-in slide-in-from-top duration-200">
@@ -1364,22 +1415,311 @@ export const MultiTrackStudio: React.FC<MultiTrackStudioProps> = ({ initialSong 
           </div>
         </div>
 
-      {/* 3. COLLAPSIBLE BOTTOM STUDIO DECK (MIXER / EFFECTS / TONE / DRUMS / LOOPER / AI) */}
+      {/* 3. FULL-SCREEN SLIDE-UP ACTION SHEET PORTAL */}
+      {isDeckFullScreen && typeof document !== "undefined" && createPortal(
+        /* Full-Screen Slide-Up Action Sheet */
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Studio Fullscreen Action Sheet"
+          className="fixed inset-0 z-[9999] h-[100dvh] max-h-[100dvh] w-screen bg-[#0a0d14] text-white flex flex-col overflow-hidden shadow-2xl animate-in slide-in-from-bottom duration-300 transition-transform"
+          style={{ transform: dragOffsetY > 0 ? `translateY(${dragOffsetY}px)` : undefined }}
+        >
+          {/* Top Handle and Action Sheet Header with swipe detection */}
+          <div
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+            className="shrink-0 pt-[calc(0.6rem+env(safe-area-inset-top,0px))] px-3 sm:px-6 pb-2.5 border-b border-white/10 bg-[#0d1017]/98 backdrop-blur-2xl"
+          >
+            {/* Drag Handle Indicator */}
+            <div
+              onClick={() => setIsDeckFullScreen(false)}
+              className="w-14 h-1.5 bg-white/30 hover:bg-white/50 rounded-full mx-auto mb-2.5 cursor-pointer transition-colors"
+              title="Swipe Down or Tap to Exit Full Screen"
+            />
+
+            {/* Row 1: Module Title Badge + Prominent Minimize and Close Buttons */}
+            <div className="flex items-center justify-between gap-2.5 mb-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="px-2.5 py-1 rounded-xl bg-white/5 border border-white/10 flex items-center gap-1.5 text-xs font-mono font-bold text-white truncate shadow-sm">
+                  {(() => {
+                    const currentTab = DECK_TABS.find((t) => t.id === activeDeckTab) || DECK_TABS[0];
+                    const TabIcon = currentTab.icon;
+                    return (
+                      <>
+                        <TabIcon className="w-3.5 h-3.5 text-[#a3ff12] shrink-0" />
+                        <span className="truncate">{currentTab.label}</span>
+                      </>
+                    );
+                  })()}
+                </div>
+                <span className="text-[10px] font-mono text-[#a3ff12] px-2 py-0.5 rounded bg-[#a3ff12]/10 border border-[#a3ff12]/20">
+                  Full Screen
+                </span>
+              </div>
+
+              {/* Action Controls (Prominently Styled & Easy to Tap) */}
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={() => setIsDeckFullScreen(false)}
+                  className="px-3.5 py-1.5 rounded-xl bg-[#a3ff12] hover:bg-[#b8ff38] text-black text-xs font-mono font-extrabold flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer shadow-[0_0_15px_rgba(163,255,18,0.4)]"
+                  title="Minimize Full Screen (Esc / Swipe Down)"
+                >
+                  <Minimize2 className="w-3.5 h-3.5 text-black" />
+                  <span>Minimize</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setIsDeckFullScreen(false);
+                    setIsDeckExpanded(false);
+                  }}
+                  className="p-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-zinc-300 hover:text-white border border-white/10 text-xs font-mono font-bold flex items-center justify-center transition-all active:scale-95 cursor-pointer"
+                  title="Close Sheet (Esc)"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Row 2: Dedicated Scrollable Tab Bar */}
+            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar touch-pan-x pt-0.5">
+              {DECK_TABS.map((tab) => {
+                const Icon = tab.icon;
+                const isActive = activeDeckTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveDeckTab(tab.id)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 cursor-pointer ${
+                      isActive
+                        ? "bg-[#a3ff12] text-black shadow-[0_0_12px_rgba(163,255,18,0.35)]"
+                        : "text-zinc-400 hover:text-white bg-white/5 hover:bg-white/10"
+                    }`}
+                  >
+                    <Icon className="w-3.5 h-3.5" />
+                    <span>{tab.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Full-Height Content Panel */}
+          <div className="flex-1 overflow-hidden relative bg-[#090b10]">
+            {/* MIXER CONSOLE - FIXED ERGONOMIC HEIGHT (NO STRETCHING) */}
+            {activeDeckTab === "mixer" && (
+              <div className="h-full overflow-x-auto p-4 sm:p-6 flex gap-3 sm:gap-4 items-center justify-start sm:justify-center no-scrollbar touch-pan-x select-none">
+                {project.tracks.map((track) => {
+                  const volDb = track.volume > 0.001 ? (20 * Math.log10(track.volume)).toFixed(1) : "-∞";
+                  return (
+                    <div
+                      key={track.id}
+                      className="w-28 sm:w-32 md:w-36 h-[220px] sm:h-[240px] shrink-0 bg-[#0e121b] border border-white/10 rounded-2xl p-3 flex flex-col justify-between shadow-lg"
+                    >
+                      <div className="space-y-1.5">
+                        <div
+                          className="text-xs font-bold text-white truncate text-center py-1 bg-white/5 rounded-lg px-1.5"
+                          style={{ borderTop: `3px solid ${track.color}` }}
+                        >
+                          {track.name}
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => handleToggleMute(track.id)}
+                            className={`flex-1 py-1 rounded-lg text-xs font-bold cursor-pointer transition-colors ${
+                              track.muted ? "bg-rose-600 text-white" : "bg-white/5 text-zinc-400 hover:text-white"
+                            }`}
+                          >
+                            M
+                          </button>
+                          <button
+                            onClick={() => handleToggleSolo(track.id)}
+                            className={`flex-1 py-1 rounded-lg text-xs font-bold cursor-pointer transition-colors ${
+                              track.soloed ? "bg-amber-400 text-black" : "bg-white/5 text-zinc-400 hover:text-white"
+                            }`}
+                          >
+                            S
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Fixed Height Vertical Volume Slider & Meter */}
+                      <div className="h-28 sm:h-32 flex items-center justify-center gap-3 my-1">
+                        <input
+                          type="range"
+                          min="0"
+                          max="1.5"
+                          step="0.01"
+                          value={track.volume}
+                          onChange={(e) => handleTrackVolumeChange(track.id, parseFloat(e.target.value))}
+                          className="h-full appearance-none bg-zinc-800 rounded-lg cursor-pointer"
+                          style={{ writingMode: "vertical-lr", direction: "rtl", width: "16px" }}
+                        />
+                        {/* Peak Meter */}
+                        <div className="w-2.5 sm:w-3 h-full bg-black/60 rounded-full overflow-hidden flex flex-col justify-end border border-white/10">
+                          <div
+                            className="w-full bg-[#a3ff12] transition-all duration-75"
+                            style={{ height: `${Math.min(100, Math.max(0, (trackPeaks[track.id] || 0) * 100))}%` }}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="text-center text-[10px] sm:text-xs text-zinc-400 font-bold">
+                        {volDb} dB
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* Master Channel Strip */}
+                <div className="w-28 sm:w-32 md:w-36 h-[220px] sm:h-[240px] shrink-0 bg-black/50 border border-[#a3ff12]/30 rounded-2xl p-3 flex flex-col justify-between shadow-lg ml-auto sm:ml-2">
+                  <div className="text-xs font-bold text-[#a3ff12] text-center py-1 bg-[#a3ff12]/10 rounded-lg border border-[#a3ff12]/20">
+                    MASTER
+                  </div>
+
+                  <div className="h-28 sm:h-32 flex items-center justify-center gap-3 my-1">
+                    <div className="w-3.5 h-full bg-black rounded-full overflow-hidden flex flex-col justify-end border border-white/20">
+                      <div
+                        className="w-full bg-[#a3ff12]"
+                        style={{ height: `${Math.min(100, Math.max(0, inputLevel.rms * 100))}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="text-center text-[10px] sm:text-xs text-[#a3ff12] font-bold">
+                    0.0 dB
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* EFFECTS RACK */}
+            {activeDeckTab === "effects" && (
+              <div className="h-full overflow-y-auto p-4 sm:p-6">
+                <StudioEffectsRack
+                  track={selectedTrack}
+                  onEqChange={handleTrackEqChange}
+                  onCompressorChange={handleTrackCompressorChange}
+                  onReverbSendChange={handleTrackReverbSendChange}
+                />
+              </div>
+            )}
+
+            {/* TONE MACROS */}
+            {activeDeckTab === "tone" && (
+              <div className="h-full overflow-y-auto p-4 sm:p-6">
+                <StudioToneMacros
+                  macros={toneMacros}
+                  onChangeMacros={(newM) => setToneMacros(newM)}
+                  trackName={selectedTrack?.name}
+                  trackColor={selectedTrack?.color}
+                />
+              </div>
+            )}
+
+            {/* CLIP INSPECTOR */}
+            {activeDeckTab === "inspector" && (
+              <div className="h-full overflow-y-auto p-4 sm:p-6">
+                {inspectingClip && selectedTrack ? (
+                  <ClipInspector
+                    clip={inspectingClip}
+                    trackName={selectedTrack.name}
+                    trackColor={selectedTrack.color}
+                    onClose={() => setInspectingClip(null)}
+                    onUpdateClip={(updated) => {
+                      setInspectingClip(updated);
+                      const updatedTracks = project.tracks.map((t) => ({
+                        ...t,
+                        clips: (t.clips || []).map((c) => (c.id === updated.id ? updated : c)),
+                      }));
+                      commitProjectChange({ ...project, tracks: updatedTracks }, "Update Clip", false);
+                    }}
+                    onSplitAtPlayhead={handleSplitAtPlayhead}
+                    onDuplicateClip={handleDuplicateClip}
+                    onDeleteClip={handleDeleteClip}
+                    playheadTimeSec={playheadTimeSec}
+                  />
+                ) : (
+                  <div className="h-full flex items-center justify-center text-zinc-500 text-sm">
+                    Select an audio clip on the timeline to inspect its gain, timing, fades, and speed.
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* RHYTHM GROOVES */}
+            {activeDeckTab === "drums" && (
+              <div className="h-full overflow-y-auto p-4 sm:p-6">
+                <DrumMetronome />
+              </div>
+            )}
+
+            {/* LOOPER STATION */}
+            {activeDeckTab === "looper" && (
+              <div className="h-full overflow-y-auto p-4 sm:p-6">
+                <LooperStation
+                  onCommitToStudio={(buffer, trackName) => {
+                    const newClipId = `clip-looper-${Date.now()}`;
+                    const newTrk: DAWTrack = {
+                      id: `trk-looper-${Date.now()}`,
+                      name: `Looper: ${trackName}`,
+                      color: "#f59e0b",
+                      volume: 0.85,
+                      pan: 0,
+                      muted: false,
+                      soloed: false,
+                      armed: false,
+                      monitoring: false,
+                      clips: [
+                        {
+                          id: newClipId,
+                          name: trackName,
+                          startTime: playheadTimeSec,
+                          duration: buffer.duration,
+                          audioBuffer: buffer,
+                          trimStart: 0,
+                          gain: 1.0,
+                          fadeInSec: 0.01,
+                          fadeOutSec: 0.01,
+                        },
+                      ],
+                      eq: { ...DEFAULT_TRACK_EQ },
+                      insertEffects: { ...DEFAULT_TRACK_INSERT_EFFECTS },
+                      busId: "master",
+                    };
+                    commitProjectChange(
+                      { ...project, tracks: [...project.tracks, newTrk] },
+                      "Commit Looper Track"
+                    );
+                    showToast(`Committed ${trackName} to Timeline!`);
+                  }}
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Mobile Bottom Quick Exit Bar */}
+          <div className="sm:hidden shrink-0 px-4 py-2 border-t border-white/10 bg-[#0c0e14] flex items-center justify-center pb-[calc(0.5rem+env(safe-area-inset-bottom,0px))]">
+            <button
+              onClick={() => setIsDeckFullScreen(false)}
+              className="w-full py-2 bg-white/10 hover:bg-white/15 active:scale-[0.98] border border-white/10 text-white rounded-xl text-xs font-mono font-bold flex items-center justify-center gap-2 cursor-pointer transition-all"
+            >
+              <Minimize2 className="w-3.5 h-3.5 text-[#a3ff12]" />
+              <span>Exit Fullscreen (Swipe Down)</span>
+            </button>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* 4. STANDARD COLLAPSIBLE STUDIO DECK (DOCKED) */}
       <div className={`shrink-0 bg-[#0d1017] border-t border-white/10 transition-all duration-300 flex flex-col ${isDeckExpanded ? "h-64 sm:h-72" : "h-10"}`}>
-        {/* Deck Tab Bar */}
-        <div className="h-10 shrink-0 flex items-center justify-between px-2 sm:px-4 border-b border-white/5 bg-[#0a0c12]">
-          <div className="flex items-center gap-1 overflow-x-auto no-scrollbar touch-pan-x py-1 pr-2">
-            {(
-              [
-                { id: "mixer", label: "Mixer", icon: Sliders },
-                { id: "effects", label: "FX Rack", icon: Activity },
-                { id: "tone", label: "Tone Macros", icon: Sparkles },
-                { id: "inspector", label: "Inspector", icon: SlidersHorizontal },
-                { id: "drums", label: "Rhythm", icon: Clock },
-                { id: "looper", label: "Looper", icon: RotateCcw },
-                { id: "ai", label: "JOE AI", icon: Zap },
-              ] as const
-            ).map((tab) => {
+        {/* Deck Tab Bar with Sticky Controls */}
+        <div className="h-10 shrink-0 flex items-center justify-between px-2 sm:px-4 border-b border-white/5 bg-[#0a0c12] relative">
+          {/* Scrollable Tabs */}
+          <div className="flex-1 min-w-0 flex items-center gap-1.5 overflow-x-auto no-scrollbar touch-pan-x py-1 pr-2">
+            {DECK_TABS.map((tab) => {
               const Icon = tab.icon;
               const isActive = activeDeckTab === tab.id;
               return (
@@ -1402,29 +1742,43 @@ export const MultiTrackStudio: React.FC<MultiTrackStudioProps> = ({ initialSong 
             })}
           </div>
 
-          <button
-            onClick={() => setIsDeckExpanded(!isDeckExpanded)}
-            className="p-1 text-zinc-400 hover:text-white rounded-lg hover:bg-white/5 transition-colors cursor-pointer shrink-0"
-            title={isDeckExpanded ? "Collapse Deck" : "Expand Deck"}
-          >
-            {isDeckExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
-          </button>
+          {/* Sticky Action Controls on Right - Never Hidden when tabs scroll */}
+          <div className="flex items-center gap-1.5 shrink-0 pl-2.5 bg-[#0a0c12] border-l border-white/10 sticky right-0 z-20 shadow-[-8px_0_12px_rgba(10,12,18,0.95)]">
+            <button
+              onClick={() => {
+                setIsDeckExpanded(true);
+                setIsDeckFullScreen(true);
+              }}
+              className="p-1.5 px-2 text-zinc-300 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 shadow-sm active:scale-95"
+              title="Slide up Full Screen (Esc / Swipe Down to close)"
+            >
+              <Maximize2 className="w-3.5 h-3.5 text-[#a3ff12]" />
+              <span className="hidden sm:inline text-[10px] font-mono font-bold text-zinc-300">Fullscreen</span>
+            </button>
+            <button
+              onClick={() => setIsDeckExpanded(!isDeckExpanded)}
+              className="p-1.5 px-2 text-zinc-300 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 rounded-lg transition-all cursor-pointer flex items-center gap-1 shadow-sm active:scale-95"
+              title={isDeckExpanded ? "Collapse Deck" : "Expand Deck"}
+            >
+              {isDeckExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
+            </button>
+          </div>
         </div>
 
-        {/* Deck Content Panels */}
+        {/* Deck Content Panels (Docked Mode) */}
         {isDeckExpanded && (
           <div className="flex-1 overflow-hidden relative">
-            {/* MIXER CONSOLE */}
+            {/* MIXER CONSOLE - FIXED ERGONOMIC HEIGHT (NO FULL VIEWPORT STRETCHING) */}
             {activeDeckTab === "mixer" && (
-              <div className="h-full overflow-x-auto p-2 sm:p-4 flex gap-2.5 sm:gap-4 items-stretch no-scrollbar touch-pan-x select-none">
+              <div className="h-full overflow-x-auto p-2.5 sm:p-4 flex gap-2.5 sm:gap-4 items-center no-scrollbar touch-pan-x select-none">
                 {project.tracks.map((track) => {
                   const volDb = track.volume > 0.001 ? (20 * Math.log10(track.volume)).toFixed(1) : "-∞";
                   return (
                     <div
                       key={track.id}
-                      className="w-24 sm:w-32 md:w-36 shrink-0 bg-[#0e121b] border border-white/10 rounded-2xl p-2 sm:p-3 flex flex-col justify-between"
+                      className="w-24 sm:w-28 md:w-32 h-[195px] sm:h-[215px] shrink-0 bg-[#0e121b] border border-white/10 rounded-2xl p-2.5 flex flex-col justify-between"
                     >
-                      <div className="space-y-1.5">
+                      <div className="space-y-1">
                         <div
                           className="text-[11px] sm:text-xs font-bold text-white truncate text-center py-1 bg-white/5 rounded-lg px-1"
                           style={{ borderTop: `3px solid ${track.color}` }}
@@ -1434,7 +1788,7 @@ export const MultiTrackStudio: React.FC<MultiTrackStudioProps> = ({ initialSong 
                         <div className="flex items-center gap-1">
                           <button
                             onClick={() => handleToggleMute(track.id)}
-                            className={`flex-1 py-1 rounded text-[10px] font-bold cursor-pointer transition-colors ${
+                            className={`flex-1 py-0.5 rounded text-[10px] font-bold cursor-pointer transition-colors ${
                               track.muted ? "bg-rose-600 text-white" : "bg-white/5 text-zinc-400 hover:text-white"
                             }`}
                           >
@@ -1442,7 +1796,7 @@ export const MultiTrackStudio: React.FC<MultiTrackStudioProps> = ({ initialSong 
                           </button>
                           <button
                             onClick={() => handleToggleSolo(track.id)}
-                            className={`flex-1 py-1 rounded text-[10px] font-bold cursor-pointer transition-colors ${
+                            className={`flex-1 py-0.5 rounded text-[10px] font-bold cursor-pointer transition-colors ${
                               track.soloed ? "bg-amber-400 text-black" : "bg-white/5 text-zinc-400 hover:text-white"
                             }`}
                           >
@@ -1451,8 +1805,8 @@ export const MultiTrackStudio: React.FC<MultiTrackStudioProps> = ({ initialSong 
                         </div>
                       </div>
 
-                      {/* Vertical Volume Slider & Meter */}
-                      <div className="flex-1 flex items-center justify-center gap-2 sm:gap-3 my-1.5 min-h-[95px] sm:min-h-[110px]">
+                      {/* Fixed Height Vertical Volume Slider & Meter */}
+                      <div className="h-24 sm:h-28 flex items-center justify-center gap-2 my-1">
                         <input
                           type="range"
                           min="0"
@@ -1480,13 +1834,13 @@ export const MultiTrackStudio: React.FC<MultiTrackStudioProps> = ({ initialSong 
                 })}
 
                 {/* Master Channel Strip */}
-                <div className="w-24 sm:w-32 md:w-36 shrink-0 bg-black/40 border border-[#a3ff12]/30 rounded-2xl p-2 sm:p-3 flex flex-col justify-between ml-auto">
+                <div className="w-24 sm:w-28 md:w-32 h-[195px] sm:h-[215px] shrink-0 bg-black/40 border border-[#a3ff12]/30 rounded-2xl p-2.5 flex flex-col justify-between ml-auto">
                   <div className="text-[11px] sm:text-xs font-bold text-[#a3ff12] text-center py-1 bg-[#a3ff12]/10 rounded-lg border border-[#a3ff12]/20">
                     MASTER
                   </div>
 
-                  <div className="flex-1 flex items-center justify-center gap-2 sm:gap-3 my-1.5 min-h-[95px] sm:min-h-[110px]">
-                    <div className="w-2.5 sm:w-3.5 h-full bg-black rounded-full overflow-hidden flex flex-col justify-end border border-white/20">
+                  <div className="h-24 sm:h-28 flex items-center justify-center gap-2 my-1">
+                    <div className="w-2.5 sm:w-3 h-full bg-black rounded-full overflow-hidden flex flex-col justify-end border border-white/20">
                       <div
                         className="w-full bg-[#a3ff12]"
                         style={{ height: `${Math.min(100, Math.max(0, inputLevel.rms * 100))}%` }}
@@ -1599,21 +1953,6 @@ export const MultiTrackStudio: React.FC<MultiTrackStudioProps> = ({ initialSong 
                   }}
                 />
               </div>
-            )}
-
-            {/* JOE AI PRODUCER */}
-            {activeDeckTab === "ai" && (
-              <StudioAIAssistant
-                project={project}
-                onApplyBpm={(b) => {
-                  transport.setBpm(b);
-                  commitProjectChange({ ...project, bpm: b }, "Apply BPM");
-                }}
-                onApplyKey={(k) => {
-                  transport.setKeySig(k);
-                  commitProjectChange({ ...project, keySig: k }, "Apply Key");
-                }}
-              />
             )}
           </div>
         )}
