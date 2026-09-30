@@ -1448,9 +1448,85 @@ export const SUNO_CATALOG_MASTER: Record<string, SunoPlaylistResponse> = {
         "audio_url": "https://d2lwuy8qc234o3.cloudfront.net/1/clip/015eaa73-6f4a-4335-b6dc-a38b428526b9.m4a",
         "image_url": "https://cdn2.suno.ai/image_large_015eaa73-6f4a-4335-b6dc-a38b428526b9.jpeg",
         "created_at": "2026-09-10T06:16:12.407Z"
+      },
+      {
+        "id": "4c2f51fd-5512-4b99-9e54-610b8b0f7f21",
+        "title": "Good Enough (remix.ver)",
+        "artist": "ELITEJOE",
+        "album": "Joel's Song",
+        "duration": 203,
+        "audioUrl": "https://d2lwuy8qc234o3.cloudfront.net/1/clip/4c2f51fd-5512-4b99-9e54-610b8b0f7f21.m4a",
+        "streamUrl": "/api/suno-audio/4c2f51fd-5512-4b99-9e54-610b8b0f7f21",
+        "videoUrl": null,
+        "imageUrl": "https://cdn2.suno.ai/image_large_4c2f51fd-5512-4b99-9e54-610b8b0f7f21.jpeg",
+        "lyrics": "[singer A]\nLate ka na naman\nPero okay lang\n'Di ko alam bakit\nIkaw pa rin ang hinahanap\nRandom lang usapan\nPero buong gabi\nSimple lang naman\nBakit iba 'pag ikaw?\n\nSabi ko\nChill lang\nPero ikaw\nNasa isip ko\n\nGood enough\nPwede na ba?\n'Di na tayo\nMagpanggap pa\nGood enough\nTell me now\nKung gusto mo rin\nLike I do\n\nGood enough\n'Cause I don't wanna\nLose another night\nThinking 'bout us\nGood enough\nMaybe tayo na\nMaybe tayo na\n\n[singer B]\nHindi naman\nKailangan magmadali\nPero bakit\nParang gusto kitang piliin\nSimple lang\nUsapan natin\nPero bakit\nIkaw pa rin\n\nMaybe\nWe're almost there\nHindi lang\nUmaamin\n\nAlmost\nPero hindi pa\nOne more step\n'Wag kang umatras\nAlmost\nCan you see?\nParang ikaw\nParang ako\nAlmost\nNa tayo\n\n[singer A]\n'Yung playlist mo\nNasa repeat\nLahat ng jokes mo\nKabisa ko na\nFriends lang tayo\nSabi natin\nPero bakit\nParang hindi?\n\nOne more call\nOne more laugh\nKonti na lang\nAamin na 'ko\nIf I reach\nWill you stay?\nKung ako\nMauna\nPlease don't\nLook away\n\n[singer B]\nAlmost\nPero hindi pa\nOne more step\n'Wag kang umatras\nAlmost\nCan you see?\nParang ikaw\nParang ako\nAlmost\nNa tayo\n\n[singer A]\nGood enough\nPwede na ba?\n'Di na tayo\nMaghintay pa\nGood enough\nHold my hand\nKung pareho lang\nNararamdaman\nGood enough\nMaybe this time\nHindi na \"Almost\"\nGood enough",
+        "tags": [
+          "Dreamy Filipino indie-pop with female vocals",
+          "breezy bedroom-pop pulse",
+          "shuffling UK garage drums",
+          "shimmering clean guitars",
+          "warm analog pads",
+          "mellow bass groove"
+        ],
+        "createdAt": "2026-07-27T09:23:10.418Z",
+        "playCount": 42,
+        "upvoteCount": 2,
+        "audio_url": "https://d2lwuy8qc234o3.cloudfront.net/1/clip/4c2f51fd-5512-4b99-9e54-610b8b0f7f21.m4a",
+        "image_url": "https://cdn2.suno.ai/image_large_4c2f51fd-5512-4b99-9e54-610b8b0f7f21.jpeg",
+        "created_at": "2026-07-27T09:23:10.418Z"
+      },
+      {
+        "id": "fb1d4d13-eae5-444d-ad72-e7c24e5c7230",
+        "title": "Always",
+        "artist": "ELITEJOE",
+        "album": "Joel's Song",
+        "duration": 224,
+        "audioUrl": "https://d2lwuy8qc234o3.cloudfront.net/1/clip/fb1d4d13-eae5-444d-ad72-e7c24e5c7230.m4a",
+        "streamUrl": "/api/suno-audio/fb1d4d13-eae5-444d-ad72-e7c24e5c7230",
+        "videoUrl": null,
+        "imageUrl": "https://cdn2.suno.ai/30330740-1cad-494b-837f-2b298d471239.jpeg",
+        "lyrics": "[Verse 1]\nMorning coffee\nCold again\n'Di ko namalayang\nIkaw na naman\nFavorite corner\nBy the train\nLahat ng daan\nMay pangalan mo\n\n[Pre-Chorus]\nLittle by little\nHindi ko napansin\nIkaw pala\nAng pahinga ko\n\n[Chorus]\nAlways\nIkaw pa rin\nSa bawat\nTahimik na gabi\nAlways\nSomehow you\nFind your way\nBack to me\nAlways\nParang home\nKahit saan\nKasama ka\nAlways\nMaybe\nIkaw na nga\nAll this time\n\n[Verse 2]\nSame old playlist\nWindow seat\nHabang umuulan\nNaalala kita\nSimple moments\nSimple days\nPero ikaw\nHindi naging simple\n\n[Pre-Chorus]\nOne more sunset\nOne more drive\nKung may hihilingin\nIkaw na lang\n\n[Bridge]\nIf tomorrow\nLooks the same\nI hope\nYou're still\nBeside me\n\n[Final Chorus]\nAlways\nIkaw pa rin\nNo matter\nWhere life goes\nAlways\nHold me close\nParang lahat\nTumitigil\nAlways\nMaybe love\nWasn't loud\nIt was you\nAlways...",
+        "tags": [
+          "Dreamy Filipino indie-pop",
+          "soft feminine vocals",
+          "breezy bedroom-pop pulse",
+          "shimmering clean electric guitars",
+          "warm analog synth pads"
+        ],
+        "createdAt": "2026-07-30T07:09:35.723Z",
+        "playCount": 55,
+        "upvoteCount": 3,
+        "audio_url": "https://d2lwuy8qc234o3.cloudfront.net/1/clip/fb1d4d13-eae5-444d-ad72-e7c24e5c7230.m4a",
+        "image_url": "https://cdn2.suno.ai/30330740-1cad-494b-837f-2b298d471239.jpeg",
+        "created_at": "2026-07-30T07:09:35.723Z"
+      },
+      {
+        "id": "c3025a48-0a85-4950-baaa-02e3fdc3ce18",
+        "title": "When It Rains Again",
+        "artist": "ELITEJOE",
+        "album": "Joel's Song",
+        "duration": 291,
+        "audioUrl": "https://d2lwuy8qc234o3.cloudfront.net/1/clip/c3025a48-0a85-4950-baaa-02e3fdc3ce18.m4a",
+        "streamUrl": "/api/suno-audio/c3025a48-0a85-4950-baaa-02e3fdc3ce18",
+        "videoUrl": null,
+        "imageUrl": "https://cdn2.suno.ai/image_large_c3025a48-0a85-4950-baaa-02e3fdc3ce18.jpeg",
+        "lyrics": "[Instrumental Fingerpicked Guitar Solo]\n\nNostalgic acoustic guitar melody with gentle room ambience and warm natural tone.\nGmaj13 → A6 → F#m7 → Cmaj7 progression.",
+        "tags": [
+          "Intimate acoustic guitar instrumental",
+          "fingerpicked steel-string guitar",
+          "warm natural recording",
+          "nostalgic rainy afternoon mood",
+          "cinematic acoustic indie"
+        ],
+        "createdAt": "2026-08-15T15:25:22.404Z",
+        "playCount": 68,
+        "upvoteCount": 4,
+        "audio_url": "https://d2lwuy8qc234o3.cloudfront.net/1/clip/c3025a48-0a85-4950-baaa-02e3fdc3ce18.m4a",
+        "image_url": "https://cdn2.suno.ai/image_large_c3025a48-0a85-4950-baaa-02e3fdc3ce18.jpeg",
+        "created_at": "2026-08-15T15:25:22.404Z"
       }
     ],
-    "totalTracks": 41,
+    "totalTracks": 44,
     "hasMore": false
   },
   "627c2d15-0cca-4c07-91b3-5f203c981e6e": {

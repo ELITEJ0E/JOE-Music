@@ -307,6 +307,23 @@ Provide a concise, practical, high-value guitar instruction response. Mention sp
       res.setHeader("Cache-Control", "public, max-age=60, s-maxage=120");
     }
 
+    // Fast path: if requested ID is a curated catalog collection (and not the live main Suno playlist), return catalog instantly
+    if (targetId !== "ff247038-e0ae-4778-989d-0529e575027b" && SUNO_CATALOG_MASTER[targetId]) {
+      const fallback = SUNO_CATALOG_MASTER[targetId];
+      return res.json({
+        id: rawId,
+        title: fallback.title,
+        name: fallback.name || fallback.title,
+        description: fallback.description,
+        imageUrl: fallback.imageUrl,
+        userDisplayName: fallback.userDisplayName || "ELITEJOE",
+        tracks: fallback.tracks,
+        totalTracks: fallback.tracks.length,
+        hasMore: false,
+        lastSynced: Date.now()
+      });
+    }
+
     const browserHeaders = {
       "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
       "Accept": "application/json, text/plain, */*",
@@ -316,35 +333,42 @@ Provide a concise, practical, high-value guitar instruction response. Mention sp
     };
 
     let foundData: any = null;
+    let is404 = false;
 
-    // Step 1: Direct Suno Studio Prod API with resilient timeout, auto-retry, and full multi-page support
+    // Step 1: Direct Suno Studio Prod API with multi-page support to fetch ALL tracks
     try {
       let currentPage = page;
       let allClips: any[] = [];
       let meta: any = null;
 
-      // If requested page 1, fetch all pages up to 5 to get full playlist
-      const maxPages = page === 1 ? 5 : page;
+      // If requested page 1, fetch all pages up to 10 to get the full playlist
+      const maxPages = page === 1 ? 10 : page;
       while (currentPage <= maxPages) {
         const prodApiUrl = `https://studio-api.prod.suno.com/api/playlist/${encodeURIComponent(targetId)}/?page=${currentPage}`;
         let response: any = null;
 
         for (let attempt = 1; attempt <= 2; attempt++) {
           const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 7000);
+          const timeout = setTimeout(() => controller.abort(), 4000);
           try {
             response = await fetch(prodApiUrl, { headers: browserHeaders, signal: controller.signal });
             clearTimeout(timeout);
-            if (response && response.ok) break;
+            if (response) {
+              if (response.status === 404) {
+                is404 = true;
+                break;
+              }
+              if (response.ok) break;
+            }
           } catch (e: any) {
             clearTimeout(timeout);
             if (attempt === 1) {
-              await new Promise((r) => setTimeout(r, 400));
+              await new Promise((r) => setTimeout(r, 200));
             }
           }
         }
 
-        if (!response || !response.ok) {
+        if (is404 || !response || !response.ok) {
           break;
         }
 
@@ -371,19 +395,21 @@ Provide a concise, practical, high-value guitar instruction response. Mention sp
         };
       }
     } catch (e: any) {
-      // Step 1 failed, will attempt fallback steps
+      // Step 1 failed, continue to fast fallback
     }
 
-    // Step 2: Direct Suno Studio AI API
-    if (!foundData) {
+    // Step 2: Direct Suno Studio AI API (Only if not a definite 404)
+    if (!foundData && !is404) {
       try {
         const studioAiUrl = `https://studio-api.suno.ai/api/playlist/${encodeURIComponent(targetId)}/?page=${page}`;
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 4000);
+        const timeout = setTimeout(() => controller.abort(), 3000);
         const response = await fetch(studioAiUrl, { headers: browserHeaders, signal: controller.signal });
         clearTimeout(timeout);
 
-        if (response.ok) {
+        if (response.status === 404) {
+          is404 = true;
+        } else if (response.ok) {
           const json = await response.json();
           const clips = json.playlist_clips || json.clips || [];
           if (clips.length > 0 || json.name) {
@@ -391,16 +417,16 @@ Provide a concise, practical, high-value guitar instruction response. Mention sp
           }
         }
       } catch (e: any) {
-        // Continue to fallback
+        // Continue
       }
     }
 
-    // Step 3: Direct Suno.com Next.js RSC HTML Scraper
-    if (!foundData) {
+    // Step 3: Direct Suno.com Next.js RSC HTML Scraper (Only if not 404)
+    if (!foundData && !is404) {
       try {
         const pageUrl = `https://suno.com/playlist/${targetId}`;
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 6000);
+        const timeout = setTimeout(() => controller.abort(), 3500);
         const response = await fetch(pageUrl, {
           headers: {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
@@ -411,7 +437,9 @@ Provide a concise, practical, high-value guitar instruction response. Mention sp
         });
         clearTimeout(timeout);
 
-        if (response.ok) {
+        if (response.status === 404) {
+          is404 = true;
+        } else if (response.ok) {
           const html = await response.text();
           const { foundClips, foundName } = extractRSCClips(html);
           if (foundClips.length > 0) {
@@ -423,73 +451,11 @@ Provide a concise, practical, high-value guitar instruction response. Mention sp
           }
         }
       } catch (e: any) {
-        // Scraper unavailable or timed out, gracefully proceed to proxies
+        // Continue
       }
     }
 
-    // Step 4: Proxy Fallback Scrapers (Joelify proxy pipeline)
-    if (!foundData) {
-      const proxies = [
-        {
-          name: "AllOrigins",
-          url: (uid: string) => `https://api.allorigins.win/get?url=${encodeURIComponent(`https://suno.com/playlist/${uid}`)}`,
-          parse: (data: any) => data?.contents
-        },
-        {
-          name: "CodeTabs",
-          url: (uid: string) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(`https://suno.com/playlist/${uid}`)}`,
-          parse: (data: any) => (typeof data === "string" ? data : JSON.stringify(data))
-        },
-        {
-          name: "CorsProxyIO",
-          url: (uid: string) => `https://corsproxy.io/?url=${encodeURIComponent(`https://suno.com/playlist/${uid}`)}`,
-          parse: (data: any) => (typeof data === "string" ? data : JSON.stringify(data))
-        }
-      ];
-
-      try {
-        const proxyPromises = proxies.map(async (proxy) => {
-          const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 4000);
-          try {
-            const resProxy = await fetch(proxy.url(targetId), { signal: controller.signal });
-            clearTimeout(timeout);
-
-            if (!resProxy.ok) throw new Error("Proxy response not ok");
-
-            let rawData: any;
-            const contentType = resProxy.headers.get("content-type") || "";
-            if (contentType.includes("application/json")) {
-              rawData = await resProxy.json();
-            } else {
-              rawData = await resProxy.text();
-            }
-
-            const html = proxy.parse(rawData);
-            if (html && typeof html === "string") {
-              const { foundClips, foundName } = extractRSCClips(html);
-              if (foundClips.length > 0) {
-                return {
-                  name: foundName,
-                  playlist_clips: foundClips,
-                  num_total_results: foundClips.length
-                };
-              }
-            }
-          } catch (e) {
-            clearTimeout(timeout);
-            throw e; 
-          }
-          throw new Error("No clips found via proxy");
-        });
-
-        foundData = await Promise.any(proxyPromises);
-      } catch (err: any) {
-        // Proxies failed, proceed to guaranteed catalog fallback
-      }
-    }
-
-    // Step 5: Process extracted data if available
+    // Step 4: Process extracted live data if available
     if (foundData) {
       const rawClips = foundData.playlist_clips || foundData.clips || foundData.items || [];
       const playlistTitle = foundData.name || foundData.title || "Joel's Originals";
@@ -517,6 +483,8 @@ Provide a concise, practical, high-value guitar instruction response. Mention sp
           ? Math.round(clip.duration)
           : 185;
 
+        const dateStr = item.created_at || clip.created_at || clip.createdAt || new Date().toISOString();
+
         return {
           id: clipId,
           title: clip.title || "Untitled Composition",
@@ -529,18 +497,17 @@ Provide a concise, practical, high-value guitar instruction response. Mention sp
           imageUrl: imageUrl,
           lyrics: clip.metadata?.prompt || clip.metadata?.text || clip.prompt || clip.lyrics || "[Instrumental Audio Track]",
           tags: tags,
-          createdAt: item.created_at || clip.created_at || clip.createdAt || new Date().toISOString(),
+          createdAt: dateStr,
           playCount: clip.play_count ?? clip.playCount ?? 1250,
           upvoteCount: clip.upvote_count ?? clip.upvoteCount ?? 88,
           // Compatibility aliases
           audio_url: streamUrl,
           image_url: imageUrl,
-          created_at: item.created_at || clip.created_at || clip.createdAt || new Date().toISOString(),
+          created_at: dateStr,
         };
       });
 
       if (tracks.length > 0) {
-        // Keep original playlist order as returned by Suno (most recently added on top)
         return res.json({
           id: rawId,
           title: playlistTitle,
@@ -550,7 +517,8 @@ Provide a concise, practical, high-value guitar instruction response. Mention sp
           userDisplayName: userDisplayName,
           tracks: tracks,
           totalTracks: totalTracks,
-          hasMore: hasMore
+          hasMore: hasMore,
+          lastSynced: Date.now()
         });
       }
     }
@@ -568,7 +536,8 @@ Provide a concise, practical, high-value guitar instruction response. Mention sp
       userDisplayName: fallback.userDisplayName || "ELITEJOE",
       tracks: fallbackTracks,
       totalTracks: fallbackTracks.length,
-      hasMore: false
+      hasMore: false,
+      lastSynced: Date.now()
     });
   });
 

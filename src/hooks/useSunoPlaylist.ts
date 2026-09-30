@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { SunoPlaylistResponse, SunoTrack, SUNO_PLAYLIST_ALIASES } from "../lib/suno-playlists";
 import { SUNO_CATALOG_MASTER } from "../lib/suno-catalog-data";
+import { getStoredSunoToken, getStoredSunoCookie, getCustomImportedCatalog } from "../utils/sunoAuth";
 
 interface CachedEntry {
   data: SunoPlaylistResponse;
@@ -17,7 +18,7 @@ export interface UseSunoPlaylistResult {
   lastSynced: number | null;
   page: number;
   hasMore: boolean;
-  refresh: () => Promise<void>;
+  refresh: () => Promise<{ success: boolean; count: number; latestTitle?: string }>;
   loadMore: () => Promise<void>;
 }
 
@@ -27,7 +28,7 @@ const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes fresh window
 const SYNCED_PLAYLISTS = new Set<string>();
 
 /**
- * Synchronously retrieves cached playlist from Memory Map, LocalStorage, or Master Catalog.
+ * Synchronously retrieves cached playlist from Memory Map, Custom Import, LocalStorage, or Master Catalog.
  * Guarantees instantaneous song display with zero empty state flicker.
  */
 export function getCachedPlaylist(playlistId: string): SunoPlaylistResponse {
@@ -44,7 +45,15 @@ export function getCachedPlaylist(playlistId: string): SunoPlaylistResponse {
     return mem.data;
   }
 
-  // 2. Check persistent browser LocalStorage
+  // 2. Check user-imported / owner-synced custom catalog
+  const customCatalog = getCustomImportedCatalog();
+  if (customCatalog[normalizedId]?.tracks && customCatalog[normalizedId].tracks.length > 0) {
+    const customData = customCatalog[normalizedId];
+    MEMORY_CACHE.set(normalizedId, { data: customData, timestamp: Date.now() });
+    return customData;
+  }
+
+  // 3. Check persistent browser LocalStorage
   if (typeof window !== "undefined") {
     try {
       const raw = localStorage.getItem(`${LOCAL_STORAGE_PREFIX}${normalizedId}`);
@@ -68,7 +77,7 @@ export function getCachedPlaylist(playlistId: string): SunoPlaylistResponse {
     }
   }
 
-  // 3. Fallback to pre-bundled Master Catalog (contains all 92+ songs)
+  // 4. Fallback to pre-bundled Master Catalog (contains all songs)
   const master = SUNO_CATALOG_MASTER[normalizedId] || SUNO_CATALOG_MASTER["ff247038-e0ae-4778-989d-0529e575027b"];
   if (master?.tracks && master.tracks.length > 0) {
     MEMORY_CACHE.set(normalizedId, { data: master, timestamp: Date.now() });
@@ -210,15 +219,14 @@ export function useSunoPlaylist(playlistId: string): UseSunoPlaylistResult {
    * Updates state seamlessly when new data arrives without flickering 0 songs
    */
   const fetchPlaylistData = useCallback(
-    async (targetPage: number = 1, append: boolean = false, forceRefresh: boolean = false) => {
-      if (!playlistId) return;
+    async (targetPage: number = 1, append: boolean = false, forceRefresh: boolean = false): Promise<{ success: boolean; count: number; latestTitle?: string }> => {
+      if (!playlistId) return { success: false, count: 0 };
 
       const normalizedId = SUNO_PLAYLIST_ALIASES[playlistId.trim()] || playlistId.trim();
 
       if (append) {
         setIsLoadingMore(true);
       } else {
-        // If we don't have tracks, show loading; otherwise, background sync
         const currentTracksCount = playlist?.tracks?.length || 0;
         if (currentTracksCount === 0) {
           setIsLoading(true);
@@ -230,7 +238,22 @@ export function useSunoPlaylist(playlistId: string): UseSunoPlaylistResult {
 
       try {
         const cacheBuster = forceRefresh ? `&_t=${Date.now()}` : "";
-        const res = await fetch(`/api/suno-playlist?id=${encodeURIComponent(normalizedId)}&page=${targetPage}${cacheBuster}`);
+        const token = getStoredSunoToken();
+        const cookie = getStoredSunoCookie();
+
+        const headers: Record<string, string> = {};
+        if (token) {
+          const cleanToken = token.replace(/^Bearer\s+/i, "").trim();
+          headers["Authorization"] = `Bearer ${cleanToken}`;
+          headers["x-suno-token"] = cleanToken;
+        }
+        if (cookie) {
+          headers["x-suno-cookie"] = cookie.trim();
+        }
+
+        const res = await fetch(`/api/suno-playlist?id=${encodeURIComponent(normalizedId)}&page=${targetPage}${cacheBuster}`, {
+          headers
+        });
         
         const contentType = res.headers.get("content-type") || "";
         if (!res.ok || !contentType.includes("application/json")) {
@@ -259,7 +282,11 @@ export function useSunoPlaylist(playlistId: string): UseSunoPlaylistResult {
           setIsLoading(false);
           setIsSyncing(false);
           setIsLoadingMore(false);
-          return;
+          return {
+            success: true,
+            count: data.tracks.length,
+            latestTitle: data.tracks[0]?.title
+          };
         }
         throw new Error("No tracks in API response");
       } catch (err: any) {
@@ -277,7 +304,11 @@ export function useSunoPlaylist(playlistId: string): UseSunoPlaylistResult {
               setIsLoading(false);
               setIsSyncing(false);
               setIsLoadingMore(false);
-              return;
+              return {
+                success: true,
+                count: clientData.tracks.length,
+                latestTitle: clientData.tracks[0]?.title
+              };
             }
           } catch {
             // Ignore proxy errors
@@ -289,9 +320,15 @@ export function useSunoPlaylist(playlistId: string): UseSunoPlaylistResult {
         if (isMountedRef.current && cachedFallback?.tracks?.length > 0) {
           setPlaylist(cachedFallback);
           setError(null);
+          return {
+            success: true,
+            count: cachedFallback.tracks.length,
+            latestTitle: cachedFallback.tracks[0]?.title
+          };
         } else if (isMountedRef.current) {
           setError("Failed to sync latest songs.");
         }
+        return { success: false, count: 0 };
       } finally {
         if (isMountedRef.current) {
           setIsLoading(false);
@@ -318,7 +355,7 @@ export function useSunoPlaylist(playlistId: string): UseSunoPlaylistResult {
     }
   }, [playlistId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (): Promise<{ success: boolean; count: number; latestTitle?: string }> => {
     const normalizedId = SUNO_PLAYLIST_ALIASES[playlistId.trim()] || playlistId.trim();
     MEMORY_CACHE.delete(normalizedId);
     SYNCED_PLAYLISTS.delete(normalizedId); // Allow syncing again on manual refresh
@@ -330,7 +367,7 @@ export function useSunoPlaylist(playlistId: string): UseSunoPlaylistResult {
       }
     }
     setPage(1);
-    await fetchPlaylistData(1, false, true);
+    return await fetchPlaylistData(1, false, true);
   }, [playlistId, fetchPlaylistData]);
 
   const loadMore = useCallback(async () => {

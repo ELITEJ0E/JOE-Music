@@ -433,14 +433,21 @@ export function stabilizeChordSegments(
     finalSegments[i + 1].startTime = finalSegments[i].endTime;
   }
 
-  finalSegments = finalSegments.map((s, idx) => ({
-    ...s,
-    id: `seg-${idx}`,
-    stabilizedChord: s.chord,
-    startTime: Number(s.startTime.toFixed(3)),
-    endTime: Number(s.endTime.toFixed(3)),
-    durationBeats: Number(((s.endTime - s.startTime) / beatIntervalSec).toFixed(1))
-  }));
+  finalSegments = finalSegments.map((s, idx) => {
+    const norm = parseChordLabel(s.chord, options.keyContext);
+    const normalizedLabel = norm.isValid ? norm.canonicalLabel : s.chord;
+    return {
+      ...s,
+      id: `seg-${idx}`,
+      chord: normalizedLabel,
+      root: norm.isValid ? norm.root : s.root,
+      bass: norm.isValid ? (norm.bass || norm.root) : s.bass,
+      stabilizedChord: normalizedLabel,
+      startTime: Number(s.startTime.toFixed(3)),
+      endTime: Number(s.endTime.toFixed(3)),
+      durationBeats: Number(((s.endTime - s.startTime) / beatIntervalSec).toFixed(1))
+    };
+  });
 
   const finalProgression = finalSegments.map((s) => s.chord);
 

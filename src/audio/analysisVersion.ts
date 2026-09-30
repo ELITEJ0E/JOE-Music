@@ -1,7 +1,7 @@
 // Analysis algorithm version tracking for JOE-Music
 // Bump this version whenever the MIR detection, Viterbi HMM, or stabilization algorithms change.
 
-export const CURRENT_ANALYSIS_VERSION = "2.0.0";
+export const CURRENT_ANALYSIS_VERSION = "2.1.0";
 
 /**
  * Checks whether an existing saved analysis matches the current MIR algorithm version.

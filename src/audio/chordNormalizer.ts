@@ -59,9 +59,11 @@ const NOTE_PITCH_CLASS_MAP: Record<string, number> = {
 // Keys using flats
 const FLAT_KEYS = new Set([
   "F", "BB", "EB", "AB", "DB", "GB", "CB",
-  "DM", "GM", "CM", "FM", "BBM", "EBM",
+  "DM", "GM", "CM", "FM", "BBM", "EBM", "ABM",
   "F MAJ", "BB MAJ", "EB MAJ", "AB MAJ", "DB MAJ", "GB MAJ",
-  "D MIN", "G MIN", "C MIN", "F MIN", "BB MIN", "EB MIN"
+  "F MAJOR", "BB MAJOR", "EB MAJOR", "AB MAJOR", "DB MAJOR", "GB MAJOR",
+  "D MIN", "G MIN", "C MIN", "F MIN", "BB MIN", "EB MIN", "AB MIN",
+  "D MINOR", "G MINOR", "C MINOR", "F MINOR", "BB MINOR", "EB MINOR", "AB MINOR"
 ]);
 
 /**
@@ -90,6 +92,7 @@ export function isFlatKey(keyContext?: string): boolean {
   if (FLAT_KEYS.has(clean)) return true;
   if (clean.includes("B") && !clean.includes("#")) return true;
   if (clean.includes("FLAT")) return true;
+  if (clean.startsWith("G MIN") || clean.startsWith("D MIN") || clean.startsWith("C MIN") || clean.startsWith("F MIN") || clean.startsWith("BB MIN") || clean.startsWith("EB MIN") || clean.startsWith("AB MIN")) return true;
   return false;
 }
 
@@ -100,6 +103,17 @@ export function normalizeNoteSpelling(rawNote: string, keyContext?: string): str
   if (!rawNote) return "";
   const pc = pitchClassOfNote(rawNote);
   if (pc === -1) return rawNote;
+
+  if (!keyContext) {
+    const clean = rawNote.trim().toUpperCase();
+    if (clean.includes("#") || clean.includes("SHARP")) {
+      return PITCH_NAMES_SHARP[pc];
+    }
+    if (clean.includes("FLAT") || (clean.length > 1 && clean.endsWith("B"))) {
+      return PITCH_NAMES_FLAT[pc];
+    }
+    return PITCH_NAMES_SHARP[pc];
+  }
 
   const useFlat = isFlatKey(keyContext);
   return useFlat ? PITCH_NAMES_FLAT[pc] : PITCH_NAMES_SHARP[pc];

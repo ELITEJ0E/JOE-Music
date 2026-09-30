@@ -7,7 +7,7 @@ import { NOTE_NAMES } from "./chromaExtractor";
 import { normalizeChord } from "./chordNormalizer";
 
 export interface ChordCandidate {
-  chord: string;              // e.g. "A", "F#m", "C/E", "D"
+  chord: string;              // e.g. "A", "F#m", "C/E", "D", "Bb"
   root: string;               // e.g. "A"
   bass: string;               // e.g. "A" or "E"
   quality: string;            // "maj", "min", "7", "maj7", "min7", "sus2", "sus4", "add9", "5", "dim"
@@ -16,6 +16,8 @@ export interface ChordCandidate {
   rootScore: number;
   qualityScore: number;
   thirdEvidence: number;
+  thirdMargin?: number;
+  thirdConfidence?: number;
   isSlash: boolean;
   bassEvidence: number;
   scoreMargin?: number;
@@ -25,6 +27,8 @@ export interface ChordCandidate {
     rootCandidates: Array<{ note: string; score: number }>;
     maj3Evidence: number;
     min3Evidence: number;
+    thirdMargin: number;
+    thirdConfidence: number;
     fifthEvidence: number;
     definingEvidence: number;
     slashBassRatio: number;
@@ -37,18 +41,21 @@ export interface ChordCandidate {
 export interface DiatonicProfile {
   keyNote: string;
   isMajor: boolean;
+  keyRootIdx: number;
   diatonicRoots: number[];      // Pitch class indices
   diatonicQualities: string[];  // "maj", "min", "dim"
+  harmonicMinorVRoot?: number;  // Pitch class index of scale degree 5 in minor key
 }
 
 export function parseDiatonicProfile(keyString: string): DiatonicProfile {
-  const parts = keyString.split(" ");
+  const parts = keyString.trim().split(" ");
   const keyNote = parts[0] || "C";
-  const isMajor = (parts[1] || "Major").toLowerCase().includes("maj");
+  const isMajor = !(parts[1] || "").toLowerCase().includes("min");
   const rootIdx = Math.max(0, NOTE_NAMES.indexOf(keyNote));
 
   let diatonicRoots: number[] = [];
   let diatonicQualities: string[] = [];
+  let harmonicMinorVRoot: number | undefined = undefined;
 
   if (isMajor) {
     diatonicRoots = [0, 2, 4, 5, 7, 9, 11].map(iv => (rootIdx + iv) % 12);
@@ -56,9 +63,10 @@ export function parseDiatonicProfile(keyString: string): DiatonicProfile {
   } else {
     diatonicRoots = [0, 2, 3, 5, 7, 8, 10].map(iv => (rootIdx + iv) % 12);
     diatonicQualities = ["min", "dim", "maj", "min", "min", "maj", "maj"];
+    harmonicMinorVRoot = (rootIdx + 7) % 12; // Scale degree 5
   }
 
-  return { keyNote, isMajor, diatonicRoots, diatonicQualities };
+  return { keyNote, isMajor, keyRootIdx: rootIdx, diatonicRoots, diatonicQualities, harmonicMinorVRoot };
 }
 
 /**
@@ -176,6 +184,9 @@ export function evaluateQualityForRoot(
   const min7Ev = chroma[(rootIdx + 10) % 12];
   const maj7Ev = chroma[(rootIdx + 11) % 12];
 
+  // Scale degree 5 in minor key
+  const isMinorKeyDegree5 = !keyProfile.isMajor && keyProfile.harmonicMinorVRoot === rootIdx;
+
   // Diatonic expectation for this root
   const diatonicIdx = keyProfile.diatonicRoots.indexOf(rootIdx);
   const expectedQuality = diatonicIdx !== -1 ? keyProfile.diatonicQualities[diatonicIdx] : "maj";
@@ -227,6 +238,9 @@ export function evaluateQualityForRoot(
     let diatonicBonus = 0;
     if (qDef.quality === expectedQuality) {
       diatonicBonus = 0.08;
+    } else if (isMinorKeyDegree5 && (qDef.quality === "maj" || qDef.quality === "7")) {
+      // Harmonic minor dominant V / V7 bonus for scale degree 5 in minor key
+      diatonicBonus = 0.08;
     } else if (qDef.quality === expectedQuality + "7") {
       diatonicBonus = 0.04;
     }
@@ -253,18 +267,30 @@ export function evaluateQualityForRoot(
     }
   }
 
-  // Major vs Minor decision with Key Scale Awareness
+  // Section 5: Calculate Third Margin and Third Confidence Metrics
+  const thirdMargin = Number(Math.abs(maj3Ev - min3Ev).toFixed(3));
+  const thirdConfidence = Number(Math.min(1.0, thirdMargin / 0.25).toFixed(3));
+
+  // Major vs Minor decision with Key Scale Awareness & Harmonic Minor Support
   let finalQuality = bestQualityDef.quality;
   if (finalQuality === "maj" || finalQuality === "min") {
     const maj3PitchClass = (rootIdx + 4) % 12;
     const min3PitchClass = (rootIdx + 3) % 12;
-    const maj3InScale = keyProfile.diatonicRoots.includes(maj3PitchClass);
-    const min3InScale = keyProfile.diatonicRoots.includes(min3PitchClass);
+    let maj3InScale = keyProfile.diatonicRoots.includes(maj3PitchClass);
+    let min3InScale = keyProfile.diatonicRoots.includes(min3PitchClass);
 
-    // If one 3rd is in the key's diatonic scale and the other is not,
-    // require significant acoustic margin (>= 0.14) for the non-scale 3rd to win
-    if (maj3InScale && !min3InScale) {
-      if (min3Ev > maj3Ev + 0.14 && min3Ev >= 0.25) {
+    if (isMinorKeyDegree5) {
+      // Scale degree 5 in minor key: major 3rd is the raised 7th (harmonic minor leading tone)
+      maj3InScale = true;
+      min3InScale = true;
+    }
+
+    // If margin is strong (>= 0.12), acoustic third evidence overrides key prior!
+    if (thirdMargin >= 0.12) {
+      finalQuality = maj3Ev > min3Ev ? "maj" : "min";
+      bestThirdEvidence = maj3Ev > min3Ev ? maj3Ev : min3Ev;
+    } else if (maj3InScale && !min3InScale) {
+      if (min3Ev > maj3Ev + 0.10 && min3Ev >= 0.25) {
         finalQuality = "min";
         bestThirdEvidence = min3Ev;
       } else {
@@ -272,7 +298,7 @@ export function evaluateQualityForRoot(
         bestThirdEvidence = maj3Ev;
       }
     } else if (min3InScale && !maj3InScale) {
-      if (maj3Ev > min3Ev + 0.14 && maj3Ev >= 0.25) {
+      if (maj3Ev > min3Ev + 0.10 && maj3Ev >= 0.25) {
         finalQuality = "maj";
         bestThirdEvidence = maj3Ev;
       } else {
@@ -280,16 +306,20 @@ export function evaluateQualityForRoot(
         bestThirdEvidence = min3Ev;
       }
     } else {
-      // Both in scale or both outside: compare directly with threshold
-      if (min3Ev > maj3Ev + 0.08 && min3Ev >= 0.20) {
+      // Both in scale or both outside: compare directly
+      if (min3Ev > maj3Ev + 0.06 && min3Ev >= 0.20) {
         finalQuality = "min";
         bestThirdEvidence = min3Ev;
-      } else if (maj3Ev > min3Ev + 0.08 && maj3Ev >= 0.20) {
+      } else if (maj3Ev > min3Ev + 0.06 && maj3Ev >= 0.20) {
         finalQuality = "maj";
         bestThirdEvidence = maj3Ev;
       } else {
-        // Tie: prefer diatonic quality expectation for this root
-        finalQuality = expectedQuality === "min" ? "min" : "maj";
+        // Tie or small margin: prefer expected quality
+        if (isMinorKeyDegree5) {
+          finalQuality = maj3Ev >= min3Ev - 0.02 ? "maj" : "min";
+        } else {
+          finalQuality = expectedQuality === "min" ? "min" : "maj";
+        }
         bestThirdEvidence = finalQuality === "min" ? min3Ev : maj3Ev;
       }
     }
@@ -310,9 +340,6 @@ export function evaluateQualityForRoot(
   let isSlash = false;
   let bassNoteName = rootName;
 
-  // Strict inversion requirements (Step 8):
-  // 1. Dominant bass note must be a legitimate chord tone (3rd or 5th)
-  // 2. Bass energy must be >= 0.60 and at least 2.0x higher than the root note
   if (dominantBassIdx !== rootIdx) {
     const isMajor3rd = dominantBassIdx === (rootIdx + 4) % 12;
     const isMinor3rd = dominantBassIdx === (rootIdx + 3) % 12;
@@ -324,13 +351,21 @@ export function evaluateQualityForRoot(
     }
   }
 
+  const keyContext = `${keyProfile.keyNote} ${keyProfile.isMajor ? "Major" : "Minor"}`;
+
   const norm = normalizeChord({
     root: rootName,
     quality: finalQuality,
     bass: isSlash ? bassNoteName : undefined
-  }, `${keyProfile.keyNote} ${keyProfile.isMajor ? "Major" : "Minor"}`);
+  }, keyContext);
 
-  const totalScore = Math.max(0.05, Math.min(0.99, (rootBaseScore * 0.55) + (bestQualityScore * 0.45)));
+  // Reflect third margin ambiguity in confidence (Section 12 & 13)
+  let qualityFactor = bestQualityScore;
+  if ((finalQuality === "maj" || finalQuality === "min") && thirdMargin < 0.08) {
+    qualityFactor *= 0.82; // Lower score for tied/ambiguous third decisions
+  }
+
+  const totalScore = Math.max(0.05, Math.min(0.99, (rootBaseScore * 0.55) + (qualityFactor * 0.45)));
 
   return {
     chord: norm.canonicalLabel,
@@ -342,12 +377,16 @@ export function evaluateQualityForRoot(
     rootScore: Number(rootBaseScore.toFixed(3)),
     qualityScore: Number(bestQualityScore.toFixed(3)),
     thirdEvidence: Number(bestThirdEvidence.toFixed(3)),
+    thirdMargin,
+    thirdConfidence,
     isSlash,
     bassEvidence: Number(maxBassEv.toFixed(3)),
     diagnostics: {
       rootCandidates: [],
       maj3Evidence: Number(maj3Ev.toFixed(3)),
       min3Evidence: Number(min3Ev.toFixed(3)),
+      thirdMargin,
+      thirdConfidence,
       fifthEvidence: Number(fifthEv.toFixed(3)),
       definingEvidence: Number(bestDefiningEv.toFixed(3)),
       slashBassRatio: Number(slashBassRatio.toFixed(3))

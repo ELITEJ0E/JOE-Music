@@ -71,10 +71,78 @@ export default async function handler(req: any, res: any) {
     return res.status(200).end();
   }
 
-  const rawId = (req.query?.id as string) || (req.query?.playlist_id as string) || "ff247038-e0ae-4778-989d-0529e575027b";
+  const rawId = (req.query?.id as string) || (req.query?.playlist_id as string) || (req.body?.id as string) || (req.body?.playlistId as string) || "ff247038-e0ae-4778-989d-0529e575027b";
   const targetId = PLAYLIST_ALIASES[rawId.trim()] || rawId.trim();
 
-  const browserHeaders = {
+  // Extract owner session token / cookie if provided
+  const authHeader = (req.headers?.authorization || req.headers?.["x-suno-token"] || req.query?.token || req.body?.sunoToken || req.body?.token || "") as string;
+  const cleanToken = authHeader.replace(/^Bearer\s+/i, "").trim();
+  const cookieHeader = (req.headers?.["x-suno-cookie"] || req.query?.cookie || req.body?.sunoCookie || req.body?.cookie || "") as string;
+
+  // Direct JSON import support
+  if (req.body?.rawJson || req.body?.clips || req.body?.playlist_clips || Array.isArray(req.body)) {
+    try {
+      let parsed = req.body?.rawJson ?? req.body;
+      if (typeof parsed === "string") {
+        parsed = JSON.parse(parsed);
+      }
+      const rawClips = parsed?.playlist_clips || parsed?.clips || (Array.isArray(parsed) ? parsed : []);
+      if (rawClips.length > 0) {
+        const playlistTitle = parsed?.name || parsed?.title || "Upcoming Releases";
+        const playlistDesc = parsed?.description || "Imported Suno Playlist";
+        const userDisplayName = parsed?.user_display_name || "ELITEJOE";
+        const tracks = rawClips.map((item: any) => {
+          const clip = item.clip || item;
+          const clipId = clip.id || clip.clip_id || `trk-${Math.random().toString(36).slice(2, 9)}`;
+          const audioUrl = clip.audio_url || clip.audioUrl || `https://d2lwuy8qc234o3.cloudfront.net/1/clip/${clipId}.m4a`;
+          const rawImg = clip.image_large_url || clip.image_url || clip.imageUrl;
+          const imageUrl = rawImg || `https://cdn2.suno.ai/image_${clipId}.jpeg`;
+          const durationVal = typeof clip.metadata?.duration === "number"
+            ? Math.round(clip.metadata.duration)
+            : typeof clip.duration === "number" && clip.duration > 0
+            ? Math.round(clip.duration)
+            : 185;
+
+          return {
+            id: clipId,
+            title: clip.title || "Untitled Composition",
+            artist: clip.display_name || clip.handle || userDisplayName,
+            album: clip.album || playlistTitle,
+            duration: durationVal,
+            audioUrl: audioUrl,
+            videoUrl: clip.video_url || clip.videoUrl || null,
+            imageUrl: imageUrl,
+            lyrics: clip.metadata?.prompt || clip.metadata?.text || clip.prompt || clip.lyrics || "[Audio Track]",
+            tags: ["Guitar", "Original"],
+            createdAt: item.created_at || clip.created_at || clip.createdAt || new Date().toISOString(),
+            playCount: clip.play_count ?? clip.playCount ?? 1250,
+            upvoteCount: clip.upvote_count ?? clip.upvoteCount ?? 88,
+            audio_url: audioUrl,
+            image_url: imageUrl,
+            created_at: item.created_at || clip.created_at || clip.createdAt || new Date().toISOString()
+          };
+        });
+
+        return res.status(200).json({
+          id: rawId,
+          title: playlistTitle,
+          name: playlistTitle,
+          description: playlistDesc,
+          imageUrl: tracks[0]?.imageUrl || "https://cdn2.suno.ai/1efe9cb2-dd3b-47c4-b0ad-c8efa5e4e139.jpeg",
+          userDisplayName: userDisplayName,
+          tracks: tracks,
+          totalTracks: tracks.length,
+          hasMore: false,
+          isOwnerAuthenticated: true,
+          lastSynced: Date.now()
+        });
+      }
+    } catch (e) {
+      // Continue
+    }
+  }
+
+  const browserHeaders: Record<string, string> = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     "Accept": "application/json, text/plain, */*",
     "Accept-Language": "en-US,en;q=0.9",
@@ -82,7 +150,15 @@ export default async function handler(req: any, res: any) {
     "Origin": "https://suno.com"
   };
 
+  if (cleanToken) {
+    browserHeaders["Authorization"] = `Bearer ${cleanToken}`;
+  }
+  if (cookieHeader) {
+    browserHeaders["Cookie"] = cookieHeader;
+  }
+
   let foundData: any = null;
+  let is404 = false;
 
   // Step 1: Query Suno Prod API with multi-page support to fetch ALL tracks
   try {
@@ -90,26 +166,32 @@ export default async function handler(req: any, res: any) {
     let allClips: any[] = [];
     let meta: any = null;
 
-    while (page <= 5) {
+    while (page <= 10) {
       const prodApiUrl = `https://studio-api.prod.suno.com/api/playlist/${encodeURIComponent(targetId)}/?page=${page}`;
       let response: any = null;
 
       for (let attempt = 1; attempt <= 2; attempt++) {
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 7000);
+        const timeout = setTimeout(() => controller.abort(), 4000);
         try {
           response = await fetch(prodApiUrl, { headers: browserHeaders, signal: controller.signal });
           clearTimeout(timeout);
-          if (response && response.ok) break;
+          if (response) {
+            if (response.status === 404) {
+              is404 = true;
+              break;
+            }
+            if (response.ok) break;
+          }
         } catch (err: any) {
           clearTimeout(timeout);
           if (attempt === 1) {
-            await new Promise((r) => setTimeout(r, 400));
+            await new Promise((r) => setTimeout(r, 200));
           }
         }
       }
 
-      if (!response || !response.ok) {
+      if (is404 || !response || !response.ok) {
         break;
       }
 
@@ -138,16 +220,18 @@ export default async function handler(req: any, res: any) {
     // Proceed to fallbacks
   }
 
-  // Step 2: Query Studio AI API
-  if (!foundData) {
+  // Step 2: Query Studio AI API (Only if not a 404)
+  if (!foundData && !is404) {
     try {
       const studioAiUrl = `https://studio-api.suno.ai/api/playlist/${encodeURIComponent(targetId)}/?page=1`;
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 4000);
+      const timeout = setTimeout(() => controller.abort(), 3000);
       const response = await fetch(studioAiUrl, { headers: browserHeaders, signal: controller.signal });
       clearTimeout(timeout);
 
-      if (response.ok) {
+      if (response.status === 404) {
+        is404 = true;
+      } else if (response.ok) {
         const json = await response.json();
         const clips = json.playlist_clips || json.clips || [];
         if (clips.length > 0) {
@@ -159,12 +243,12 @@ export default async function handler(req: any, res: any) {
     }
   }
 
-  // Step 3: Scrape Suno Next.js RSC HTML
-  if (!foundData) {
+  // Step 3: Scrape Suno Next.js RSC HTML (Only if not 404)
+  if (!foundData && !is404) {
     try {
       const pageUrl = `https://suno.com/playlist/${targetId}`;
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 6000);
+      const timeout = setTimeout(() => controller.abort(), 3500);
       const response = await fetch(pageUrl, {
         headers: {
           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
@@ -174,7 +258,9 @@ export default async function handler(req: any, res: any) {
       });
       clearTimeout(timeout);
 
-      if (response.ok) {
+      if (response.status === 404) {
+        is404 = true;
+      } else if (response.ok) {
         const html = await response.text();
         const { foundClips, foundName } = extractRSCClips(html);
         if (foundClips.length > 0) {

@@ -109,8 +109,8 @@ export function buildMusicalGrid(
   options: { forceHighResolution?: boolean } = {}
 ): { units: BeatUnit[]; isFastMode: boolean; isHighResolutionMode: boolean; beatIntervalSec: number } {
   const beatIntervalSec = 60 / Math.max(40, tempo);
-  // High resolution grid (8th-note subdivisions) enabled for fast songs or high harmonic flux
-  const isHighResolutionMode = options.forceHighResolution ?? (tempo >= 115);
+  // High resolution grid (8th-note subdivisions) enabled ONLY when explicitly forced or when harmonic change density demands it (Section 6)
+  const isHighResolutionMode = options.forceHighResolution ?? false;
 
   let effectiveBeats = [...beats];
   if (effectiveBeats.length === 0) {
@@ -379,7 +379,7 @@ function getHarmonicTransitionScore(
     transitionBonus += 0.18;
   }
 
-  // 5. Harmonic Progression Plausibility:
+  // 5. Harmonic Progression Plausibility & Harmonic Minor Soft Priors (Sections 3 & 10):
   const rootAIdx = NOTE_NAMES.indexOf(chordA.root);
   const rootBIdx = NOTE_NAMES.indexOf(chordB.root);
   if (rootAIdx !== -1 && rootBIdx !== -1) {
@@ -387,11 +387,54 @@ function getHarmonicTransitionScore(
     if (rootDiff === 5 || rootDiff === 7) {
       transitionBonus += 0.16; // Circle of Fifths (IV / V)
     } else if (rootDiff === 2 || rootDiff === 10) {
-      transitionBonus += 0.12; // Diatonic step (ii / vi / vii)
+      transitionBonus += 0.12; // Diatonic step
     } else if (rootDiff === 3 || rootDiff === 9) {
       transitionBonus += 0.12; // Relative major / minor
     } else if (rootDiff === 6) {
       transitionBonus -= 0.20; // Tritone jump
+    }
+
+    if (!keyProfile.isMajor) {
+      const keyRoot = keyProfile.keyRootIdx;
+      const tonicIdx = keyRoot;                        // i (e.g. Gm)
+      const subdominantIdx = (keyRoot + 5) % 12;        // iv (e.g. Cm)
+      const dominantIdx = (keyRoot + 7) % 12;           // V (e.g. D)
+      const relativeMajIdx = (keyRoot + 3) % 12;        // III (e.g. Bb)
+      const submediantIdx = (keyRoot + 8) % 12;        // VI (e.g. Eb)
+      const subtonicIdx = (keyRoot + 10) % 12;         // VII (e.g. F)
+
+      // V -> i resolution (e.g. D -> Gm or D7 -> Gm)
+      if (rootAIdx === dominantIdx && rootBIdx === tonicIdx) {
+        if (chordA.quality === "maj" || chordA.quality === "7") {
+          transitionBonus += 0.28; // Strong support for dominant major -> tonic minor
+        } else {
+          transitionBonus += 0.18;
+        }
+      }
+      // i -> V or iv -> V transition (e.g. Gm -> D or Cm -> D)
+      if ((rootAIdx === tonicIdx || rootAIdx === subdominantIdx) && rootBIdx === dominantIdx) {
+        if (chordB.quality === "maj" || chordB.quality === "7") {
+          transitionBonus += 0.22;
+        } else {
+          transitionBonus += 0.14;
+        }
+      }
+      // VII -> III (e.g. F -> Bb)
+      if (rootAIdx === subtonicIdx && rootBIdx === relativeMajIdx) {
+        transitionBonus += 0.20;
+      }
+      // VI -> VII (e.g. Eb -> F)
+      if (rootAIdx === submediantIdx && rootBIdx === subtonicIdx) {
+        transitionBonus += 0.18;
+      }
+      // i -> VI (e.g. Gm -> Eb)
+      if (rootAIdx === tonicIdx && rootBIdx === submediantIdx) {
+        transitionBonus += 0.18;
+      }
+      // i -> VII (e.g. Gm -> F)
+      if (rootAIdx === tonicIdx && rootBIdx === subtonicIdx) {
+        transitionBonus += 0.18;
+      }
     }
   }
 
@@ -924,10 +967,10 @@ export function analyzeBeatSynchronousHarmonics(
     config.hopSize
   );
 
-  // High Harmonic Resolution is activated based on harmonic change density, not purely BPM
-  const shouldEnableHighResolution = config.highHarmonicResolution ?? (
-    harmonicDensity >= 0.28 || (config.tempo >= 120 && harmonicDensity >= 0.15)
-  );
+  // High Harmonic Resolution is activated based on actual harmonic change density, not purely BPM (Section 6)
+  const shouldEnableHighResolution = config.highHarmonicResolution !== undefined
+    ? config.highHarmonicResolution
+    : (harmonicDensity >= 0.28 || (config.tempo >= 135 && harmonicDensity >= 0.20));
 
   // 1. Build adaptive musical time grid (detects tempo and harmonic resolution needs)
   const { units, isHighResolutionMode } = buildMusicalGrid(

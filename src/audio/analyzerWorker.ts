@@ -129,7 +129,8 @@ self.onmessage = function (e: MessageEvent) {
       totalChromaFlux += frameDiff;
     }
     const avgChromaFlux = totalChromaFlux / Math.max(1, chromagram.length - 1);
-    const highHarmonicResolution = (estimatedBpm >= 115) || (avgChromaFlux > 0.45);
+    // High harmonic resolution is activated based on actual harmonic change density, not BPM alone (Section 6)
+    const highHarmonicResolution = avgChromaFlux > 0.52;
 
     const beatHarmonicsResult = analyzeBeatSynchronousHarmonics(
       chromagram,

@@ -211,12 +211,19 @@ export function extractEnhancedChromagram(
           const centsWeight = Math.exp(-Math.pow(centsError / 0.38, 2));
           const logMag = Math.log1p(20 * peakMag);
 
-          // Perceptual spectral weighting: slightly prioritize fundamental octave (130-900 Hz)
+          // Frequency-Band-Aware weighting (Section 8):
+          // LOW-MID HARMONY (~90-500 Hz): strongest weight for root structure and bass fundamentals
+          // MID HARMONY (~180-1000 Hz): strongest weight for major/minor third and fifth (core triad)
+          // HIGH HARMONY (>1100 Hz): lower relative weight so lead female vocals & bright synths don't alter chord decisions
           let octaveWeight = 1.0;
-          if (freq >= 130 && freq <= 950) {
-            octaveWeight = 1.25;
-          } else if (freq > 1400) {
-            octaveWeight = 0.75;
+          if (freq >= 90 && freq <= 500) {
+            octaveWeight = 1.35; // Low-mid fundamental and bass resonance
+          } else if (freq > 500 && freq <= 1100) {
+            octaveWeight = 1.20; // Core triad harmonics (thirds and fifths)
+          } else if (freq > 1100 && freq <= 1800) {
+            octaveWeight = 0.65; // High vocal/lead synth attenuation
+          } else if (freq > 1800) {
+            octaveWeight = 0.40; // High sparkle/overtone attenuation
           }
 
           frameChroma[pitchClass] += logMag * centsWeight * octaveWeight;

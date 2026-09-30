@@ -24,16 +24,21 @@ import {
   Share2,
   Lock,
   Unlock,
-  X
+  X,
+  KeyRound,
+  ShieldCheck
 } from "lucide-react";
 import {
   MY_SUNO_PLAYLISTS,
   SunoTrack,
+  SunoPlaylistResponse,
 } from "../lib/suno-playlists";
 import { useSunoPlaylist } from "../hooks/useSunoPlaylist";
 import { recordRecentSongPlay } from "../utils/recentSongs";
 import { getSunoStreamUrl, resolveClientDecryptedAudioBlob } from "../utils/sunoAudioResolver";
 import { getTrackCapabilities } from "../utils/trackPermissions";
+import { SunoAccountSyncModal } from "./SunoAccountSyncModal";
+import { getStoredSunoToken, getStoredSunoCookie } from "../utils/sunoAuth";
 
 // Backward-compatible alias
 export type SunoSong = SunoTrack;
@@ -71,6 +76,12 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
   const [passwordError, setPasswordError] = useState("");
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [pendingPlaylistId, setPendingPlaylistId] = useState<string | null>(null);
+
+  // Suno Account Credentials Modal State
+  const [showSunoAuthModal, setShowSunoAuthModal] = useState(false);
+  const [hasSunoOwnerCredentials, setHasSunoOwnerCredentials] = useState<boolean>(() => {
+    return Boolean(getStoredSunoToken() || getStoredSunoCookie());
+  });
 
   const handleUnlock = (pwd: string) => {
     if (pwd.trim().toLowerCase() === "joelify") {
@@ -408,16 +419,24 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
     });
   }, [playlists, selectedCategory]);
 
-  // Sort tracks based on playlist addition order:
-  // "latest": Most recently added to playlist on top (playlist addition order reversed)
-  // "oldest": Earliest added to playlist on top (original first-added playlist order)
+  // Sort tracks:
+  // "latest": Most recently added / latest createdAt on top
+  // "oldest": Earliest createdAt / first added on top
   // "title": Alphabetical A-Z
   const sortedTracks = useMemo(() => {
     const list = [...tracks];
     if (songSortMode === "latest") {
-      return list.reverse();
+      return list.sort((a, b) => {
+        const timeA = new Date(a.createdAt || a.created_at || 0).getTime();
+        const timeB = new Date(b.createdAt || b.created_at || 0).getTime();
+        return timeB - timeA;
+      });
     } else if (songSortMode === "oldest") {
-      return list;
+      return list.sort((a, b) => {
+        const timeA = new Date(a.createdAt || a.created_at || 0).getTime();
+        const timeB = new Date(b.createdAt || b.created_at || 0).getTime();
+        return timeA - timeB;
+      });
     } else if (songSortMode === "title") {
       return list.sort((a, b) => a.title.localeCompare(b.title));
     }
@@ -434,6 +453,17 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
       t.tags?.some((tag) => tag.toLowerCase().includes(q))
     );
   }, [sortedTracks, searchQuery]);
+
+  const handleSyncPlaylist = async () => {
+    showToast("Syncing with Suno cloud...");
+    const res = await refresh();
+    if (res?.success) {
+      const latestStr = res.latestTitle ? ` (Latest: "${res.latestTitle}")` : "";
+      showToast(`Synced ${res.count} songs from Suno${latestStr}!`);
+    } else {
+      showToast("Sync completed using cached library.");
+    }
+  };
 
   const formatDuration = (seconds: number) => {
     if (!seconds || isNaN(seconds)) return "0:00";
@@ -474,15 +504,41 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
           </div>
 
           {/* Action Bar */}
-          <div className="flex items-center gap-2.5 self-start md:self-auto">
+          <div className="flex items-center gap-2 self-start md:self-auto flex-wrap">
             <button
-              onClick={refresh}
-              disabled={isLoading || isSyncing}
-              className="px-3.5 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-300 hover:text-white font-mono text-xs flex items-center gap-2 transition-colors cursor-pointer disabled:opacity-50"
-              title="Force Sync / Refresh Songs"
+              onClick={() => setShowSunoAuthModal(true)}
+              className={`px-3 py-1.5 rounded-xl border font-mono text-xs flex items-center gap-2 transition-all cursor-pointer ${
+                hasSunoOwnerCredentials
+                  ? "bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/30 text-emerald-400"
+                  : "bg-amber-500/10 hover:bg-amber-500/20 border-amber-500/30 text-amber-400"
+              }`}
+              title="Connect Suno Account / Paste Token / Import JSON for Private & Unlisted Playlists"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${(isLoading || isSyncing) ? "animate-spin text-[#a3ff12]" : ""}`} />
-              <span>{isSyncing ? "Syncing" : "Sync"}</span>
+              {hasSunoOwnerCredentials ? (
+                <>
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Owner Auth</span>
+                </>
+              ) : (
+                <>
+                  <KeyRound className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Suno Sync &amp; Auth</span>
+                </>
+              )}
+            </button>
+
+            <button
+              onClick={handleSyncPlaylist}
+              disabled={isLoading || isSyncing}
+              className={`px-3.5 py-1.5 rounded-xl border font-mono text-xs flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50 ${
+                isSyncing
+                  ? "bg-[#a3ff12]/15 border-[#a3ff12]/40 text-[#a3ff12]"
+                  : "bg-white/5 hover:bg-white/10 border-white/10 text-zinc-300 hover:text-white"
+              }`}
+              title="Force Sync / Refresh Songs from Suno Cloud"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? "animate-spin text-[#a3ff12]" : ""}`} />
+              <span>{isSyncing ? "Syncing..." : "Sync Latest"}</span>
             </button>
           </div>
         </div>
@@ -1238,6 +1294,23 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* Suno Owner Account & JSON Sync Modal */}
+      <SunoAccountSyncModal
+        isOpen={showSunoAuthModal}
+        onClose={() => {
+          setShowSunoAuthModal(false);
+          setHasSunoOwnerCredentials(Boolean(getStoredSunoToken() || getStoredSunoCookie()));
+        }}
+        playlistId={selectedPlaylistId}
+        playlistTitle={activeMeta.title}
+        onSyncSuccess={(syncedData, count) => {
+          setHasSunoOwnerCredentials(Boolean(getStoredSunoToken() || getStoredSunoCookie()));
+          refresh().then(() => {
+            showToast(`Loaded ${count} songs into ${activeMeta.title}!`);
+          });
+        }}
+      />
     </div>
   );
 };
