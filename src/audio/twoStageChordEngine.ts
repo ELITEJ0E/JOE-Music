@@ -96,6 +96,8 @@ export function estimateRootCandidates(
   options: {
     lowMidChroma?: Float32Array;
     midChroma?: Float32Array;
+    trebleChroma?: Float32Array;
+    fullChroma?: Float32Array;
     frameBassChromas?: Float32Array[];
   } = {}
 ): Array<{
@@ -169,11 +171,24 @@ export function estimateRootCandidates(
       bassWeight = 0.16;
     }
 
+    // Section 11: Treble Contamination Detection (melodic/vocal lead spikes downweighted)
+    const midRootEv = options.midChroma ? options.midChroma[r] : chroma[r];
+    const trebleRootEv = options.trebleChroma ? options.trebleChroma[r] : 0;
+    const isTrebleContaminated = trebleRootEv > 0.40 &&
+                                 lowMidRootEv < 0.28 &&
+                                 midRootEv < 0.30 &&
+                                 rawBassEv < 0.25 &&
+                                 fifthEv < 0.25;
+
     let score = (effectiveBassEv * bassWeight) +
-                (lowMidRootEv * 0.34) +
+                (lowMidRootEv * 0.36) +
                 (fifthEv * 0.20) +
                 octaveBassEv +
                 diatonicBonus;
+
+    if (isTrebleContaminated) {
+      score *= 0.40; // Downweight treble melody note that lacks low-mid/bass foundation
+    }
 
     // Inversion bass support if bass is playing a legitimate 3rd or 5th
     const bassMaj3 = bassChroma[(r + 4) % 12];
@@ -239,6 +254,7 @@ export function evaluateQualityForRoot(
   options: {
     lowMidChroma?: Float32Array;
     midChroma?: Float32Array;
+    trebleChroma?: Float32Array;
     fullChroma?: Float32Array;
     frameBassChromas?: Float32Array[];
     frameMidChromas?: Float32Array[];
@@ -248,9 +264,23 @@ export function evaluateQualityForRoot(
   const midChroma = options.midChroma || chroma;
   const lowMidChroma = options.lowMidChroma || chroma;
 
-  const maj3Ev = midChroma[(rootIdx + 4) % 12];
-  const min3Ev = midChroma[(rootIdx + 3) % 12];
+  let maj3Ev = midChroma[(rootIdx + 4) % 12];
+  let min3Ev = midChroma[(rootIdx + 3) % 12];
   const fifthEv = lowMidChroma[(rootIdx + 7) % 12];
+
+  // Section 11: Treble contamination check for thirds
+  // If a third has strong treble but is weak in mid and low-mid, downweight it so high vocal sibilance
+  // does not flip minor to major or vice-versa.
+  if (options.trebleChroma) {
+    const trebleMaj = options.trebleChroma[(rootIdx + 4) % 12];
+    const trebleMin = options.trebleChroma[(rootIdx + 3) % 12];
+    if (trebleMaj > 0.45 && maj3Ev < 0.25 && lowMidChroma[(rootIdx + 4) % 12] < 0.25) {
+      maj3Ev *= 0.50;
+    }
+    if (trebleMin > 0.45 && min3Ev < 0.25 && lowMidChroma[(rootIdx + 3) % 12] < 0.25) {
+      min3Ev *= 0.50;
+    }
+  }
 
   // Section 6 & 7: Stable-Harmonic Third Analysis & Third Persistence
   let maj3Persistence = maj3Ev;
@@ -517,6 +547,7 @@ export function rankChordCandidatesForWindow(
   options: {
     lowMidChroma?: Float32Array;
     midChroma?: Float32Array;
+    trebleChroma?: Float32Array;
     fullChroma?: Float32Array;
     frameBassChromas?: Float32Array[];
     frameMidChromas?: Float32Array[];

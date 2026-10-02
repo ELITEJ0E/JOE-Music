@@ -24,6 +24,7 @@ export interface StabilizationOptions {
   tempo?: number;
   keyContext?: string;
   duration?: number;
+  isFastHarmonicRhythm?: boolean;
   minSlashDuration?: number;       // Minimum seconds for a genuine slash chord (default: 0.75s)
   minGlitchDuration?: number;      // Maximum seconds for transient glitches (default: 0.45s)
   beatSnapTolerance?: number;      // Seconds within beat to snap boundary (default: 0.20s)
@@ -137,6 +138,97 @@ function simplifyChordExtension(seg: ChordSegment, minDurForExtension: number) {
 }
 
 /**
+ * Section 16: Section-Level Harmonic Vocabulary Model
+ * Infers the dominant recurring harmonic vocabulary for rolling 8–16 bar musical sections.
+ * Transient / short outlier chords (< 1.8 beats) that are not part of the section vocabulary
+ * and lack exceptional harmonic evidence are soft-absorbed into surrounding stable harmonies.
+ */
+function applySectionLevelVocabulary<T extends ChordSegment>(
+  segments: T[],
+  beatIntervalSec: number,
+  totalDuration: number,
+  isFastHarmonicRhythm: boolean
+): { segments: T[]; mergedCount: number } {
+  if (segments.length <= 2) return { segments, mergedCount: 0 };
+
+  const barSec = beatIntervalSec * 4;
+  const windowSec = barSec * 12; // 12-bar rolling musical window (~8-16 bars)
+  let current: T[] = segments.map(s => ({ ...s }));
+  let mergedCount = 0;
+
+  for (let pass = 0; pass < 2; pass++) {
+    for (let i = 0; i < current.length; i++) {
+      const seg = current[i];
+      const dur = seg.endTime - seg.startTime;
+      const durationBeats = dur / beatIntervalSec;
+
+      // Stable chords spanning 2.2+ beats or full half-bars are preserved
+      if (durationBeats >= 2.2) continue;
+
+      // Center time of candidate segment
+      const centerTime = (seg.startTime + seg.endTime) / 2;
+      const winStart = Math.max(0, centerTime - windowSec / 2);
+      const winEnd = Math.min(totalDuration, centerTime + windowSec / 2);
+
+      // Accumulate duration and occurrences for each chord within the rolling section window
+      const chordStats: Record<string, { totalDur: number; count: number }> = {};
+      let totalWinDur = 0;
+      for (const other of current) {
+        if (other.endTime <= winStart || other.startTime >= winEnd) continue;
+        const overlap = Math.min(other.endTime, winEnd) - Math.max(other.startTime, winStart);
+        if (overlap > 0) {
+          if (!chordStats[other.chord]) chordStats[other.chord] = { totalDur: 0, count: 0 };
+          chordStats[other.chord].totalDur += overlap;
+          chordStats[other.chord].count++;
+          totalWinDur += overlap;
+        }
+      }
+
+      const stats = chordStats[seg.chord] || { totalDur: dur, count: 1 };
+      const durRatio = stats.totalDur / Math.max(0.1, totalWinDur);
+
+      // Core vocabulary definition:
+      // Dominates by duration (>= 10% of section duration) OR repeats with substantial cumulative beats (>= 2.5 beats)
+      const isCoreVocabulary = durRatio >= 0.10 || (stats.count >= 2 && stats.totalDur >= beatIntervalSec * 2.2);
+
+      // Outlier protection: check if exceptional evidence is present
+      const diag = seg.diagnostics;
+      const scoreMargin = diag?.scoreMargin ?? 0.1;
+      const thirdEvidence = diag?.thirdEvidence ?? 0.5;
+      const hasExceptionalEvidence = (scoreMargin >= 0.22) && (thirdEvidence >= 0.60) && ((diag?.rootEvidence ?? 0) >= 0.75);
+
+      if (!isCoreVocabulary && durationBeats < 1.8 && !hasExceptionalEvidence) {
+        const left = i > 0 ? current[i - 1] : null;
+        const right = i < current.length - 1 ? current[i + 1] : null;
+        if (left && right) {
+          if (left.chord === right.chord) {
+            left.endTime = right.endTime;
+            current.splice(i, 2);
+            i--;
+            mergedCount += 2;
+          } else {
+            const leftRatio = (chordStats[left.chord]?.totalDur ?? 0) / Math.max(0.1, totalWinDur);
+            const rightRatio = (chordStats[right.chord]?.totalDur ?? 0) / Math.max(0.1, totalWinDur);
+            if (leftRatio >= rightRatio) {
+              left.endTime = seg.endTime;
+              current.splice(i, 1);
+              i--;
+            } else {
+              right.startTime = seg.startTime;
+              current.splice(i, 1);
+              i--;
+            }
+            mergedCount++;
+          }
+        }
+      }
+    }
+  }
+
+  return { segments: current, mergedCount };
+}
+
+/**
  * Post-MIR Harmonic Stabilization & Musical Segmentation Layer.
  * Transforms raw, over-segmented MIR timeline into clean, musically continuous chord progression.
  */
@@ -159,18 +251,24 @@ export function stabilizeChordSegments(
 
   const tempo = options.tempo || 120;
   const beatIntervalSec = 60 / Math.max(40, tempo);
-  const isFastTempo = tempo >= 115;
+  const totalDuration = options.duration || (rawSegments[rawSegments.length - 1]?.endTime ?? 0);
+  const totalBars = Math.max(1, totalDuration / (beatIntervalSec * 4));
+  const rawChangesPerBar = rawSegments.length / totalBars;
+
+  // Section 12: Separate Harmonic Rhythm from Tempo
+  // Do NOT use tempo >= 115 to reduce minimum chord duration.
+  // Instead use isFastHarmonicRhythm derived from actual harmonic change density across bars.
+  const isFastHarmonicRhythm = options.isFastHarmonicRhythm ?? (rawChangesPerBar >= 2.6);
   
-  // 1. Adaptive Minimum Musical Duration:
-  // Base duration scales with beat interval (~0.85 beat, min 0.42s).
-  // Genuine half-beat (8th note) chords are protected if supported by solid margin and evidence.
-  let adaptiveMinDuration = isFastTempo 
+  // 1. Adaptive Minimum Musical Duration (Sections 12 & 13):
+  // Measured in musical beats rather than raw seconds alone.
+  // Slow harmonic rhythm uses strong persistence (>= 1.5 - 2.0 beats, min 0.70s).
+  let adaptiveMinDuration = isFastHarmonicRhythm 
     ? Math.max(0.42, beatIntervalSec * 0.85) 
-    : Math.max(0.65, beatIntervalSec * 0.95);
+    : Math.max(0.70, beatIntervalSec * 1.50);
   
   const minSlashDuration = options.minSlashDuration ?? Math.max(0.45, beatIntervalSec * 0.90);
-  const totalDuration = options.duration || (rawSegments[rawSegments.length - 1].endTime ?? 0);
-  const changeMargin = options.changeMargin ?? (isFastTempo ? 0.10 : 0.08);
+  const changeMargin = options.changeMargin ?? (isFastHarmonicRhythm ? 0.10 : 0.08);
 
   let mergedSegmentsCount = 0;
   let rejectedTransientSlashCount = 0;
@@ -280,6 +378,8 @@ export function stabilizeChordSegments(
 
     for (let i = 0; i < current.length; i++) {
       const seg = current[i];
+      const prev = i > 0 ? current[i - 1] : null;
+      const next = i < current.length - 1 ? current[i + 1] : null;
       const dur = seg.endTime - seg.startTime;
       const durationBeats = dur / beatIntervalSec;
       
@@ -290,14 +390,14 @@ export function stabilizeChordSegments(
       const distToBeat = getDistanceToSubdivision(seg.startTime);
       const isOnBeat = distToBeat <= 0.15;
       
-      // Base viability from duration, score margin, and third evidence
-      let viability = dur * (isFastTempo ? 2.5 : 1.8); 
-      viability += scoreMargin * 2.0;
-      viability += thirdEvidence * 1.0;
+      // Base viability from duration (in musical beats, Section 13), score margin, and third evidence
+      let viability = durationBeats * (isFastHarmonicRhythm ? 2.5 : 2.0); 
+      viability += scoreMargin * 2.5;
+      viability += thirdEvidence * 1.5;
       
       // If duration is at least half a beat and lands on a beat/subdivision with solid evidence, protect it
       if (isOnBeat && dur >= beatIntervalSec * 0.42 && (scoreMargin >= 0.08 || thirdEvidence >= 0.35)) {
-        viability += 2.5;
+        viability += 2.0;
       }
 
       // Hysteresis: if margin is high, it's very viable
@@ -305,19 +405,27 @@ export function stabilizeChordSegments(
         viability += (scoreMargin - changeMargin) * 3.0;
       }
       
-      // Harmonic context: Sandwiched chords (C -> F# -> C or D -> Em -> A)
-      const prev = i > 0 ? current[i-1] : null;
-      const next = i < current.length - 1 ? current[i+1] : null;
-      
+      // Section 14: Require stronger evidence for one-beat chords
+      // A one-beat chord survives only with strong root, clear third, and high margin
+      if (durationBeats < 1.45) {
+        const hasStrongOneBeatEvidence = (scoreMargin >= 0.16) && (thirdEvidence >= 0.45) && ((diag?.rootEvidence ?? 0) >= 0.70);
+        if (!hasStrongOneBeatEvidence) {
+          viability -= 3.0;
+        }
+      }
+
+      // Section 15: Strongly suppress isolated A-B-A fluctuations (e.g. Am -> C -> Am or Gm -> F -> Gm)
       if (prev && next && prev.chord === next.chord) {
-        const isConfirmedFastHarmonic = Boolean(seg.diagnostics?.confirmedByPendingEngine) || (dur >= beatIntervalSec * 0.38 && (scoreMargin >= 0.15 || thirdEvidence >= 0.38));
-        if (!isConfirmedFastHarmonic) {
+        const isExceptional = (thirdEvidence >= 0.55) &&
+                              (scoreMargin >= 0.18) &&
+                              ((diag?.rootEvidence ?? 0) >= 0.75) &&
+                              Boolean(seg.diagnostics?.confirmedByPendingEngine);
+        if (!isExceptional && durationBeats <= 2.2) {
+          viability -= 4.5; // Strongly penalize A-B-A short oscillation
+        } else if (!isExceptional) {
           const harmonicDist = getHarmonicDistance(seg.root, prev.root);
-          // If sandwiched and harmonically distant, penalize heavily
           if (harmonicDist >= 2 && dur < adaptiveMinDuration * 1.5) {
             viability -= 2.5;
-          } else if (dur <= adaptiveMinDuration * 0.8) {
-            viability -= 1.8;
           }
         }
       }
@@ -429,6 +537,13 @@ export function stabilizeChordSegments(
       mergedSegmentsCount++;
     }
   }
+
+  // STEP 4B: Section-Level Harmonic Vocabulary Model (Section 16)
+  // For rolling 8-16 bar sections, identify dominant chords and soft-absorb
+  // isolated, short (< 1.8 beats) non-vocabulary chords that lack exceptional evidence.
+  const vocabResult = applySectionLevelVocabulary(current, beatIntervalSec, totalDuration, isFastHarmonicRhythm);
+  current = vocabResult.segments;
+  mergedSegmentsCount += vocabResult.mergedCount;
 
   // STEP 5: Consecutive Identical Chord Merging
   let finalSegments: ChordSegment[] = [];

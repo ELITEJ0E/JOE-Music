@@ -502,23 +502,6 @@ export const SongsLibraryView: React.FC<SongsLibraryViewProps> = ({
               Select a playlist to stream original tracks, worship melodies, and upcoming releases, or extract chords.
             </p>
           </div>
-
-          {/* Action Bar */}
-          <div className="flex items-center gap-2 self-start md:self-auto flex-wrap">
-            <button
-              onClick={handleSyncPlaylist}
-              disabled={isLoading || isSyncing}
-              className={`px-3.5 py-1.5 rounded-xl border font-mono text-xs flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50 ${
-                isSyncing
-                  ? "bg-[#a3ff12]/15 border-[#a3ff12]/40 text-[#a3ff12]"
-                  : "bg-white/5 hover:bg-white/10 border-white/10 text-zinc-300 hover:text-white"
-              }`}
-              title="Force Sync / Refresh Songs from Suno Cloud"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? "animate-spin text-[#a3ff12]" : ""}`} />
-              <span>{isSyncing ? "Syncing..." : "Sync Latest"}</span>
-            </button>
-          </div>
         </div>
 
         {/* Category Pills Filter */}

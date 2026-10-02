@@ -37,6 +37,10 @@ self.onmessage = function (e: MessageEvent) {
 
     let {
       chromagram,
+      lowMidChromagram,
+      midChromagram,
+      trebleChromagram,
+      fullChromagram,
       bassChromagram,
       onsetEnvelope,
       tuningDeviationCents,
@@ -114,23 +118,10 @@ self.onmessage = function (e: MessageEvent) {
     } = beatTrackingResult;
 
     // 3. Beat-Synchronous & Multi-Resolution Harmonic Analysis
-    // Builds musical time grid (adaptive 8th-note subdivisions for >= 115 BPM or high harmonic flux),
-    // aggregates local and contextual chroma, runs Two-Stage Root/Quality decision,
+    // Determines harmonic rhythm/resolution from persistent harmonic evidence,
+    // aggregates local and contextual multi-band chroma, runs Two-Stage Root/Quality decision,
     // and performs Dynamic Programming sequence optimization.
     reportProgress("Running Beat-Synchronous Harmonic Analysis...", 70);
-
-    let totalChromaFlux = 0;
-    for (let f = 1; f < chromagram.length; f++) {
-      let frameDiff = 0;
-      for (let k = 0; k < 12; k++) {
-        const d = chromagram[f][k] - chromagram[f - 1][k];
-        if (d > 0) frameDiff += d;
-      }
-      totalChromaFlux += frameDiff;
-    }
-    const avgChromaFlux = totalChromaFlux / Math.max(1, chromagram.length - 1);
-    // High harmonic resolution is activated based on actual harmonic change density, not BPM alone (Section 6)
-    const highHarmonicResolution = avgChromaFlux > 0.52;
 
     const beatHarmonicsResult = analyzeBeatSynchronousHarmonics(
       chromagram,
@@ -142,7 +133,10 @@ self.onmessage = function (e: MessageEvent) {
         beats,
         estimatedKey,
         totalDuration: duration,
-        highHarmonicResolution
+        lowMidChromagram,
+        midChromagram,
+        trebleChromagram,
+        fullChromagram
       }
     );
 
@@ -157,7 +151,8 @@ self.onmessage = function (e: MessageEvent) {
       beats,
       tempo: estimatedBpm,
       keyContext: estimatedKey,
-      duration
+      duration,
+      isFastHarmonicRhythm: beatHarmonicsResult.isFastHarmonicRhythm
     });
 
     const stabilizedSegments = stabilizationResult.segments;

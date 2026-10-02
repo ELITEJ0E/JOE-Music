@@ -11,6 +11,15 @@ import {
 } from "./twoStageChordEngine";
 import { ChordSegment } from "../types";
 
+export interface HarmonicFeatureSet {
+  chromagram: Float32Array[];
+  bassChromagram: Float32Array[];
+  lowMidChromagram?: Float32Array[];
+  midChromagram?: Float32Array[];
+  trebleChromagram?: Float32Array[];
+  fullChromagram?: Float32Array[];
+}
+
 export interface BeatUnit {
   index: number;
   startTime: number;
@@ -21,8 +30,15 @@ export interface BeatUnit {
   beatNumberInBar: number; // 1, 2, 3, 4
   localChroma: Float32Array;
   localBassChroma: Float32Array;
+  localLowMidChroma: Float32Array;
+  localMidChroma: Float32Array;
+  localTrebleChroma: Float32Array;
+  localFullChroma: Float32Array;
   contextChroma: Float32Array;
+  contextLowMidChroma?: Float32Array;
+  contextMidChroma?: Float32Array;
   blendedChroma: Float32Array;
+  harmonicChangeScore?: number;
   candidates: ChordCandidate[];
   selectedCandidate?: ChordCandidate;
 }
@@ -35,6 +51,11 @@ export interface BeatAnalysisConfig {
   estimatedKey: string;
   totalDuration: number;
   highHarmonicResolution?: boolean;
+  lowMidChromagram?: Float32Array[];
+  midChromagram?: Float32Array[];
+  trebleChromagram?: Float32Array[];
+  fullChromagram?: Float32Array[];
+  featureSet?: HarmonicFeatureSet;
 }
 
 export interface TransitionDiagnostic {
@@ -157,7 +178,13 @@ export function buildMusicalGrid(
         beatNumberInBar,
         localChroma: new Float32Array(12),
         localBassChroma: new Float32Array(12),
+        localLowMidChroma: new Float32Array(12),
+        localMidChroma: new Float32Array(12),
+        localTrebleChroma: new Float32Array(12),
+        localFullChroma: new Float32Array(12),
         contextChroma: new Float32Array(12),
+        contextLowMidChroma: new Float32Array(12),
+        contextMidChroma: new Float32Array(12),
         blendedChroma: new Float32Array(12),
         candidates: []
       });
@@ -172,7 +199,13 @@ export function buildMusicalGrid(
         beatNumberInBar,
         localChroma: new Float32Array(12),
         localBassChroma: new Float32Array(12),
+        localLowMidChroma: new Float32Array(12),
+        localMidChroma: new Float32Array(12),
+        localTrebleChroma: new Float32Array(12),
+        localFullChroma: new Float32Array(12),
         contextChroma: new Float32Array(12),
+        contextLowMidChroma: new Float32Array(12),
+        contextMidChroma: new Float32Array(12),
         blendedChroma: new Float32Array(12),
         candidates: []
       });
@@ -187,7 +220,13 @@ export function buildMusicalGrid(
         beatNumberInBar,
         localChroma: new Float32Array(12),
         localBassChroma: new Float32Array(12),
+        localLowMidChroma: new Float32Array(12),
+        localMidChroma: new Float32Array(12),
+        localTrebleChroma: new Float32Array(12),
+        localFullChroma: new Float32Array(12),
         contextChroma: new Float32Array(12),
+        contextLowMidChroma: new Float32Array(12),
+        contextMidChroma: new Float32Array(12),
         blendedChroma: new Float32Array(12),
         candidates: []
       });
@@ -204,6 +243,7 @@ export function buildMusicalGrid(
 
 /**
  * Aggregates frame-level chromagrams into each musical beat unit with multi-resolution context.
+ * Aggregates all spectral bands (Low-Mid, Mid, Treble, Full, and Bass).
  */
 export function aggregateChromasForBeatUnits(
   units: BeatUnit[],
@@ -211,14 +251,24 @@ export function aggregateChromasForBeatUnits(
   bassChromagram: Float32Array[],
   sampleRate: number,
   hopSize: number,
-  isFastMode: boolean
+  isFastMode: boolean,
+  bands?: {
+    lowMidChromagram?: Float32Array[];
+    midChromagram?: Float32Array[];
+    trebleChromagram?: Float32Array[];
+    fullChromagram?: Float32Array[];
+  }
 ): void {
   const numFrames = chromagram.length;
   if (numFrames === 0) return;
 
   const frameDuration = hopSize / sampleRate;
+  const lowMidFrames = bands?.lowMidChromagram || chromagram;
+  const midFrames = bands?.midChromagram || chromagram;
+  const trebleFrames = bands?.trebleChromagram;
+  const fullFrames = bands?.fullChromagram || chromagram;
 
-  // 1. Calculate Local Chroma and Bass Chroma for each unit
+  // 1. Calculate Local Chroma across all bands for each unit
   for (let u = 0; u < units.length; u++) {
     const unit = units[u];
     const startFrame = Math.max(0, Math.min(numFrames - 1, Math.floor(unit.startTime / frameDuration)));
@@ -229,27 +279,36 @@ export function aggregateChromasForBeatUnits(
       for (let k = 0; k < 12; k++) {
         unit.localChroma[k] += chromagram[f][k];
         unit.localBassChroma[k] += bassChromagram[f][k];
+        unit.localLowMidChroma[k] += lowMidFrames[f][k];
+        unit.localMidChroma[k] += midFrames[f][k];
+        if (trebleFrames && trebleFrames[f]) {
+          unit.localTrebleChroma[k] += trebleFrames[f][k];
+        }
+        unit.localFullChroma[k] += fullFrames[f][k];
       }
     }
 
-    let maxC = 0, maxB = 0;
-    for (let k = 0; k < 12; k++) {
-      unit.localChroma[k] /= count;
-      unit.localBassChroma[k] /= count;
-      if (unit.localChroma[k] > maxC) maxC = unit.localChroma[k];
-      if (unit.localBassChroma[k] > maxB) maxB = unit.localBassChroma[k];
-    }
-    if (maxC > 0) {
-      for (let k = 0; k < 12; k++) unit.localChroma[k] /= maxC;
-    }
-    if (maxB > 0) {
-      for (let k = 0; k < 12; k++) unit.localBassChroma[k] /= maxB;
+    // Normalize each band array per beat unit
+    for (const arr of [
+      unit.localChroma,
+      unit.localBassChroma,
+      unit.localLowMidChroma,
+      unit.localMidChroma,
+      unit.localTrebleChroma,
+      unit.localFullChroma
+    ]) {
+      let maxVal = 0;
+      for (let k = 0; k < 12; k++) {
+        arr[k] /= count;
+        if (arr[k] > maxVal) maxVal = arr[k];
+      }
+      if (maxVal > 0) {
+        for (let k = 0; k < 12; k++) arr[k] /= maxVal;
+      }
     }
   }
 
   // 2. High-Fidelity Local Chroma with Micro-Context Smoothing
-  // Uses 92% direct beat chroma to preserve crisp, instantaneous chord transitions
-  // and small 2-unit micro-window (max 1 beat) to prevent cross-measure harmonic smearing
   const contextWindowUnits = 2;
 
   for (let u = 0; u < units.length; u++) {
@@ -258,21 +317,29 @@ export function aggregateChromasForBeatUnits(
     const endU = Math.min(units.length - 1, u + Math.floor(contextWindowUnits / 2));
     const winCount = endU - startU + 1;
 
+    if (!unit.contextLowMidChroma) unit.contextLowMidChroma = new Float32Array(12);
+    if (!unit.contextMidChroma) unit.contextMidChroma = new Float32Array(12);
+
     for (let i = startU; i <= endU; i++) {
       for (let k = 0; k < 12; k++) {
         unit.contextChroma[k] += units[i].localChroma[k];
+        unit.contextLowMidChroma[k] += units[i].localLowMidChroma[k];
+        unit.contextMidChroma[k] += units[i].localMidChroma[k];
       }
     }
-    let maxCtx = 0;
-    for (let k = 0; k < 12; k++) {
-      unit.contextChroma[k] /= winCount;
-      if (unit.contextChroma[k] > maxCtx) maxCtx = unit.contextChroma[k];
-    }
-    if (maxCtx > 0) {
-      for (let k = 0; k < 12; k++) unit.contextChroma[k] /= maxCtx;
+
+    for (const arr of [unit.contextChroma, unit.contextLowMidChroma, unit.contextMidChroma]) {
+      let maxCtx = 0;
+      for (let k = 0; k < 12; k++) {
+        arr[k] /= winCount;
+        if (arr[k] > maxCtx) maxCtx = arr[k];
+      }
+      if (maxCtx > 0) {
+        for (let k = 0; k < 12; k++) arr[k] /= maxCtx;
+      }
     }
 
-    // For subdivision units (half-beats, ~240ms), blend 80% local + 20% context to prevent isolated vocal spikes
+    // For subdivision units (half-beats, ~240ms), blend 80% local + 20% context
     // For beat units (~480ms), blend 90% local + 10% context
     const localWeight = unit.isSubdivision ? 0.80 : 0.90;
     const ctxWeight = 1.0 - localWeight;
@@ -633,7 +700,9 @@ export function optimizeChordSequence(
           rejectionReason: "Transient candidate (A-B-A rapid oscillation or isolated melody/bass transient without persistence)"
         };
         diagnosticsList.push(diag);
-        console.log(`[CHORD DIAGNOSTIC]\n${formatTransitionDiagnostic(diag)}\n`);
+        if (process.env.DEBUG_CHORD_DIAGNOSTICS === "true") {
+          console.log(`[CHORD DIAGNOSTIC]\n${formatTransitionDiagnostic(diag)}\n`);
+        }
         pendingState = null;
       }
 
@@ -654,12 +723,13 @@ export function optimizeChordSequence(
       const nextUnit = u < K - 1 ? units[u + 1] : null;
       const nextSupports = nextUnit?.candidates.some(c => c.chord === targetCandidate.chord && c.score >= 0.40);
       const isDownbeatOrBeat = !unit.isSubdivision;
+      const hScore = unit.harmonicChangeScore ?? 0.50;
 
       // Check immediate confirmation: overwhelming evidence + forward/metric confirmation
-      const isOverwhelminglyStrong = targetCandidate.score >= 0.75 &&
-                                     margin >= 0.18 &&
-                                     thirdEv >= 0.35 &&
-                                     (nextSupports || isDownbeatOrBeat || (targetCandidate.score >= 0.85 && rootEv >= 0.85));
+      const isOverwhelminglyStrong = targetCandidate.score >= 0.85 &&
+                                     margin >= 0.16 &&
+                                     thirdEv >= 0.40 &&
+                                     (nextSupports || (targetCandidate.score >= 0.90 && rootEv >= 0.88 && hScore >= 0.55));
 
       if (isOverwhelminglyStrong && pendingState === null) {
         const prev = committedChord;
@@ -685,7 +755,9 @@ export function optimizeChordSequence(
           rejectionReason: "None (Genuine harmonic change confirmed by score and musical continuity)"
         };
         diagnosticsList.push(diag);
-        console.log(`[CHORD DIAGNOSTIC]\n${formatTransitionDiagnostic(diag)}\n`);
+        if (process.env.DEBUG_CHORD_DIAGNOSTICS === "true") {
+          console.log(`[CHORD DIAGNOSTIC]\n${formatTransitionDiagnostic(diag)}\n`);
+        }
 
         timelineEntries.push({
           timeSec: unit.startTime,
@@ -753,8 +825,9 @@ export function optimizeChordSequence(
           pendingState.neighborSupport = Math.max(pendingState.neighborSupport, neighborSup);
 
           const avgScore = pendingState.accumulatedScore / pendingState.unitsCount;
-          const isConfirmed = (pendingState.unitsCount >= 2 && avgScore >= 0.45 && (pendingState.peakMargin >= 0.06 || pendingState.maxThirdEvidence >= 0.25)) ||
-                              (avgScore >= 0.65 && pendingState.maxThirdEvidence >= 0.30);
+          // Must persist for at least 2 units (~1-2 beats), OR have forward match and high evidence
+          const isConfirmed = (pendingState.unitsCount >= 2 && avgScore >= 0.55 && (pendingState.peakMargin >= 0.08 || pendingState.maxThirdEvidence >= 0.35)) ||
+                              (pendingState.unitsCount >= 1 && nextSupports && avgScore >= 0.82 && pendingState.peakMargin >= 0.12 && pendingState.maxThirdEvidence >= 0.40);
 
           if (isConfirmed) {
             const prev = committedChord;
@@ -788,7 +861,9 @@ export function optimizeChordSequence(
               rejectionReason: "None (Genuine harmonic change confirmed by evidence accumulation)"
             };
             diagnosticsList.push(diag);
-            console.log(`[CHORD DIAGNOSTIC]\n${formatTransitionDiagnostic(diag)}\n`);
+            if (process.env.DEBUG_CHORD_DIAGNOSTICS === "true") {
+              console.log(`[CHORD DIAGNOSTIC]\n${formatTransitionDiagnostic(diag)}\n`);
+            }
             pendingState = null;
 
             timelineEntries.push({
@@ -935,7 +1010,136 @@ export function optimizeChordSequence(
 }
 
 /**
- * Measures the harmonic change density across beats by calculating the chroma flux
+ * Computes a weighted harmonic change score between consecutive musical beat units (Section 4).
+ * Combines root change persistence, third/quality change, persistent bass change,
+ * low-mid chroma distance, mid-band distance, and sequence lookahead agreement.
+ */
+export function computeHarmonicChangeScore(
+  prevUnit: BeatUnit,
+  currUnit: BeatUnit,
+  nextUnit?: BeatUnit
+): {
+  score: number;
+  rootChange: boolean;
+  thirdChange: boolean;
+  bassChange: boolean;
+  lowMidDist: number;
+  midDist: number;
+  sequenceAgreement: boolean;
+} {
+  // 1. Cosine distance in low-mid band (90 - 500 Hz)
+  let dotLM = 0, nLM1 = 0, nLM2 = 0;
+  for (let k = 0; k < 12; k++) {
+    dotLM += prevUnit.localLowMidChroma[k] * currUnit.localLowMidChroma[k];
+    nLM1 += prevUnit.localLowMidChroma[k] ** 2;
+    nLM2 += currUnit.localLowMidChroma[k] ** 2;
+  }
+  const lowMidDist = 1 - (dotLM / (Math.sqrt(nLM1) * Math.sqrt(nLM2) + 1e-6));
+
+  // 2. Cosine distance in mid band (180 - 1100 Hz)
+  let dotM = 0, nM1 = 0, nM2 = 0;
+  for (let k = 0; k < 12; k++) {
+    dotM += prevUnit.localMidChroma[k] * currUnit.localMidChroma[k];
+    nM1 += prevUnit.localMidChroma[k] ** 2;
+    nM2 += currUnit.localMidChroma[k] ** 2;
+  }
+  const midDist = 1 - (dotM / (Math.sqrt(nM1) * Math.sqrt(nM2) + 1e-6));
+
+  const prevCand = prevUnit.candidates[0];
+  const currCand = currUnit.candidates[0];
+  const nextCand = nextUnit?.candidates[0];
+
+  const rootChange = prevCand && currCand && prevCand.root !== currCand.root;
+  const thirdChange = prevCand && currCand && prevCand.quality !== currCand.quality;
+  const bassChange = prevCand && currCand && Math.abs(prevCand.bassEvidence - currCand.bassEvidence) > 0.20;
+
+  let rootChangeScore = 0;
+  if (rootChange) {
+    if (nextCand && nextCand.root === currCand.root) {
+      rootChangeScore = 1.0; // Persistent root change into next beat
+    } else if (nextCand && nextCand.root === prevCand.root) {
+      rootChangeScore = 0.20; // Isolated transient root bounce (A-B-A)
+    } else {
+      rootChangeScore = 0.60;
+    }
+  }
+
+  let thirdChangeScore = 0;
+  if (thirdChange) {
+    if (nextCand && nextCand.quality === currCand.quality) {
+      thirdChangeScore = 1.0;
+    } else {
+      thirdChangeScore = 0.40;
+    }
+  }
+
+  const sequenceAgreement = Boolean(nextCand && nextCand.chord === currCand.chord);
+
+  const score =
+    (0.25 * rootChangeScore) +
+    (0.20 * thirdChangeScore) +
+    (0.15 * (bassChange ? 1.0 : 0.0)) +
+    (0.20 * Math.min(1.0, lowMidDist * 2.5)) +
+    (0.10 * Math.min(1.0, midDist * 2.5)) +
+    (0.10 * (sequenceAgreement ? 1.0 : 0.0));
+
+  return {
+    score: Number(score.toFixed(3)),
+    rootChange: Boolean(rootChange),
+    thirdChange: Boolean(thirdChange),
+    bassChange: Boolean(bassChange),
+    lowMidDist: Number(lowMidDist.toFixed(3)),
+    midDist: Number(midDist.toFixed(3)),
+    sequenceAgreement
+  };
+}
+
+/**
+ * Estimates true musical harmonic rhythm (rate of genuine chord changes) separately from tempo.
+ */
+export function estimateHarmonicRhythm(
+  units: BeatUnit[],
+  tempo: number
+): {
+  harmonicDensity: number;
+  changesPerBar: number;
+  isFastHarmonicRhythm: boolean;
+  changeScores: number[];
+} {
+  if (units.length < 2) {
+    return { harmonicDensity: 0.1, changesPerBar: 0.5, isFastHarmonicRhythm: false, changeScores: [] };
+  }
+
+  let significantChanges = 0;
+  const changeScores: number[] = [];
+
+  for (let u = 1; u < units.length; u++) {
+    const prev = units[u - 1];
+    const curr = units[u];
+    const next = u < units.length - 1 ? units[u + 1] : undefined;
+    const change = computeHarmonicChangeScore(prev, curr, next);
+    curr.harmonicChangeScore = change.score;
+    changeScores.push(change.score);
+
+    if (change.score >= 0.42) {
+      significantChanges++;
+    }
+  }
+
+  const harmonicDensity = significantChanges / Math.max(1, units.length - 1);
+  const changesPerBar = (significantChanges / Math.max(1, units.length)) * 4;
+  const isFastHarmonicRhythm = changesPerBar >= 2.6 && harmonicDensity >= 0.45;
+
+  return {
+    harmonicDensity: Number(harmonicDensity.toFixed(3)),
+    changesPerBar: Number(changesPerBar.toFixed(2)),
+    isFastHarmonicRhythm,
+    changeScores
+  };
+}
+
+/**
+ * Legacy wrapper: measures the harmonic change density across beats by calculating the chroma flux
  * between consecutive beat centers.
  */
 export function estimateHarmonicChangeDensity(
@@ -986,6 +1190,13 @@ export function analyzeBeatSynchronousHarmonics(
   segments: ChordSegment[];
   isFastMode: boolean;
   isHighResolutionMode: boolean;
+  isFastHarmonicRhythm: boolean;
+  harmonicRhythm: {
+    harmonicDensity: number;
+    changesPerBar: number;
+    isFastHarmonicRhythm: boolean;
+    changeScores: number[];
+  };
   beatUnits: BeatUnit[];
   transitionDiagnostics: TransitionDiagnostic[];
   diagnosticTimeline: DiagnosticTimelineEntry[];
@@ -993,58 +1204,99 @@ export function analyzeBeatSynchronousHarmonics(
 } {
   const keyProfile = parseDiatonicProfile(config.estimatedKey);
 
-  // Compute harmonic change density across beats
-  const harmonicDensity = estimateHarmonicChangeDensity(
-    chromagram,
-    config.beats,
-    config.sampleRate,
-    config.hopSize
-  );
+  // Section 6: Multi-Band Spectral Features extraction
+  const lowMidChromagram = config.lowMidChromagram || config.featureSet?.lowMidChromagram || chromagram;
+  const midChromagram = config.midChromagram || config.featureSet?.midChromagram || chromagram;
+  const trebleChromagram = config.trebleChromagram || config.featureSet?.trebleChromagram;
+  const fullChromagram = config.fullChromagram || config.featureSet?.fullChromagram || chromagram;
 
-  // High Harmonic Resolution is activated based on actual harmonic change density, not purely BPM (Section 6)
-  const shouldEnableHighResolution = config.highHarmonicResolution !== undefined
-    ? config.highHarmonicResolution
-    : (harmonicDensity >= 0.28 || (config.tempo >= 135 && harmonicDensity >= 0.20));
+  const initialHighRes = config.highHarmonicResolution ?? false;
 
-  // 1. Build adaptive musical time grid (detects tempo and harmonic resolution needs)
-  const { units, isHighResolutionMode } = buildMusicalGrid(
+  // 1. Build adaptive musical time grid
+  let { units, isHighResolutionMode } = buildMusicalGrid(
     config.beats,
     config.tempo,
     config.totalDuration,
-    { forceHighResolution: shouldEnableHighResolution }
+    { forceHighResolution: initialHighRes }
   );
 
-  // 2. Multi-resolution chroma aggregation
+  // 2. Multi-resolution multi-band chroma aggregation
   aggregateChromasForBeatUnits(
     units,
     chromagram,
     bassChromagram,
     config.sampleRate,
     config.hopSize,
-    isHighResolutionMode
+    isHighResolutionMode,
+    {
+      lowMidChromagram,
+      midChromagram,
+      trebleChromagram,
+      fullChromagram
+    }
   );
 
-  // 3. Two-Stage Chord Candidate generation for each beat unit
+  // 3. Two-Stage Chord Candidate generation for each beat unit using real multi-band frames
   const frameDuration = config.hopSize / config.sampleRate;
-  for (const unit of units) {
-    const startF = Math.max(0, Math.floor(unit.startTime / frameDuration));
-    const endF = Math.max(startF, Math.min(chromagram.length - 1, Math.ceil(unit.endTime / frameDuration)));
-    const unitBassFrames = bassChromagram.slice(startF, endF + 1);
-    const unitMidFrames = chromagram.slice(startF, endF + 1);
+  function rankCandidates(targetUnits: BeatUnit[]) {
+    for (const unit of targetUnits) {
+      const startF = Math.max(0, Math.floor(unit.startTime / frameDuration));
+      const endF = Math.max(startF, Math.min(chromagram.length - 1, Math.ceil(unit.endTime / frameDuration)));
+      const unitBassFrames = bassChromagram.slice(startF, endF + 1);
+      const unitMidFrames = midChromagram.slice(startF, endF + 1);
 
-    unit.candidates = rankChordCandidatesForWindow(
-      unit.blendedChroma,
-      unit.localBassChroma,
-      keyProfile,
-      4,
-      {
-        frameBassChromas: unitBassFrames,
-        frameMidChromas: unitMidFrames
-      }
-    );
+      unit.candidates = rankChordCandidatesForWindow(
+        unit.blendedChroma,
+        unit.localBassChroma,
+        keyProfile,
+        4,
+        {
+          lowMidChroma: unit.localLowMidChroma,
+          midChroma: unit.localMidChroma,
+          trebleChroma: unit.localTrebleChroma,
+          fullChroma: unit.localFullChroma,
+          frameBassChromas: unitBassFrames,
+          frameMidChromas: unitMidFrames
+        }
+      );
+    }
   }
 
-  // 4. Temporal Evidence Accumulation & Persistence Across Neighbor Units (Phases 3 & 4)
+  rankCandidates(units);
+
+  // 4. Harmonic Rhythm & Change Scoring (Sections 3 & 4)
+  const rhythmEst = estimateHarmonicRhythm(units, config.tempo);
+
+  // If high resolution was not explicitly forced, evaluate if actual harmonic rhythm requires it (Section 5)
+  if (config.highHarmonicResolution === undefined && rhythmEst.isFastHarmonicRhythm && !isHighResolutionMode) {
+    const highGrid = buildMusicalGrid(
+      config.beats,
+      config.tempo,
+      config.totalDuration,
+      { forceHighResolution: true }
+    );
+    units = highGrid.units;
+    isHighResolutionMode = highGrid.isHighResolutionMode;
+
+    aggregateChromasForBeatUnits(
+      units,
+      chromagram,
+      bassChromagram,
+      config.sampleRate,
+      config.hopSize,
+      isHighResolutionMode,
+      {
+        lowMidChromagram,
+        midChromagram,
+        trebleChromagram,
+        fullChromagram
+      }
+    );
+    rankCandidates(units);
+    estimateHarmonicRhythm(units, config.tempo);
+  }
+
+  // 5. Temporal Evidence Accumulation & Persistence Across Neighbor Units (Phases 3 & 4)
   for (let u = 0; u < units.length; u++) {
     const unit = units[u];
     const prevUnit = u > 0 ? units[u - 1] : null;
@@ -1078,7 +1330,7 @@ export function analyzeBeatSynchronousHarmonics(
     }
   }
 
-  // 5. Sequence Optimization across beat units with soft priors & diagnostics
+  // 6. Sequence Optimization across beat units with soft priors & diagnostics
   const {
     segments: rawSegments,
     diagnostics: transitionDiagnostics,
@@ -1095,6 +1347,8 @@ export function analyzeBeatSynchronousHarmonics(
     segments: rawSegments,
     isFastMode: isHighResolutionMode,
     isHighResolutionMode,
+    isFastHarmonicRhythm: rhythmEst.isFastHarmonicRhythm,
+    harmonicRhythm: rhythmEst,
     beatUnits: units,
     transitionDiagnostics,
     diagnosticTimeline,

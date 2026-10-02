@@ -19,7 +19,7 @@ describe("LiveChordDetector Unit Tests", () => {
 
 describe("Analysis Versioning & Cache Invalidation", () => {
   it("recognizes CURRENT_ANALYSIS_VERSION as valid and current", () => {
-    expect(CURRENT_ANALYSIS_VERSION).toBe("2.1.0");
+    expect(CURRENT_ANALYSIS_VERSION).toBe("2.2.0");
     expect(isAnalysisVersionCurrent(CURRENT_ANALYSIS_VERSION)).toBe(true);
     expect(isAnalysisVersionCurrent("1.0.0")).toBe(false);
   });
@@ -43,7 +43,7 @@ describe("Analysis Versioning & Cache Invalidation", () => {
     const modernSongV2: any = {
       id: "song-3",
       title: "Good Time",
-      analysisVersion: "2.1.0",
+      analysisVersion: CURRENT_ANALYSIS_VERSION,
       chordSegments: [{ chord: "F", startTime: 0, endTime: 2 }]
     };
     expect(needsReanalysis(modernSongV2)).toBe(false);
