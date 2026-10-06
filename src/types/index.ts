@@ -168,6 +168,7 @@ export interface SongAnalysis {
   chordSegments?: ChordSegment[];
   waveformPeaks?: number[];
   audioUrl?: string;
+  streamUrl?: string;
   imageUrl?: string;
   youtubeUrl?: string;
   sunoId?: string;

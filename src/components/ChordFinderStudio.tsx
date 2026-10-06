@@ -39,6 +39,11 @@ import { TimelineScrubber } from "./ui/TimelineScrubber";
 import { SunoSong } from "./SongsLibraryView";
 import { fetchDecryptedAudioFile } from "../utils/sunoAudioResolver";
 import { SUNO_CATALOG_MASTER } from "../lib/suno-catalog-data";
+import { useSongWorkspace } from "../context/SongWorkspaceContext";
+import { SmartJamModal } from "./SmartJamModal";
+import { smartJamEngine } from "../audio/smartJamEngine";
+import { generateMidiFromChords, ChordMidiStyle } from "../audio/chordToMidi";
+import { DAWProject, DAWTrack, DEFAULT_TRACK_EQ, DEFAULT_TRACK_INSERT_EFFECTS } from "../types";
 import {
   extractYouTubeAudio,
   isValidYouTubeUrl,
@@ -54,6 +59,8 @@ import {
   saveLastPlayedSongId,
   getLastPlayedSongId,
   getCachedYouTubeSong,
+  saveProjectToDB,
+  loadProjectsFromDB,
 } from "../utils/storage";
 
 interface ChordFinderStudioProps {

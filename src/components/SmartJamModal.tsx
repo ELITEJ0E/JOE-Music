@@ -99,6 +99,14 @@ export const SmartJamModal: React.FC<SmartJamModalProps> = ({
         const ev = events[step % events.length];
         setActiveBeat(ev.beatNumber);
 
+        // Trigger drums if active
+        if (drumsEnabled) {
+          if (ev.kick) smartJamEngine.playDrumHit("kick");
+          if (ev.snare) smartJamEngine.playDrumHit("snare");
+          if (ev.hihat) smartJamEngine.playDrumHit("hihat");
+          if (ev.crash) smartJamEngine.playDrumHit("crash");
+        }
+
         // Trigger synth bass if active
         if (ev.bassPitch !== null && bassEnabled) {
           smartJamEngine.playBassNote(ev.bassPitch, ev.bassDurationSec);

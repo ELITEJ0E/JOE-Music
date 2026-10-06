@@ -9,6 +9,7 @@ import { analyzeBeatSynchronousHarmonics } from "./beatSynchronousAnalyzer";
 import { stabilizeChordSegments } from "./harmonicStabilizer";
 import { detectDownbeatsAndMeter } from "./meterDetector";
 import { detectMusicalSections } from "./sectionDetector";
+import { enrichSectionsWithLocalKeys } from "./modulationDetector";
 
 function reportProgress(message: string, percent: number): void {
   self.postMessage({ type: "progress", message, percent });
@@ -192,7 +193,7 @@ self.onmessage = function (e: MessageEvent) {
     } = downbeatResult;
 
     // Detect true musical sections using harmonic recurrence & self-similarity
-    const sections = detectMusicalSections({
+    const rawSections = detectMusicalSections({
       chordSegments: stabilizedSegments,
       duration,
       beats,
@@ -201,6 +202,8 @@ self.onmessage = function (e: MessageEvent) {
       timeSignature,
       tempo: estimatedBpm,
     });
+
+    const { sections } = enrichSectionsWithLocalKeys(rawSections, estimatedKey);
 
     const uniqueChords = Array.from(new Set(stabilizedSegments.map(s => s.chord)));
     const overallConfidence = stabilizedSegments.reduce((a, b) => a + b.confidence, 0) / (stabilizedSegments.length || 1);
