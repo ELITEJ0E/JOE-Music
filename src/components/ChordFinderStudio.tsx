@@ -39,11 +39,6 @@ import { TimelineScrubber } from "./ui/TimelineScrubber";
 import { SunoSong } from "./SongsLibraryView";
 import { fetchDecryptedAudioFile } from "../utils/sunoAudioResolver";
 import { SUNO_CATALOG_MASTER } from "../lib/suno-catalog-data";
-import { useSongWorkspace } from "../context/SongWorkspaceContext";
-import { SmartJamModal } from "./SmartJamModal";
-import { smartJamEngine } from "../audio/smartJamEngine";
-import { generateMidiFromChords, ChordMidiStyle } from "../audio/chordToMidi";
-import { DAWProject, DAWTrack, DEFAULT_TRACK_EQ, DEFAULT_TRACK_INSERT_EFFECTS } from "../types";
 import {
   extractYouTubeAudio,
   isValidYouTubeUrl,
@@ -59,8 +54,6 @@ import {
   saveLastPlayedSongId,
   getLastPlayedSongId,
   getCachedYouTubeSong,
-  saveProjectToDB,
-  loadProjectsFromDB,
 } from "../utils/storage";
 
 interface ChordFinderStudioProps {
@@ -1491,8 +1484,34 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
         />
       ) : (
         <>
-          {/* Top Upload / Search Cards (Visible when no song is active or when user explicitly clicks Search / Upload) */}
-          {(!activeSong || showUploadPanel) && (
+          {/* Top Section / Action Bar (Shown when activeSong is present and upload panel is collapsed) */}
+          {activeSong && !showUploadPanel ? (
+            <div className="flex items-center justify-between gap-2 px-3 py-2 sm:px-3.5 sm:py-2 frosted-card rounded-2xl border border-white/5 text-xs font-mono max-w-full overflow-hidden">
+              <div className="flex items-center gap-2 text-zinc-400 min-w-0 flex-1 overflow-hidden">
+                <Sparkles className="w-3.5 h-3.5 text-[#a3ff12] shrink-0" />
+                <span className="text-[11px] text-zinc-400 shrink-0 font-medium">Now Playing:</span>
+                <div
+                  className="overflow-hidden whitespace-nowrap min-w-0 flex-1 relative marquee-mask"
+                  title={activeSong.title}
+                >
+                  <div className="marquee-slow flex items-center">
+                    <strong className="text-white pr-12 shrink-0 font-bold">{activeSong.title}</strong>
+                    <strong className="text-white pr-12 shrink-0 font-bold" aria-hidden="true">{activeSong.title}</strong>
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+                <button
+                  onClick={() => setShowUploadPanel(true)}
+                  className="px-2.5 py-1 sm:px-3 sm:py-1 rounded-xl bg-white/5 hover:bg-white/10 active:bg-white/15 text-zinc-300 hover:text-white border border-white/10 transition-colors flex items-center gap-1.5 cursor-pointer text-[11px] touch-manipulation active:scale-95"
+                  title="Search or upload another song"
+                >
+                  <Upload className="w-3 h-3 text-[#a3ff12]" />
+                  <span>Search / Upload</span>
+                </button>
+              </div>
+            </div>
+          ) : (
             <div className="space-y-4">
               <div className="text-center space-y-1 sm:space-y-1.5 relative">
                 <div className="flex items-center justify-between sm:justify-center">
@@ -1650,9 +1669,10 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
 
       {/* Song Track Info Bar */}
       {activeSong ? (
-        <div className="frosted-card rounded-3xl p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3 max-w-full overflow-hidden">
-          <div className="flex items-center space-x-2.5 sm:space-x-3 min-w-0 flex-1 overflow-hidden w-full sm:w-auto">
-            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-gradient-to-br from-[#122204] to-[#070b02] flex items-center justify-center text-[#a3ff12] border border-[#a3ff12]/30 shadow-[0_0_12px_rgba(163,255,18,0.2)] shrink-0 overflow-hidden">
+        <div className="frosted-card rounded-3xl p-3.5 sm:p-4 flex flex-col gap-2.5 sm:gap-3 max-w-full overflow-hidden shadow-lg border border-white/10">
+          {/* Top Section: Album Art / Icon + Full Width Smooth Scrolling Song Title + YouTube Icon + Subtitle */}
+          <div className="flex items-center gap-3 min-w-0 w-full overflow-hidden">
+            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-gradient-to-br from-[#122204] to-[#070b02] flex items-center justify-center text-[#a3ff12] border border-[#a3ff12]/30 shadow-[0_0_12px_rgba(163,255,18,0.2)] shrink-0 overflow-hidden">
               {activeSong.imageUrl ? (
                 <img
                   src={activeSong.imageUrl}
@@ -1664,19 +1684,20 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                 <Music className="w-5 h-5 sm:w-6 sm:h-6" />
               )}
             </div>
+
             <div className="min-w-0 flex-1 overflow-hidden">
-              <div className="flex items-center gap-1.5 sm:gap-2 max-w-full">
-                {/* Slow sliding marquee for full song title */}
+              <div className="flex items-center gap-2 max-w-full overflow-hidden">
+                {/* Full-width smooth continuous sliding marquee for song title */}
                 <div
-                  className="overflow-hidden whitespace-nowrap min-w-0 flex-1 relative [mask-image:linear-gradient(to_right,white_85%,transparent)]"
+                  className="overflow-hidden whitespace-nowrap min-w-0 flex-1 relative marquee-mask"
                   title={activeSong.title}
                 >
-                  <div className="marquee-slow hover:[animation-play-state:paused]">
-                    <span className="text-sm sm:text-base font-bold text-white tracking-tight pr-8 shrink-0">
+                  <div className="marquee-slow flex items-center">
+                    <span className="text-sm sm:text-base font-extrabold text-white tracking-tight pr-12 shrink-0">
                       {activeSong.title}
                     </span>
                     <span
-                      className="text-sm sm:text-base font-bold text-white tracking-tight pr-8 shrink-0"
+                      className="text-sm sm:text-base font-extrabold text-white tracking-tight pr-12 shrink-0"
                       aria-hidden="true"
                     >
                       {activeSong.title}
@@ -1684,7 +1705,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                   </div>
                 </div>
 
-                {/* YouTube Icon Button */}
+                {/* Official YouTube Brand Icon Button */}
                 {activeSong.youtubeUrl &&
                 !activeSong.youtubeUrl.includes("suno.") &&
                 (activeSong.youtubeUrl.includes("youtube.com") || activeSong.youtubeUrl.includes("youtu.be")) ? (
@@ -1692,54 +1713,63 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                     href={activeSong.youtubeUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center justify-center p-1 sm:px-1.5 sm:py-0.5 bg-red-600/15 hover:bg-red-600/25 active:bg-red-600/35 border border-red-500/40 rounded-lg text-red-500 hover:text-red-400 transition-colors shrink-0 shadow-xs touch-manipulation active:scale-95"
+                    className="inline-flex items-center justify-center p-1 sm:px-1.5 sm:py-1 bg-red-600/15 hover:bg-red-600/30 active:bg-red-600/40 border border-red-500/40 rounded-lg transition-all shrink-0 shadow-xs touch-manipulation active:scale-95"
                     title="Open in YouTube"
                     aria-label="Open in YouTube"
                   >
-                    <Youtube className="w-3.5 h-3.5 fill-current" />
+                    <svg className="w-4 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <path
+                        d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814z"
+                        fill="#FF0000"
+                      />
+                      <polygon points="9.545 15.568 15.818 12 9.545 8.432 9.545 15.568" fill="#FFFFFF" />
+                    </svg>
                   </a>
                 ) : null}
               </div>
+
               <p className="text-[11px] sm:text-xs font-mono text-zinc-400 truncate mt-0.5">
                 {activeSong.artist || "Unknown Artist"} • {activeSong.tempo || 120} BPM
               </p>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 text-xs font-mono text-zinc-300 w-full sm:w-auto pt-1 sm:pt-0 border-t border-white/5 sm:border-t-0">
-            <button
-              onClick={() => setShowUploadPanel(true)}
-              className="px-2.5 py-1 sm:px-3 sm:py-1 bg-white/5 hover:bg-white/10 active:bg-white/15 border border-white/10 text-zinc-300 hover:text-white rounded-full text-[11px] sm:text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-sm shrink-0 touch-manipulation"
-              title="Search a new song or upload audio"
-            >
-              <Upload className="w-3.5 h-3.5 text-[#a3ff12]" />
-              <span>Search / Upload</span>
-            </button>
+          {/* Bottom Section: Chord Sheet, Key, Tuning Standard, Capo, Re-Extract, Search/Upload below the song title */}
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 text-xs font-mono text-zinc-300 w-full pt-2.5 border-t border-white/10">
+            {/* Chord Sheet Button */}
             <button
               onClick={() => setIsSheetViewOpen(true)}
-              className="px-2.5 py-1 sm:px-3 sm:py-1 bg-white/10 hover:bg-white/20 active:bg-white/30 border border-white/20 rounded-full text-[11px] sm:text-xs font-bold text-white transition-all cursor-pointer flex items-center gap-1.5 shadow-sm shrink-0 touch-manipulation"
+              className="px-2.5 py-1 sm:px-3 sm:py-1 bg-white/10 hover:bg-white/20 active:bg-white/30 border border-white/20 rounded-full text-[11px] sm:text-xs font-bold text-white transition-all cursor-pointer flex items-center gap-1.5 shadow-sm shrink-0 touch-manipulation active:scale-95"
               title="Open Chord Sheet with tagged sections and timeline progression"
             >
               <FileText className="w-3.5 h-3.5 text-[#a3ff12]" />
               <span>Chord Sheet</span>
             </button>
-            <span className="px-2 py-0.5 sm:px-2.5 sm:py-1 bg-white/5 border border-white/5 rounded-full text-[10px] sm:text-xs shrink-0">
-              Key: {activeSong.key || "C Maj"}
+
+            {/* Key Badge */}
+            <span className="px-2.5 py-1 bg-white/5 border border-white/10 rounded-full text-[10.5px] sm:text-xs shrink-0 text-zinc-200">
+              Key: <strong className="text-white font-bold">{activeSong.key || "C Maj"}</strong>
             </span>
-            <span className="px-2 py-0.5 sm:px-2.5 sm:py-1 bg-white/5 border border-white/5 rounded-full text-[10px] sm:text-xs shrink-0">
+
+            {/* Tuning Standard Badge */}
+            <span className="px-2.5 py-1 bg-white/5 border border-white/10 rounded-full text-[10.5px] sm:text-xs shrink-0 text-zinc-200">
               {activeSong.tuning || "E Standard"}
             </span>
+
+            {/* Capo Badge */}
             {capo > 0 && (
-              <span className="px-2 py-0.5 sm:px-2.5 sm:py-1 bg-sky-500/10 border border-sky-500/30 rounded-full text-[10px] sm:text-xs font-mono text-sky-400 font-bold shrink-0">
+              <span className="px-2.5 py-1 bg-sky-500/10 border border-sky-500/30 rounded-full text-[10.5px] sm:text-xs font-mono text-sky-400 font-bold shrink-0">
                 Capo {capo}
               </span>
             )}
+
+            {/* Re-Extract button */}
             {(activeSong.sunoId || activeSong.id?.startsWith("suno-") || activeSong.audioUrl) && (
               <button
                 onClick={() => handleTranscribeSong(activeSong, true)}
                 disabled={!!analysisProgress}
                 title="Re-run audio harmonic extraction"
-                className="px-2 py-0.5 sm:px-2.5 sm:py-1 bg-[#a3ff12]/10 hover:bg-[#a3ff12]/20 active:bg-[#a3ff12]/30 border border-[#a3ff12]/30 text-[#a3ff12] hover:text-white rounded-full font-bold transition-colors cursor-pointer flex items-center gap-1 text-[10px] sm:text-xs shrink-0 touch-manipulation"
+                className="px-2.5 py-1 bg-[#a3ff12]/10 hover:bg-[#a3ff12]/20 active:bg-[#a3ff12]/30 border border-[#a3ff12]/30 text-[#a3ff12] hover:text-white rounded-full font-bold transition-colors cursor-pointer flex items-center gap-1 text-[10.5px] sm:text-xs shrink-0 touch-manipulation active:scale-95"
               >
                 <Sparkles className="w-3 h-3" />
                 <span>Re-Extract</span>

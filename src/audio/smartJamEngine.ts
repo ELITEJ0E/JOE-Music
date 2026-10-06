@@ -267,7 +267,7 @@ export class SmartJamEngine {
    * Real-time synthesized bass note triggering in Web Audio.
    */
   public playBassNote(pitch: number, durationSec: number = 0.5) {
-    const ctx = audioEngine.getAudioContext();
+    const ctx = audioEngine.getContext();
     if (!ctx) return;
 
     try {
@@ -305,96 +305,6 @@ export class SmartJamEngine {
       subOsc.stop(now + durationSec);
     } catch {
       // AudioContext state safety
-    }
-  }
-
-  /**
-   * Real-time synthesized drum hits for live preview auditioning.
-   */
-  public playDrumHit(type: "kick" | "snare" | "hihat" | "crash") {
-    const ctx = audioEngine.getAudioContext();
-    if (!ctx) return;
-
-    try {
-      const now = ctx.currentTime;
-
-      if (type === "kick") {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.frequency.setValueAtTime(140, now);
-        osc.frequency.exponentialRampToValueAtTime(38, now + 0.12);
-        gain.gain.setValueAtTime(0.7, now);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start(now);
-        osc.stop(now + 0.26);
-      } else if (type === "snare") {
-        // Noise burst + tone body
-        const bufferSize = ctx.sampleRate * 0.15;
-        const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-        const data = buffer.getChannelData(0);
-        for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
-        const noise = ctx.createBufferSource();
-        noise.buffer = buffer;
-        const filter = ctx.createBiquadFilter();
-        filter.type = "bandpass";
-        filter.frequency.value = 1000;
-        const gain = ctx.createGain();
-        gain.gain.setValueAtTime(0.45, now);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
-        noise.connect(filter);
-        filter.connect(gain);
-        gain.connect(ctx.destination);
-        noise.start(now);
-
-        const osc = ctx.createOscillator();
-        const oscGain = ctx.createGain();
-        osc.frequency.setValueAtTime(180, now);
-        osc.frequency.exponentialRampToValueAtTime(80, now + 0.08);
-        oscGain.gain.setValueAtTime(0.3, now);
-        oscGain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
-        osc.connect(oscGain);
-        oscGain.connect(ctx.destination);
-        osc.start(now);
-        osc.stop(now + 0.11);
-      } else if (type === "hihat") {
-        const bufferSize = ctx.sampleRate * 0.04;
-        const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-        const data = buffer.getChannelData(0);
-        for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
-        const noise = ctx.createBufferSource();
-        noise.buffer = buffer;
-        const filter = ctx.createBiquadFilter();
-        filter.type = "highpass";
-        filter.frequency.value = 7000;
-        const gain = ctx.createGain();
-        gain.gain.setValueAtTime(0.2, now);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
-        noise.connect(filter);
-        filter.connect(gain);
-        gain.connect(ctx.destination);
-        noise.start(now);
-      } else if (type === "crash") {
-        const bufferSize = ctx.sampleRate * 0.8;
-        const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-        const data = buffer.getChannelData(0);
-        for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
-        const noise = ctx.createBufferSource();
-        noise.buffer = buffer;
-        const filter = ctx.createBiquadFilter();
-        filter.type = "highpass";
-        filter.frequency.value = 5000;
-        const gain = ctx.createGain();
-        gain.gain.setValueAtTime(0.3, now);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.7);
-        noise.connect(filter);
-        filter.connect(gain);
-        gain.connect(ctx.destination);
-        noise.start(now);
-      }
-    } catch {
-      // AudioContext safety
     }
   }
 }

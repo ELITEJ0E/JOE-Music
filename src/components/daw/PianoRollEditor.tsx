@@ -73,7 +73,7 @@ export const PianoRollEditor: React.FC<PianoRollEditorProps> = ({
 
   // Play preview note using Web Audio
   const playPreviewTone = useCallback((pitch: number) => {
-    const ctx = audioEngine.getAudioContext();
+    const ctx = audioEngine.getContext();
     if (!ctx) return;
     try {
       const now = ctx.currentTime;
