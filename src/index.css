@@ -186,6 +186,23 @@ input[type="range"] {
   }
 }
 
+.marquee-slow {
+  display: inline-flex;
+  white-space: nowrap;
+  animation: marquee-scroll 14s linear infinite;
+  will-change: transform;
+}
+
+.marquee-slow:hover {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marquee-slow {
+    animation: none !important;
+  }
+}
+
 /* ========================================================================= */
 /* GLOBAL MULTI-PAGE PRINT STYLES                                            */
 /* ========================================================================= */

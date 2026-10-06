@@ -7,6 +7,8 @@ import { NOTE_NAMES, extractEnhancedChromagram } from "./chromaExtractor";
 import { trackBeatsFromOnsetEnvelope } from "./beatTracker";
 import { analyzeBeatSynchronousHarmonics } from "./beatSynchronousAnalyzer";
 import { stabilizeChordSegments } from "./harmonicStabilizer";
+import { detectDownbeatsAndMeter } from "./meterDetector";
+import { detectMusicalSections } from "./sectionDetector";
 
 function reportProgress(message: string, percent: number): void {
   self.postMessage({ type: "progress", message, percent });
@@ -170,30 +172,34 @@ self.onmessage = function (e: MessageEvent) {
     const averageChordConfidence = Math.round(stabilizedSegments.reduce((a, b) => a + b.confidence, 0) / (stabilizedSegments.length || 1));
     const averageTransitionConfidence = Math.round(stabilizedSegments.reduce((a, b) => a + b.stability, 0) / (stabilizedSegments.length || 1));
 
-    // 5. Group into logical musical sections for UI
-    const sections = [];
-    const sectionNames = ["Intro", "Verse 1", "Chorus", "Verse 2", "Bridge", "Outro"];
-    let secIdx = 0;
-    let currentSecChords: string[] = [];
-    let currentSecStart = 0;
+    // 5. Downbeat, Meter & True Musical Section Detection
+    reportProgress("Detecting Meter & Musical Section Structure...", 92);
 
-    stabilizedSegments.forEach(seg => {
-      currentSecChords.push(seg.chord);
-      if (seg.endTime - currentSecStart > 16 || seg.id === stabilizedSegments[stabilizedSegments.length - 1].id) {
-        if (currentSecChords.length > 0) {
-          sections.push({
-            name: sectionNames[secIdx % sectionNames.length],
-            startTime: currentSecStart,
-            bars: Math.max(4, Math.floor(currentSecChords.length / 2)),
-            chords: currentSecChords,
-            strummingPattern: "D - D U - U D -",
-            confidence: seg.confidence
-          });
-          secIdx++;
-          currentSecChords = [];
-          currentSecStart = seg.endTime;
-        }
-      }
+    const downbeatResult = detectDownbeatsAndMeter({
+      beats,
+      audioChannel: channelData,
+      sampleRate,
+      chordSegments: stabilizedSegments,
+      duration,
+    });
+
+    const {
+      timeSignature,
+      meterConfidence,
+      beatsPerBar,
+      downbeatIndices,
+      downbeats,
+    } = downbeatResult;
+
+    // Detect true musical sections using harmonic recurrence & self-similarity
+    const sections = detectMusicalSections({
+      chordSegments: stabilizedSegments,
+      duration,
+      beats,
+      downbeats,
+      beatsPerBar,
+      timeSignature,
+      tempo: estimatedBpm,
     });
 
     const uniqueChords = Array.from(new Set(stabilizedSegments.map(s => s.chord)));
@@ -207,6 +213,10 @@ self.onmessage = function (e: MessageEvent) {
         estimatedBpm,
         tuningDeviationCents,
         key: estimatedKey,
+        timeSignature,
+        meterConfidence,
+        beatsPerBar,
+        downbeats,
         sections,
         chordSegments: stabilizedSegments,
         rawTimelinesForDebug: rawBeatSegments,

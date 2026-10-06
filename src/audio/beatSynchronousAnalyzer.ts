@@ -50,6 +50,8 @@ export interface BeatAnalysisConfig {
   beats: number[];
   estimatedKey: string;
   totalDuration: number;
+  beatsPerBar?: number;
+  downbeatIndices?: number[];
   highHarmonicResolution?: boolean;
   lowMidChromagram?: Float32Array[];
   midChromagram?: Float32Array[];
@@ -127,7 +129,7 @@ export function buildMusicalGrid(
   beats: number[],
   tempo: number,
   totalDuration: number,
-  options: { forceHighResolution?: boolean } = {}
+  options: { forceHighResolution?: boolean; beatsPerBar?: number; downbeatIndices?: number[] } = {}
 ): { units: BeatUnit[]; isFastMode: boolean; isHighResolutionMode: boolean; beatIntervalSec: number } {
   const beatIntervalSec = 60 / Math.max(40, tempo);
   // High resolution grid (8th-note subdivisions) enabled ONLY when explicitly forced or when harmonic change density demands it (Section 6)
@@ -152,6 +154,11 @@ export function buildMusicalGrid(
   const units: BeatUnit[] = [];
   let unitIndex = 0;
 
+  const beatsPerBar = options.beatsPerBar || 4;
+  const downbeatSet = options.downbeatIndices && options.downbeatIndices.length > 0
+    ? new Set(options.downbeatIndices)
+    : null;
+
   for (let b = 0; b < effectiveBeats.length; b++) {
     const currentBeatTime = effectiveBeats[b];
     const nextBeatTime = (b < effectiveBeats.length - 1)
@@ -159,8 +166,10 @@ export function buildMusicalGrid(
       : Math.min(totalDuration, currentBeatTime + beatIntervalSec);
 
     const thisBeatDuration = nextBeatTime - currentBeatTime;
-    const beatNumberInBar = (b % 4) + 1; // 1, 2, 3, 4
-    const isDownbeat = beatNumberInBar === 1;
+    const isDownbeat = downbeatSet ? downbeatSet.has(b) : (b % beatsPerBar === 0);
+    const beatNumberInBar = downbeatSet
+      ? (b % beatsPerBar) + 1
+      : (b % beatsPerBar) + 1;
 
     if (isHighResolutionMode && thisBeatDuration > 0.22) {
       // Subdivide into candidate half-beat analysis points (8th notes)

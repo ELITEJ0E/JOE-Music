@@ -31,11 +31,120 @@ export interface ChordSegment {
   diagnostics?: any;
 }
 
+export type SectionType = "intro" | "verse" | "chorus" | "bridge" | "outro" | "solo" | "section";
+
 export interface SongSection {
+  id?: string;
+  name: string; // Retained for backwards compatibility
+  label?: string; // Canonical musical label e.g. "Chorus", "Section A"
+  type?: SectionType;
+  startTime: number;
+  endTime?: number;
+  confidence?: number;
+  repeatGroup?: string; // "A", "B", "C"
+  key?: string; // Local section key
+  harmonicVocabulary?: string[];
+  averageEnergy?: number;
+  color?: string;
+  bars?: number;
+  chords?: string[];
+  strummingPattern?: string;
+  lyrics?: string;
+}
+
+export type ChordComplexityMode = "easy" | "standard" | "detailed";
+
+export interface DownbeatAnalysis {
+  timeSignature: string;
+  meterConfidence: number;
+  beatsPerBar: number;
+  downbeatIndices: number[];
+  downbeats: number[];
+}
+
+export interface MidiNoteEvent {
+  id: string;
+  pitch: number; // 0 - 127
+  startBeat: number;
+  durationBeats: number;
+  velocity: number; // 0 - 127
+}
+
+export interface MidiTrackData {
+  channel: number;
+  instrumentName?: string;
+  notes: MidiNoteEvent[];
+}
+
+export interface StemAsset {
+  id: string;
   name: string;
+  type: "vocals" | "drums" | "bass" | "guitar" | "other";
+  audioUrl?: string;
+  audioBlob?: Blob;
+  audioBuffer?: AudioBuffer | null;
+  volume: number;
+  muted: boolean;
+}
+
+export interface PracticePerformance {
+  sessionId: string;
+  timestamp: number;
+  songId?: string;
+  songTitle?: string;
+  tempo: number;
+  chordAccuracy: number; // 0 - 100
+  timingAccuracy: number; // 0 - 100
+  averageTransitionMs: number;
+  totalChordsAttempted: number;
+  correctChords: number;
+  missedChanges: number;
+  lateChanges: number;
+  bestTransition?: string;
+  weakestTransition?: string;
+  details?: Array<{
+    targetChord: string;
+    detectedChord: string;
+    transitionTimeMs: number;
+    success: boolean;
+  }>;
+}
+
+export type SmartJamStyle = "pop" | "rock" | "funk" | "ballad" | "worship" | "indie" | "citypop";
+export type BassMode = "root" | "simple" | "melodic";
+
+export interface SmartJamConfig {
+  style: SmartJamStyle;
+  bassMode: BassMode;
+  tempo: number;
+  timeSignature: string;
+  intensity: number; // 1 - 100
+  complexity: number; // 1 - 100
+  drumsEnabled: boolean;
+  bassEnabled: boolean;
+}
+
+export interface ProjectSnapshot {
+  id: string;
+  projectId: string;
+  name: string;
+  timestamp: number;
+  description?: string;
+  tracksSummary: string;
+  snapshotData: string; // JSON serialized state
+}
+
+export interface ChordCorrection {
+  songId: string;
+  segmentId?: string;
   startTime: number;
   endTime: number;
-  color?: string;
+  originalChord: string;
+  correctedChord: string;
+  confidence?: number;
+  key?: string;
+  analysisVersion?: string;
+  timestamp: number;
 }
 
 export interface SongAnalysis {
@@ -51,6 +160,10 @@ export interface SongAnalysis {
   tuning?: string;
   tuningDeviation?: number;
   timeSignature?: string;
+  meterConfidence?: number;
+  beatsPerBar?: number;
+  downbeats?: number[];
+  sectionKeys?: Record<number, string>;
   chords: string[];
   chordSegments?: ChordSegment[];
   waveformPeaks?: number[];
@@ -65,7 +178,7 @@ export interface SongAnalysis {
   tips?: string | string[];
   audioBlob?: Blob;
   beats?: number[];
-  sections?: SongSection[] | any[];
+  sections?: SongSection[];
   rawTimelinesForDebug?: any;
   confidence?: number;
   analysisVersion?: string;
@@ -350,6 +463,9 @@ export interface DAWTrack {
   id: string;
   name: string;
   color: string;
+  trackType?: "AUDIO" | "MIDI";
+  midiNotes?: MidiNoteEvent[];
+  midiInstrument?: "piano" | "pad" | "bass" | "guitar" | "drums" | "synth" | string;
   volume: number; // 0 to 1.5
   pan: number; // -1 to 1
   muted: boolean;

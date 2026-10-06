@@ -1815,7 +1815,7 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
         "make it like previous and like current mobile view, where its at the top no longer sticky"
         It sits at the top in normal/relative flow so it scrolls off naturally as the user scrolls down!
       */}
-      <header className="relative max-w-4xl mx-auto flex items-center justify-between gap-1.5 sm:gap-2 mb-3 bg-[#151922] border border-white/10 rounded-2xl px-2.5 py-1.5 sm:px-4 sm:py-2.5 text-white shadow-md print:hidden">
+      <header className="relative max-w-4xl mx-auto flex items-center justify-between gap-1.5 sm:gap-2 mb-3 bg-[#151922] border border-white/10 rounded-2xl px-2 sm:px-4 py-1.5 sm:py-2.5 text-white shadow-md print:hidden max-w-full overflow-hidden">
         {/* Left: Back button */}
         <div className="flex items-center gap-1.5 sm:gap-3 min-w-0">
           <button
@@ -1970,10 +1970,20 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
         {/* Lead Sheet Title Header & Metadata Strip */}
         <section aria-label="Song Header" className={`border-b-2 pb-3 sm:pb-4 transition-colors ${isLightSheet ? "border-zinc-900" : "border-white/20"}`}>
           <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-2">
-            <div className="min-w-0">
-              <h1 className={`text-xl sm:text-2xl md:text-3xl font-black tracking-tight font-mono truncate ${isLightSheet ? "text-zinc-900" : "text-white"}`}>
-                {song.title || "Untitled Song"}
-              </h1>
+            <div className="min-w-0 flex-1 overflow-hidden">
+              <div
+                className="overflow-hidden whitespace-nowrap min-w-0 max-w-full relative [mask-image:linear-gradient(to_right,white_85%,transparent)]"
+                title={song.title}
+              >
+                <div className="marquee-slow hover:[animation-play-state:paused]">
+                  <h1 className={`text-xl sm:text-2xl md:text-3xl font-black tracking-tight font-mono pr-8 shrink-0 ${isLightSheet ? "text-zinc-900" : "text-white"}`}>
+                    {song.title || "Untitled Song"}
+                  </h1>
+                  <h1 className={`text-xl sm:text-2xl md:text-3xl font-black tracking-tight font-mono pr-8 shrink-0 ${isLightSheet ? "text-zinc-900" : "text-white"}`} aria-hidden="true">
+                    {song.title || "Untitled Song"}
+                  </h1>
+                </div>
+              </div>
               {song.artist && (
                 <p className={`text-xs sm:text-sm font-mono font-medium truncate mt-0.5 ${isLightSheet ? "text-zinc-600" : "text-zinc-400"}`}>
                   {song.artist}
@@ -2182,7 +2192,7 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
               >
                 {/* SECTION HEADER BANNER (Paper style or Sleek Dark) */}
                 <div
-                  className={`section-header-banner px-3 sm:px-4 py-2 sm:py-2.5 flex items-center justify-between gap-2 border-b border-l-4 ${style.accentBorder} print:bg-zinc-50 print:border-zinc-300 ${
+                  className={`section-header-banner px-2.5 sm:px-4 py-2 sm:py-2.5 flex items-center justify-between gap-1.5 sm:gap-2 border-b border-l-4 ${style.accentBorder} print:bg-zinc-50 print:border-zinc-300 max-w-full overflow-hidden ${
                     isLightSheet
                       ? `border-zinc-200 ${style.headerBg}`
                       : "border-white/10 bg-[#1c2128]"
@@ -2248,8 +2258,8 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
                     )}
 
                     {/* Section Time Span */}
-                    <span className={`text-[10px] font-mono shrink-0 ${isLightSheet ? "text-zinc-500" : "text-zinc-400"}`}>
-                      {formatTime(section.startTime)} - {formatTime(section.endTime)} ({section.items.length} chords)
+                    <span className={`text-[10px] font-mono shrink-0 truncate max-w-[125px] sm:max-w-none ${isLightSheet ? "text-zinc-500" : "text-zinc-400"}`}>
+                      {formatTime(section.startTime)} - {formatTime(section.endTime)} <span className="hidden sm:inline">({section.items.length} chords)</span>
                     </span>
                   </div>
 
@@ -2470,7 +2480,7 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
       {/* ========================================================================= */}
       <aside
         aria-label="Playback Controls"
-        className="fixed bottom-[74px] md:bottom-5 left-1/2 -translate-x-1/2 z-50 w-[95%] max-w-2xl bg-[#0f121a]/95 backdrop-blur-xl border border-white/15 rounded-2xl shadow-2xl p-2.5 sm:p-3 flex flex-col gap-2 text-white print:hidden"
+        className="fixed bottom-[74px] md:bottom-5 left-1/2 -translate-x-1/2 z-50 w-[95%] max-w-2xl bg-[#0f121a]/95 backdrop-blur-xl border border-white/15 rounded-2xl shadow-2xl p-2 sm:p-3 flex flex-col gap-1.5 sm:gap-2 text-white print:hidden max-w-[calc(100vw-1rem)] overflow-hidden"
       >
         {/* Scrubber track */}
         <div className="flex items-center gap-2 sm:gap-3">

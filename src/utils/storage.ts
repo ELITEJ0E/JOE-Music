@@ -1,4 +1,4 @@
-import { TonePreset, SavedRecording, SavedSong, DAWProject, LooperSession, DAWTrack, LooperTrack } from "../types";
+import { TonePreset, SavedRecording, SavedSong, DAWProject, LooperSession, DAWTrack, LooperTrack, ChordCorrection, ProjectSnapshot } from "../types";
 import { DEFAULT_TONE_PRESETS } from "../data/presetsDatabase";
 import { audioBufferToWavBlob, blobToAudioBuffer, extractWaveformPeaks } from "../audio/wavEncoder";
 import { extractYouTubeVideoId, normalizeYouTubeUrl } from "./extractorConfig";
@@ -680,5 +680,73 @@ export function getLastPlayedSongId(): string | null {
     return null;
   }
 }
+
+// --- Chord Corrections Storage ---
+const CHORD_CORRECTIONS_KEY_PREFIX = "joe_chord_corrections_";
+
+export function saveChordCorrection(correction: ChordCorrection): void {
+  try {
+    const key = `${CHORD_CORRECTIONS_KEY_PREFIX}${correction.songId}`;
+    const raw = localStorage.getItem(key);
+    const existing: ChordCorrection[] = raw ? JSON.parse(raw) : [];
+    // Replace if exact match on timestamp or start time, otherwise append
+    const filtered = existing.filter(
+      (c) => Math.abs(c.startTime - correction.startTime) > 0.05
+    );
+    filtered.push(correction);
+    localStorage.setItem(key, JSON.stringify(filtered));
+  } catch (err) {
+    console.warn("Failed to save chord correction:", err);
+  }
+}
+
+export function loadChordCorrections(songId: string): ChordCorrection[] {
+  try {
+    const key = `${CHORD_CORRECTIONS_KEY_PREFIX}${songId}`;
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+// --- Project Snapshots (Local Version History) ---
+const PROJECT_SNAPSHOTS_KEY_PREFIX = "joe_project_snapshots_";
+
+export function saveProjectSnapshot(snapshot: ProjectSnapshot): void {
+  try {
+    const key = `${PROJECT_SNAPSHOTS_KEY_PREFIX}${snapshot.projectId}`;
+    const raw = localStorage.getItem(key);
+    const existing: ProjectSnapshot[] = raw ? JSON.parse(raw) : [];
+    const updated = [snapshot, ...existing.filter((s) => s.id !== snapshot.id)].slice(0, 20);
+    localStorage.setItem(key, JSON.stringify(updated));
+  } catch (err) {
+    console.warn("Failed to save project snapshot:", err);
+  }
+}
+
+export function loadProjectSnapshots(projectId: string): ProjectSnapshot[] {
+  try {
+    const key = `${PROJECT_SNAPSHOTS_KEY_PREFIX}${projectId}`;
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function deleteProjectSnapshot(projectId: string, snapshotId: string): void {
+  try {
+    const key = `${PROJECT_SNAPSHOTS_KEY_PREFIX}${projectId}`;
+    const raw = localStorage.getItem(key);
+    if (!raw) return;
+    const existing: ProjectSnapshot[] = JSON.parse(raw);
+    const filtered = existing.filter((s) => s.id !== snapshotId);
+    localStorage.setItem(key, JSON.stringify(filtered));
+  } catch (err) {
+    console.warn("Failed to delete project snapshot:", err);
+  }
+}
+
 
 

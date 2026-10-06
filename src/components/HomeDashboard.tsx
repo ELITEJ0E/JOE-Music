@@ -359,7 +359,9 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
               <span className="w-1.5 h-1.5 rounded-full bg-[#a3ff12] animate-pulse" />
               STUDIO ONLINE
             </span>
-            <span className="text-xs text-zinc-500 font-mono">48 kHz • 24-bit DSP</span>
+            <span className="text-xs text-zinc-500 font-mono">
+              {(typeof window !== "undefined" && window.AudioContext ? "48.0 kHz" : "Web Audio")} • Web Audio DSP
+            </span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white mt-1.5">
             {greeting}, <span className="text-[#a3ff12]">Joel</span>

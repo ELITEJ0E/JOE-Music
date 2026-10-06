@@ -107,6 +107,10 @@ class AudioEngineManager {
     return this.ctx;
   }
 
+  public getAudioContext(): AudioContext {
+    return this.getContext();
+  }
+
   public getMasterGain(): GainNode {
     this.getContext();
     return this.masterGainNode!;

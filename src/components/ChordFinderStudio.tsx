@@ -17,6 +17,7 @@ import {
   GripVertical,
   X,
   FileText,
+  Youtube,
 } from "lucide-react";
 import { findChordByName } from "../data/chordDatabase";
 import { resolveGuitarChord, GuitarVoicingResult } from "../audio/guitarChordResolver";
@@ -1460,7 +1461,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
   const lastPlayedId = getLastPlayedSongId();
 
   return (
-    <div id="panel-chord-finder" className="max-w-6xl mx-auto space-y-6 pb-12 animate-in fade-in duration-200">
+    <div id="panel-chord-finder" className="max-w-6xl mx-auto space-y-4 sm:space-y-6 pb-12 animate-in fade-in duration-200 w-full max-w-full overflow-x-hidden">
       <audio ref={audioRef} className="hidden" />
 
       {isSheetViewOpen && activeSong ? (
@@ -1483,149 +1484,123 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
         />
       ) : (
         <>
-          {/* Top Action Bar / Cards (Collapsible when song active to save vertical space on mobile) */}
-          {activeSong && !showUploadPanel ? (
-            <div className="flex items-center justify-between px-3.5 py-2 frosted-card rounded-2xl border border-white/5 text-xs font-mono">
-              <div className="flex items-center gap-2 text-zinc-400 truncate mr-2 min-w-0">
-                <Sparkles className="w-3.5 h-3.5 text-[#a3ff12] shrink-0" />
-                <span className="truncate">
-                  Now Playing: <strong className="text-white">{activeSong.title}</strong>
-                </span>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  onClick={() => setIsSheetViewOpen(true)}
-                  className="px-2.5 py-1 rounded-xl bg-white/10 hover:bg-white/15 text-white border border-white/15 transition-all flex items-center gap-1.5 cursor-pointer text-[11px] shadow-sm font-semibold"
-                  title="Open Chord Sheet with tagged sections, progression, and export options"
-                >
-                  <FileText className="w-3 h-3 text-[#a3ff12]" />
-                  <span>Chord Sheet</span>
-                </button>
-                <button
-                  onClick={() => setShowUploadPanel(true)}
-                  className="px-2.5 py-1 rounded-xl bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white border border-white/10 transition-colors flex items-center gap-1.5 cursor-pointer text-[11px]"
-                >
-                  <Upload className="w-3 h-3 text-[#a3ff12]" />
-                  <span>Search / Upload</span>
-                </button>
-              </div>
-            </div>
-          ) : (
-        <div className="space-y-4">
-          <div className="text-center space-y-1 sm:space-y-1.5 relative">
-            <div className="flex items-center justify-between sm:justify-center">
-              <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight sm:mx-auto">
-                Find the chords.
-              </h1>
-              {activeSong && (
-                <button
-                  onClick={() => setShowUploadPanel(false)}
-                  className="text-xs font-mono text-zinc-400 hover:text-white px-2.5 py-1 bg-white/5 hover:bg-white/10 rounded-lg border border-white/10 cursor-pointer"
-                >
-                  Close
-                </button>
-              )}
-            </div>
-            <p className="text-zinc-400 text-xs">
-              Drop a song, search with AI, or play it through your microphone.
-            </p>
-          </div>
-
-          {/* 3 Top Action Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-5">
-            {/* Upload Audio */}
-            <div
-              onClick={() => fileInputRef.current?.click()}
-              className="frosted-card-hover rounded-3xl p-4 sm:p-5 flex flex-col items-center justify-center text-center cursor-pointer transition-all group min-h-[120px] sm:min-h-[140px]"
-            >
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="audio/*"
-                onChange={handleFileUpload}
-                className="hidden"
-              />
-              <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white/5 flex items-center justify-center group-hover:scale-105 transition-transform mb-2 border border-white/5">
-                <Upload className="w-4 h-4 sm:w-5 sm:h-5 text-zinc-300 group-hover:text-white" />
-              </div>
-              <h3 className="text-xs font-bold font-mono text-zinc-200 uppercase tracking-wider">
-                Upload Audio
-              </h3>
-              <p className="text-[11px] font-mono text-zinc-500 mt-0.5">MP3, WAV, FLAC</p>
-            </div>
-
-            {/* YouTube Link / Song Search */}
-            <div className="frosted-card rounded-3xl p-4 flex flex-col justify-between min-h-[120px] sm:min-h-[140px]">
-              <div className="flex items-center space-x-2">
-                <LinkIcon className="w-4 h-4 text-zinc-400" />
-                <h3 className="text-xs font-bold font-mono text-zinc-200 uppercase tracking-wider">
-                  Search & YouTube
-                </h3>
+          {/* Top Upload / Search Cards (Visible when no song is active or when user explicitly clicks Search / Upload) */}
+          {(!activeSong || showUploadPanel) && (
+            <div className="space-y-4">
+              <div className="text-center space-y-1 sm:space-y-1.5 relative">
+                <div className="flex items-center justify-between sm:justify-center">
+                  <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight sm:mx-auto">
+                    Find the chords.
+                  </h1>
+                  {activeSong && (
+                    <button
+                      onClick={() => setShowUploadPanel(false)}
+                      className="text-xs font-mono text-zinc-400 hover:text-white px-2.5 py-1 bg-white/5 hover:bg-white/10 rounded-lg border border-white/10 cursor-pointer"
+                    >
+                      Close
+                    </button>
+                  )}
+                </div>
+                <p className="text-zinc-400 text-xs">
+                  Drop a song, search with AI, or play it through your microphone.
+                </p>
               </div>
 
-              <div className="flex flex-col gap-2 mt-2">
-                <input
-                  type="text"
-                  placeholder="Song Name & Artist..."
-                  value={songName}
-                  onChange={(e) => setSongName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleAnalyzeYoutube();
-                  }}
-                  className="flex-1 bg-white/5 text-xs font-mono text-white rounded-xl px-3 py-2 border border-white/10 focus:border-[#a3ff12]/50 focus:outline-none placeholder:text-zinc-500"
-                />
-                <div className="flex items-center gap-2">
+              {/* 3 Top Action Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-5">
+                {/* Upload Audio */}
+                <div
+                  onClick={() => fileInputRef.current?.click()}
+                  className="frosted-card-hover rounded-3xl p-4 sm:p-5 flex flex-col items-center justify-center text-center cursor-pointer transition-all group min-h-[120px] sm:min-h-[140px]"
+                >
                   <input
-                    type="text"
-                    placeholder="Or paste YouTube URL..."
-                    value={youtubeUrl}
-                    onChange={(e) => setYoutubeUrl(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") handleAnalyzeYoutube();
-                    }}
-                    className="flex-1 bg-white/5 text-xs font-mono text-white rounded-xl px-3 py-2 border border-white/10 focus:border-[#a3ff12]/50 focus:outline-none placeholder:text-zinc-500"
+                    ref={fileInputRef}
+                    type="file"
+                    accept="audio/*"
+                    onChange={handleFileUpload}
+                    className="hidden"
                   />
-                  <button
-                    onClick={handleAnalyzeYoutube}
-                    disabled={!!analysisProgress}
-                    className="px-3 py-2 bg-[#a3ff12] hover:bg-[#92eb10] text-black font-extrabold text-xs rounded-xl transition-all cursor-pointer font-mono"
+                  <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white/5 flex items-center justify-center group-hover:scale-105 transition-transform mb-2 border border-white/5">
+                    <Upload className="w-4 h-4 sm:w-5 sm:h-5 text-zinc-300 group-hover:text-white" />
+                  </div>
+                  <h3 className="text-xs font-bold font-mono text-zinc-200 uppercase tracking-wider">
+                    Upload Audio
+                  </h3>
+                  <p className="text-[11px] font-mono text-zinc-500 mt-0.5">MP3, WAV, FLAC</p>
+                </div>
+
+                {/* YouTube Link / Song Search */}
+                <div className="frosted-card rounded-3xl p-4 flex flex-col justify-between min-h-[120px] sm:min-h-[140px]">
+                  <div className="flex items-center space-x-2">
+                    <LinkIcon className="w-4 h-4 text-zinc-400" />
+                    <h3 className="text-xs font-bold font-mono text-zinc-200 uppercase tracking-wider">
+                      Search & YouTube
+                    </h3>
+                  </div>
+
+                  <div className="flex flex-col gap-2 mt-2">
+                    <input
+                      type="text"
+                      placeholder="Song Name & Artist..."
+                      value={songName}
+                      onChange={(e) => setSongName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") handleAnalyzeYoutube();
+                      }}
+                      className="flex-1 bg-white/5 text-xs font-mono text-white rounded-xl px-3 py-2 border border-white/10 focus:border-[#a3ff12]/50 focus:outline-none placeholder:text-zinc-500"
+                    />
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        placeholder="Or paste YouTube URL..."
+                        value={youtubeUrl}
+                        onChange={(e) => setYoutubeUrl(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") handleAnalyzeYoutube();
+                        }}
+                        className="flex-1 bg-white/5 text-xs font-mono text-white rounded-xl px-3 py-2 border border-white/10 focus:border-[#a3ff12]/50 focus:outline-none placeholder:text-zinc-500"
+                      />
+                      <button
+                        onClick={handleAnalyzeYoutube}
+                        disabled={!!analysisProgress}
+                        className="px-3 py-2 bg-[#a3ff12] hover:bg-[#92eb10] text-black font-extrabold text-xs rounded-xl transition-all cursor-pointer font-mono"
+                      >
+                        {analysisProgress ? "..." : "SEARCH"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Microphone Live Tracking */}
+                <div
+                  onClick={toggleLiveMic}
+                  className={`border rounded-3xl p-4 sm:p-5 flex flex-col items-center justify-center text-center cursor-pointer transition-all group min-h-[120px] sm:min-h-[140px] ${
+                    isLiveMic
+                      ? "bg-[#a3ff12]/15 border-[#a3ff12] shadow-[0_0_20px_rgba(163,255,18,0.2)]"
+                      : "frosted-card-hover"
+                  }`}
+                >
+                  <div
+                    className={`w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center mb-2 ${
+                      isLiveMic ? "bg-[#a3ff12] text-black" : "bg-white/5 text-zinc-300 border border-white/5"
+                    }`}
                   >
-                    {analysisProgress ? "..." : "SEARCH"}
-                  </button>
+                    {isLiveMic ? <Mic className="w-4 h-4 sm:w-5 sm:h-5" /> : <MicOff className="w-4 h-4 sm:w-5 sm:h-5 text-zinc-400" />}
+                  </div>
+                  <h3
+                    className={`text-xs font-bold font-mono uppercase tracking-wider ${
+                      isLiveMic ? "text-[#a3ff12]" : "text-zinc-200"
+                    }`}
+                  >
+                    Microphone
+                  </h3>
+                  <p className="text-[11px] font-mono text-zinc-500 mt-0.5">
+                    {isLiveMic ? "Listening to live guitar input..." : "Listen to live audio"}
+                  </p>
                 </div>
               </div>
             </div>
-
-            {/* Microphone Live Tracking */}
-            <div
-              onClick={toggleLiveMic}
-              className={`border rounded-3xl p-4 sm:p-5 flex flex-col items-center justify-center text-center cursor-pointer transition-all group min-h-[120px] sm:min-h-[140px] ${
-                isLiveMic
-                  ? "bg-[#a3ff12]/15 border-[#a3ff12] shadow-[0_0_20px_rgba(163,255,18,0.2)]"
-                  : "frosted-card-hover"
-              }`}
-            >
-              <div
-                className={`w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center mb-2 ${
-                  isLiveMic ? "bg-[#a3ff12] text-black" : "bg-white/5 text-zinc-300 border border-white/5"
-                }`}
-              >
-                {isLiveMic ? <Mic className="w-4 h-4 sm:w-5 sm:h-5" /> : <MicOff className="w-4 h-4 sm:w-5 sm:h-5 text-zinc-400" />}
-              </div>
-              <h3
-                className={`text-xs font-bold font-mono uppercase tracking-wider ${
-                  isLiveMic ? "text-[#a3ff12]" : "text-zinc-200"
-                }`}
-              >
-                Microphone
-              </h3>
-              <p className="text-[11px] font-mono text-zinc-500 mt-0.5">
-                {isLiveMic ? "Listening to live guitar input..." : "Listen to live audio"}
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
+          )}
 
       {/* Analysis Progress Bar */}
       {analysisProgress && (
@@ -1668,8 +1643,8 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
 
       {/* Song Track Info Bar */}
       {activeSong ? (
-        <div className="frosted-card rounded-3xl p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3">
-          <div className="flex items-center space-x-3">
+        <div className="frosted-card rounded-3xl p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3 max-w-full overflow-hidden">
+          <div className="flex items-center space-x-2.5 sm:space-x-3 min-w-0 flex-1 overflow-hidden w-full sm:w-auto">
             <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-gradient-to-br from-[#122204] to-[#070b02] flex items-center justify-center text-[#a3ff12] border border-[#a3ff12]/30 shadow-[0_0_12px_rgba(163,255,18,0.2)] shrink-0 overflow-hidden">
               {activeSong.imageUrl ? (
                 <img
@@ -1682,44 +1657,73 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                 <Music className="w-5 h-5 sm:w-6 sm:h-6" />
               )}
             </div>
-            <div className="min-w-0">
-              <h2 className="text-sm sm:text-base font-bold text-white tracking-tight flex items-center gap-2 truncate">
-                <span className="truncate">{activeSong.title}</span>
-                {activeSong.youtubeUrl && !activeSong.youtubeUrl.includes("suno.") && (activeSong.youtubeUrl.includes("youtube.com") || activeSong.youtubeUrl.includes("youtu.be")) ? (
+            <div className="min-w-0 flex-1 overflow-hidden">
+              <div className="flex items-center gap-1.5 sm:gap-2 max-w-full">
+                {/* Slow sliding marquee for full song title */}
+                <div
+                  className="overflow-hidden whitespace-nowrap min-w-0 flex-1 relative [mask-image:linear-gradient(to_right,white_85%,transparent)]"
+                  title={activeSong.title}
+                >
+                  <div className="marquee-slow hover:[animation-play-state:paused]">
+                    <span className="text-sm sm:text-base font-bold text-white tracking-tight pr-8 shrink-0">
+                      {activeSong.title}
+                    </span>
+                    <span
+                      className="text-sm sm:text-base font-bold text-white tracking-tight pr-8 shrink-0"
+                      aria-hidden="true"
+                    >
+                      {activeSong.title}
+                    </span>
+                  </div>
+                </div>
+
+                {/* YouTube Icon Button */}
+                {activeSong.youtubeUrl &&
+                !activeSong.youtubeUrl.includes("suno.") &&
+                (activeSong.youtubeUrl.includes("youtube.com") || activeSong.youtubeUrl.includes("youtu.be")) ? (
                   <a
                     href={activeSong.youtubeUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 px-2 py-0.5 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 rounded-full text-[10px] font-mono text-red-400 transition-colors shrink-0"
+                    className="inline-flex items-center justify-center p-1 sm:px-1.5 sm:py-0.5 bg-red-600/15 hover:bg-red-600/25 active:bg-red-600/35 border border-red-500/40 rounded-lg text-red-500 hover:text-red-400 transition-colors shrink-0 shadow-xs touch-manipulation active:scale-95"
+                    title="Open in YouTube"
+                    aria-label="Open in YouTube"
                   >
-                    <LinkIcon className="w-2.5 h-2.5" />
-                    <span>YouTube</span>
+                    <Youtube className="w-3.5 h-3.5 fill-current" />
                   </a>
                 ) : null}
-              </h2>
-              <p className="text-[11px] sm:text-xs font-mono text-zinc-400 truncate">
+              </div>
+              <p className="text-[11px] sm:text-xs font-mono text-zinc-400 truncate mt-0.5">
                 {activeSong.artist || "Unknown Artist"} • {activeSong.tempo || 120} BPM
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 text-xs font-mono text-zinc-300 shrink-0">
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 text-xs font-mono text-zinc-300 w-full sm:w-auto pt-1 sm:pt-0 border-t border-white/5 sm:border-t-0">
+            <button
+              onClick={() => setShowUploadPanel(true)}
+              className="px-2.5 py-1 sm:px-3 sm:py-1 bg-white/5 hover:bg-white/10 active:bg-white/15 border border-white/10 text-zinc-300 hover:text-white rounded-full text-[11px] sm:text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-sm shrink-0 touch-manipulation"
+              title="Search a new song or upload audio"
+            >
+              <Upload className="w-3.5 h-3.5 text-[#a3ff12]" />
+              <span>Search / Upload</span>
+            </button>
             <button
               onClick={() => setIsSheetViewOpen(true)}
-              className="px-2.5 py-0.5 sm:px-3 sm:py-1 bg-white/10 hover:bg-white/20 border border-white/20 rounded-full text-[11px] sm:text-xs font-bold text-white transition-all cursor-pointer flex items-center gap-1.5 shadow-sm"
+              className="px-2.5 py-1 sm:px-3 sm:py-1 bg-white/10 hover:bg-white/20 active:bg-white/30 border border-white/20 rounded-full text-[11px] sm:text-xs font-bold text-white transition-all cursor-pointer flex items-center gap-1.5 shadow-sm shrink-0 touch-manipulation"
               title="Open Chord Sheet with tagged sections and timeline progression"
             >
               <FileText className="w-3.5 h-3.5 text-[#a3ff12]" />
               <span>Chord Sheet</span>
             </button>
-            <span className="px-2.5 py-0.5 sm:px-3 sm:py-1 bg-white/5 border border-white/5 rounded-full text-[11px] sm:text-xs">
+            <span className="px-2 py-0.5 sm:px-2.5 sm:py-1 bg-white/5 border border-white/5 rounded-full text-[10px] sm:text-xs shrink-0">
               Key: {activeSong.key || "C Maj"}
             </span>
-            <span className="px-2.5 py-0.5 sm:px-3 sm:py-1 bg-white/5 border border-white/5 rounded-full text-[11px] sm:text-xs">
+            <span className="px-2 py-0.5 sm:px-2.5 sm:py-1 bg-white/5 border border-white/5 rounded-full text-[10px] sm:text-xs shrink-0">
               {activeSong.tuning || "E Standard"}
             </span>
             {capo > 0 && (
-              <span className="px-2.5 py-0.5 sm:px-3 sm:py-1 bg-sky-500/10 border border-sky-500/30 rounded-full text-[11px] sm:text-xs font-mono text-sky-400 font-bold">
+              <span className="px-2 py-0.5 sm:px-2.5 sm:py-1 bg-sky-500/10 border border-sky-500/30 rounded-full text-[10px] sm:text-xs font-mono text-sky-400 font-bold shrink-0">
                 Capo {capo}
               </span>
             )}
@@ -1728,7 +1732,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                 onClick={() => handleTranscribeSong(activeSong, true)}
                 disabled={!!analysisProgress}
                 title="Re-run audio harmonic extraction"
-                className="px-2.5 py-0.5 sm:px-3 sm:py-1 bg-[#a3ff12]/10 hover:bg-[#a3ff12]/20 border border-[#a3ff12]/30 text-[#a3ff12] hover:text-white rounded-full font-bold transition-colors cursor-pointer flex items-center gap-1.5 text-[11px] sm:text-xs"
+                className="px-2 py-0.5 sm:px-2.5 sm:py-1 bg-[#a3ff12]/10 hover:bg-[#a3ff12]/20 active:bg-[#a3ff12]/30 border border-[#a3ff12]/30 text-[#a3ff12] hover:text-white rounded-full font-bold transition-colors cursor-pointer flex items-center gap-1 text-[10px] sm:text-xs shrink-0 touch-manipulation"
               >
                 <Sparkles className="w-3 h-3" />
                 <span>Re-Extract</span>

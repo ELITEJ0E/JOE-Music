@@ -589,7 +589,7 @@ export const ToneStudio: React.FC = () => {
           <div className="flex items-center space-x-2">
             <span className="w-2 h-2 rounded-full bg-[#a3ff12] animate-pulse" />
             <span className="text-white font-bold tracking-wider">DSP SIGNAL FLOW</span>
-            <span className="text-zinc-500 hidden sm:inline">• 64-bit serial audio graph</span>
+            <span className="text-zinc-500 hidden sm:inline">• Web Audio 32-bit float DSP chain</span>
           </div>
           <div className="flex items-center space-x-2 text-[11px] text-zinc-500">
             <span className="text-[#a3ff12] font-semibold">GUITAR IN</span>
