@@ -187,7 +187,7 @@ export const ChordSheetView: React.FC<ChordSheetViewProps> = ({
   onClose,
   onUpdateSongSegments,
 }) => {
-  const [autoScroll, setAutoScroll] = useState<boolean>(true);
+  const [autoScroll, setAutoScroll] = useState<boolean>(false);
   const [sheetTheme, setSheetTheme] = useState<"light" | "dark">("light");
   const [showExportModal, setShowExportModal] = useState<boolean>(false);
   const [showDiagrams, setShowDiagrams] = useState<boolean>(true);

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { motion, AnimatePresence } from "motion/react";
+import { motion, AnimatePresence, useDragControls } from "motion/react";
 import {
   MoreHorizontal,
   X,
@@ -26,6 +26,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
   isInstalled,
 }) => {
   const [isSheetOpen, setIsSheetOpen] = useState(false);
+  const dragControls = useDragControls();
 
   // Close sheet with Escape key & lock background scroll
   useEffect(() => {
@@ -145,7 +146,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
               aria-hidden="true"
             />
 
-            {/* Half-screen slide-up action sheet */}
+            {/* 75% screen height slide-up action sheet drawer */}
             <motion.div
               role="dialog"
               aria-modal="true"
@@ -153,16 +154,30 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
               initial={{ y: "100%" }}
               animate={{ y: 0 }}
               exit={{ y: "100%" }}
-              transition={{ type: "spring", damping: 28, stiffness: 260 }}
-              className="fixed inset-x-0 bottom-0 h-[50dvh] max-h-[50dvh] w-full bg-[#090b0e] text-white flex flex-col z-50 overflow-hidden shadow-2xl rounded-t-3xl border-t border-white/10"
+              transition={{ type: "spring", damping: 30, stiffness: 300 }}
+              drag="y"
+              dragControls={dragControls}
+              dragListener={false}
+              dragConstraints={{ top: 0 }}
+              dragElastic={{ top: 0, bottom: 0.6 }}
+              onDragEnd={(_, info) => {
+                if (info.offset.y > 70 || info.velocity.y > 250) {
+                  setIsSheetOpen(false);
+                }
+              }}
+              className="fixed inset-x-0 bottom-0 h-[75dvh] max-h-[75dvh] w-full bg-[#090b0e] text-white flex flex-col z-50 overflow-hidden shadow-2xl rounded-t-3xl border-t border-white/10"
             >
-              {/* Top Handle and Header with Safe Area Inset */}
-              <div className="shrink-0 pt-3 px-5 pb-3 border-b border-white/10 bg-[#0d1015]/90 backdrop-blur-xl">
+              {/* Top Handle and Header with Safe Area Inset (Swipe down to dismiss) */}
+              <div
+                onPointerDown={(e) => dragControls.start(e)}
+                style={{ touchAction: "none" }}
+                className="shrink-0 pt-3 px-5 pb-3 border-b border-white/10 bg-[#0d1015]/90 backdrop-blur-xl cursor-grab active:cursor-grabbing select-none"
+              >
                 {/* Pull down indicator pill */}
                 <div
                   onClick={() => setIsSheetOpen(false)}
-                  className="w-12 h-1.5 bg-white/20 hover:bg-white/40 rounded-full mx-auto mb-2.5 cursor-pointer transition-colors"
-                  title="Close launcher"
+                  className="w-12 h-1.5 bg-white/25 hover:bg-white/40 active:bg-[#a3ff12] rounded-full mx-auto mb-2.5 cursor-pointer transition-colors"
+                  title="Swipe down or tap to close launcher"
                 />
 
                 <div className="flex items-center justify-between">

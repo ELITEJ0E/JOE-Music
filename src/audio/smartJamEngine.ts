@@ -264,6 +264,66 @@ export class SmartJamEngine {
   }
 
   /**
+   * Real-time synthesized drum hit triggering in Web Audio.
+   */
+  public playDrumHit(type: "kick" | "snare" | "hihat" | "crash") {
+    const ctx = audioEngine.getContext();
+    if (!ctx) return;
+
+    try {
+      const now = ctx.currentTime;
+      if (type === "kick") {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.frequency.setValueAtTime(140, now);
+        osc.frequency.exponentialRampToValueAtTime(38, now + 0.12);
+        gain.gain.setValueAtTime(0.7, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.25);
+      } else if (type === "snare") {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "triangle";
+        osc.frequency.setValueAtTime(180, now);
+        osc.frequency.exponentialRampToValueAtTime(70, now + 0.1);
+        gain.gain.setValueAtTime(0.4, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.15);
+      } else if (type === "hihat") {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "square";
+        osc.frequency.setValueAtTime(8000, now);
+        gain.gain.setValueAtTime(0.18, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.05);
+      } else if (type === "crash") {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "square";
+        osc.frequency.setValueAtTime(5000, now);
+        gain.gain.setValueAtTime(0.25, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.45);
+      }
+    } catch {
+      // AudioContext state safety
+    }
+  }
+
+  /**
    * Real-time synthesized bass note triggering in Web Audio.
    */
   public playBassNote(pitch: number, durationSec: number = 0.5) {
