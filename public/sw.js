@@ -1,4 +1,4 @@
-const CACHE_NAME = "joe-studio-v1.0.2";
+const CACHE_NAME = "joe-studio-v1.0.5";
 const STATIC_ASSETS = [
   "/",
   "/index.html",
@@ -8,30 +8,39 @@ const STATIC_ASSETS = [
   "/pwa-icon-512.svg"
 ];
 
-// Install Event - Pre-cache core shell
+// Install Event - Pre-cache core shell and skip waiting immediately
 self.addEventListener("install", (event) => {
+  self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       return cache.addAll(STATIC_ASSETS).catch((err) => {
         console.warn("[SW] Cache addAll warning:", err);
       });
-    }).then(() => self.skipWaiting())
+    })
   );
 });
 
-// Activate Event - Clean up stale caches
+// Activate Event - Clean up stale caches immediately and claim clients
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys().then((keys) => {
       return Promise.all(
         keys.map((key) => {
           if (key !== CACHE_NAME) {
+            console.log("[SW] Deleting stale cache:", key);
             return caches.delete(key);
           }
         })
       );
     }).then(() => self.clients.claim())
   );
+});
+
+// Message listener to trigger immediate skip waiting from client
+self.addEventListener("message", (event) => {
+  if (event.data === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
 });
 
 // Fetch Event - Network First with Stale Cache Fallback
@@ -48,10 +57,18 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  // Navigation requests: always fetch fresh from network first
+  if (event.request.mode === "navigate") {
+    event.respondWith(
+      fetch(event.request, { cache: "no-cache" })
+        .catch(() => caches.match("/index.html"))
+    );
+    return;
+  }
+
   event.respondWith(
     fetch(event.request)
       .then((response) => {
-        // If response is valid, clone and cache static assets
         if (response && response.status === 200 && response.type === "basic") {
           const clone = response.clone();
           caches.open(CACHE_NAME).then((cache) => {
@@ -64,10 +81,6 @@ self.addEventListener("fetch", (event) => {
         const cachedResponse = await caches.match(event.request);
         if (cachedResponse) {
           return cachedResponse;
-        }
-        // Fallback for navigation
-        if (event.request.mode === "navigate") {
-          return caches.match("/index.html");
         }
         return new Response("Offline", { status: 503, statusText: "Offline" });
       })
