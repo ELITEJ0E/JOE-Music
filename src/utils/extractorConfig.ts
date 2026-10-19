@@ -264,22 +264,37 @@ export async function extractYouTubeAudio(
     }
 
     if (!response.ok) {
+      // The Render extractor returns a structured diagnostic for failures.
+      // Show it instead of masking every backend failure as a private video.
+      if (response.status >= 500) {
+        let diagnostic = "";
+        try {
+          const payload = await response.json();
+          if (typeof payload.error === "string") diagnostic = payload.error;
+          if (typeof payload.stage === "string") diagnostic += ` (stage: ${payload.stage})`;
+          if (typeof payload.code === "string") diagnostic += ` [${payload.code}]`;
+        } catch { /* proxy may return non-JSON for upstream outages */ }
+        throw new Error(diagnostic || `Extractor backend failed (HTTP ${response.status}). Check Render service logs.`);
+      }
       if (response.status === 400) {
         throw new Error("Invalid YouTube URL provided. Please check the video link and try again.");
       }
       if (response.status === 413) {
-        throw new Error("This video is too long or too large for the extractor. Upload a shorter audio file instead.");
+        throw new Error("This video is too long. The YouTube audio extractor has a 10-minute maximum limit.");
       }
-      // Read structured Render errors for any status, including 503 when
-      // YouTube has rate-limited the server.
-      let payload: { error?: string; code?: string; stage?: string; retryAfterSeconds?: number } = {};
-      try { payload = await response.json(); } catch { /* Proxy may serve HTML when unavailable */ }
-      let diagnostic = typeof payload.error === "string" ? payload.error : "";
-      if (typeof payload.stage === "string") diagnostic += " (stage: " + payload.stage + ")";
-      if (typeof payload.code === "string") diagnostic += " [" + payload.code + "]";
-      throw new Error(
-        diagnostic || "Extractor backend failed (HTTP " + response.status + "). Try uploading an audio file instead."
-      );
+      if (response.status === 500) {
+        throw new Error(
+          "Unable to extract audio from this YouTube video. The video may be private, age-restricted, region-blocked, or unavailable."
+        );
+      }
+
+      let detailMsg = "";
+      try {
+        const errJson = await response.json();
+        if (errJson.error) detailMsg = errJson.error;
+      } catch (_) {}
+
+      throw new Error(detailMsg || "Unable to extract this YouTube video. Please try another URL.");
     }
 
     const rawTitle = response.headers.get("X-Video-Title");
