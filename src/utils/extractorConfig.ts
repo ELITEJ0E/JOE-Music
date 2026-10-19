@@ -1,6 +1,6 @@
 /**
  * Configuration and client for the external YouTube audio extraction backend.
- * Default backend URL: https://chord-extractor-7agu.onrender.com
+ * Default backend URL: https://chord-extractor-1.onrender.com
  */
 
 export const DEFAULT_EXTRACTOR_API = "/api/youtube";
@@ -24,11 +24,11 @@ export function getExtractorApiUrl(): string {
   if (envUrl && typeof envUrl === "string" && envUrl.trim()) {
     const trimmed = envUrl.trim().replace(/\/+$/, "");
     if (trimmed.includes("railway.app")) {
-      return "https://chord-extractor-7agu.onrender.com";
+      return "https://chord-extractor-1.onrender.com";
     }
     return trimmed;
   }
-  return "https://chord-extractor-7agu.onrender.com";
+  return "https://chord-extractor-1.onrender.com";
 }
 
 /**
