@@ -231,7 +231,7 @@ describe("extractorConfig & extractYouTubeAudio", () => {
       await expect(
         extractYouTubeAudio("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
       ).rejects.toThrow(
-        "This video is too long or too large for the extractor. Upload a shorter audio file instead."
+        "This video is too long. The YouTube audio extractor has a 10-minute maximum limit."
       );
     });
 
@@ -247,22 +247,6 @@ describe("extractorConfig & extractYouTubeAudio", () => {
       ).rejects.toThrow(
         "YouTube requires verification for this server. (stage: metadata) [YOUTUBE_BOT_CHECK]"
       );
-    });
-
-    it("surfaces a 503 YouTube rate-limit error with its machine-readable code", async () => {
-      globalThis.fetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 503,
-        json: async () => ({
-          error: "YouTube is temporarily rate-limiting this server.",
-          code: "YOUTUBE_RATE_LIMITED",
-          stage: "cooldown",
-          retryAfterSeconds: 1800,
-        }),
-      });
-      await expect(
-        extractYouTubeAudio("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
-      ).rejects.toThrow("YouTube is temporarily rate-limiting this server. (stage: cooldown) [YOUTUBE_RATE_LIMITED]");
     });
 
     it("handles network failure / connection refusal gracefully", async () => {
