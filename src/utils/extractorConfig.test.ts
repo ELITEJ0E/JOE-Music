@@ -235,17 +235,17 @@ describe("extractorConfig & extractYouTubeAudio", () => {
       );
     });
 
-    it("handles 500 Internal Server Error without leaking raw backend errors", async () => {
+    it("reports structured backend errors for HTTP 500", async () => {
       globalThis.fetch = vi.fn().mockResolvedValue({
         ok: false,
         status: 500,
-        json: async () => ({ error: "yt-dlp exited with code 1" }),
+        json: async () => ({ error: "YouTube requires verification for this server.", stage: "metadata", code: "YOUTUBE_BOT_CHECK" }),
       });
 
       await expect(
         extractYouTubeAudio("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
       ).rejects.toThrow(
-        "Unable to extract audio from this YouTube video. The video may be private, age-restricted, region-blocked, or unavailable."
+        "YouTube requires verification for this server. (stage: metadata) [YOUTUBE_BOT_CHECK]"
       );
     });
 
