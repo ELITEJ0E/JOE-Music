@@ -6,6 +6,10 @@
   },
   "rewrites": [
     {
+      "source": "/api/youtube/:path*",
+      "destination": "https://chord-extractor-7agu.onrender.com/:path*"
+    },
+    {
       "source": "/api/suno-audio/:clipId",
       "destination": "/api/suno-audio?clipId=:clipId"
     },
