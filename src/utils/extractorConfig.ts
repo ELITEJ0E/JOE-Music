@@ -264,6 +264,18 @@ export async function extractYouTubeAudio(
     }
 
     if (!response.ok) {
+      // The Render extractor returns a structured diagnostic for failures.
+      // Show it instead of masking every backend failure as a private video.
+      if (response.status >= 500) {
+        let diagnostic = "";
+        try {
+          const payload = await response.json();
+          if (typeof payload.error === "string") diagnostic = payload.error;
+          if (typeof payload.stage === "string") diagnostic += ` (stage: ${payload.stage})`;
+          if (typeof payload.code === "string") diagnostic += ` [${payload.code}]`;
+        } catch { /* proxy may return non-JSON for upstream outages */ }
+        throw new Error(diagnostic || `Extractor backend failed (HTTP ${response.status}). Check Render service logs.`);
+      }
       if (response.status === 400) {
         throw new Error("Invalid YouTube URL provided. Please check the video link and try again.");
       }
