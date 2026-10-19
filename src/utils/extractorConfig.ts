@@ -22,7 +22,7 @@ export function getExtractorApiUrl(): string {
     (typeof process !== "undefined" && (process.env?.VITE_EXTRACTOR_API || process.env?.VITE_AUDIO_EXTRACTOR_URL || process.env?.AUDIO_EXTRACTOR_URL));
 
   if (envUrl && typeof envUrl === "string" && envUrl.trim()) {
-    const trimmed = envUrl.trim().replace(/\\/+$/, "");
+    const trimmed = envUrl.trim().replace(/\/+$/, "");
     if (trimmed.includes("railway.app")) {
       return "https://chord-extractor-7agu.onrender.com";
     }
