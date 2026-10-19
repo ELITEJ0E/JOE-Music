@@ -15,7 +15,7 @@ describe("extractorConfig & extractYouTubeAudio", () => {
   describe("getExtractorApiUrl", () => {
     it("returns a valid extractor URL without a trailing slash", () => {
       const url = getExtractorApiUrl();
-      expect([DEFAULT_EXTRACTOR_API, "https://chord-extractor-7agu.onrender.com"]).toContain(url);
+      expect([DEFAULT_EXTRACTOR_API, "https://chord-extractor-1.onrender.com"]).toContain(url);
       expect(url).not.toMatch(/\/$/); // no trailing slash
     });
   });
@@ -86,7 +86,7 @@ describe("extractorConfig & extractYouTubeAudio", () => {
       });
 
       const ready = await pingExtractorWarmup({
-        baseUrl: "https://chord-extractor-7agu.onrender.com",
+        baseUrl: "https://chord-extractor-1.onrender.com",
         onStateChange: (state) => states.push(state),
       });
 
@@ -135,11 +135,11 @@ describe("extractorConfig & extractYouTubeAudio", () => {
       const result = await extractYouTubeAudio(
         "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
         undefined,
-        "https://chord-extractor-7agu.onrender.com"
+        "https://chord-extractor-1.onrender.com"
       );
 
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        "https://chord-extractor-7agu.onrender.com/extract",
+        "https://chord-extractor-1.onrender.com/extract",
         expect.objectContaining({
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -231,7 +231,7 @@ describe("extractorConfig & extractYouTubeAudio", () => {
       await expect(
         extractYouTubeAudio("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
       ).rejects.toThrow(
-        "This video is too long. The YouTube audio extractor has a 10-minute maximum limit."
+        "This video is too long or too large for the extractor. Upload a shorter audio file instead."
       );
     });
 
@@ -247,6 +247,22 @@ describe("extractorConfig & extractYouTubeAudio", () => {
       ).rejects.toThrow(
         "YouTube requires verification for this server. (stage: metadata) [YOUTUBE_BOT_CHECK]"
       );
+    });
+
+    it("surfaces a 503 YouTube rate-limit error with its machine-readable code", async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 503,
+        json: async () => ({
+          error: "YouTube is temporarily rate-limiting this server.",
+          code: "YOUTUBE_RATE_LIMITED",
+          stage: "cooldown",
+          retryAfterSeconds: 1800,
+        }),
+      });
+      await expect(
+        extractYouTubeAudio("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+      ).rejects.toThrow("YouTube is temporarily rate-limiting this server. (stage: cooldown) [YOUTUBE_RATE_LIMITED]");
     });
 
     it("handles network failure / connection refusal gracefully", async () => {
