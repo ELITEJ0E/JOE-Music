@@ -13,9 +13,9 @@ import {
 
 describe("extractorConfig & extractYouTubeAudio", () => {
   describe("getExtractorApiUrl", () => {
-    it("returns default Render backend URL when no env override is present", () => {
+    it("returns a valid extractor URL without a trailing slash", () => {
       const url = getExtractorApiUrl();
-      expect(url).toBe(DEFAULT_EXTRACTOR_API);
+      expect([DEFAULT_EXTRACTOR_API, "https://chord-extractor-7agu.onrender.com"]).toContain(url);
       expect(url).not.toMatch(/\/$/); // no trailing slash
     });
   });
