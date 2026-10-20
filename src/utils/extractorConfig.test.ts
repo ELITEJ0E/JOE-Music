@@ -13,9 +13,9 @@ import {
 
 describe("extractorConfig & extractYouTubeAudio", () => {
   describe("getExtractorApiUrl", () => {
-    it("returns a valid extractor URL without a trailing slash", () => {
+    it("returns default Render backend URL when no env override is present", () => {
       const url = getExtractorApiUrl();
-      expect([DEFAULT_EXTRACTOR_API, "https://chord-extractor-2.onrender.com"]).toContain(url);
+      expect(url).toBe(DEFAULT_EXTRACTOR_API);
       expect(url).not.toMatch(/\/$/); // no trailing slash
     });
   });
@@ -86,7 +86,7 @@ describe("extractorConfig & extractYouTubeAudio", () => {
       });
 
       const ready = await pingExtractorWarmup({
-        baseUrl: "https://chord-extractor-2.onrender.com",
+        baseUrl: "https://chord-extractor.onrender.com",
         onStateChange: (state) => states.push(state),
       });
 
@@ -135,11 +135,11 @@ describe("extractorConfig & extractYouTubeAudio", () => {
       const result = await extractYouTubeAudio(
         "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
         undefined,
-        "https://chord-extractor-2.onrender.com"
+        "https://chord-extractor.onrender.com"
       );
 
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        "https://chord-extractor-2.onrender.com/extract",
+        "https://chord-extractor.onrender.com/extract",
         expect.objectContaining({
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -235,17 +235,17 @@ describe("extractorConfig & extractYouTubeAudio", () => {
       );
     });
 
-    it("reports structured backend errors for HTTP 500", async () => {
+    it("handles 500 Internal Server Error without leaking raw backend errors", async () => {
       globalThis.fetch = vi.fn().mockResolvedValue({
         ok: false,
         status: 500,
-        json: async () => ({ error: "YouTube requires verification for this server.", stage: "metadata", code: "YOUTUBE_BOT_CHECK" }),
+        json: async () => ({ error: "yt-dlp exited with code 1" }),
       });
 
       await expect(
         extractYouTubeAudio("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
       ).rejects.toThrow(
-        "YouTube requires verification for this server. (stage: metadata) [YOUTUBE_BOT_CHECK]"
+        "Unable to extract audio from this YouTube video. The video may be private, age-restricted, region-blocked, or unavailable."
       );
     });
 
