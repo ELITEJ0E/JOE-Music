@@ -15,7 +15,7 @@ describe("extractorConfig & extractYouTubeAudio", () => {
   describe("getExtractorApiUrl", () => {
     it("returns a valid extractor URL without a trailing slash", () => {
       const url = getExtractorApiUrl();
-      expect([DEFAULT_EXTRACTOR_API, "https://chord-extractor-1.onrender.com"]).toContain(url);
+      expect([DEFAULT_EXTRACTOR_API, "https://chord-extractor-2.onrender.com"]).toContain(url);
       expect(url).not.toMatch(/\/$/); // no trailing slash
     });
   });
@@ -86,7 +86,7 @@ describe("extractorConfig & extractYouTubeAudio", () => {
       });
 
       const ready = await pingExtractorWarmup({
-        baseUrl: "https://chord-extractor-1.onrender.com",
+        baseUrl: "https://chord-extractor-2.onrender.com",
         onStateChange: (state) => states.push(state),
       });
 
@@ -135,11 +135,11 @@ describe("extractorConfig & extractYouTubeAudio", () => {
       const result = await extractYouTubeAudio(
         "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
         undefined,
-        "https://chord-extractor-1.onrender.com"
+        "https://chord-extractor-2.onrender.com"
       );
 
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        "https://chord-extractor-1.onrender.com/extract",
+        "https://chord-extractor-2.onrender.com/extract",
         expect.objectContaining({
           method: "POST",
           headers: { "Content-Type": "application/json" },
