@@ -45,6 +45,8 @@ import {
   normalizeYouTubeUrl,
   isExtractionInFlight,
   getYouTubeThumbnailUrl,
+  isLocalExtractorEnabled,
+  setLocalExtractorEnabled,
 } from "../utils/extractorConfig";
 import {
   saveSongToDB,
@@ -64,6 +66,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
   const [activeSong, setActiveSong] = useState<SongAnalysis | null>(null);
   const [savedSongs, setSavedSongs] = useState<SavedSong[]>([]);
   const [youtubeUrl, setYoutubeUrl] = useState("");
+  const [useLocalExtractor, setUseLocalExtractor] = useState(() => isLocalExtractorEnabled());
   const [songName, setSongName] = useState("");
   const [analysisProgress, setAnalysisProgress] = useState<{ message: string; pct: number } | null>(null);
   const [showUploadPanel, setShowUploadPanel] = useState<boolean>(false);
@@ -1573,6 +1576,18 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                   </button>
                 </div>
               </div>
+            </div>
+
+            {/* Local extraction is opt-in and only works when the Windows companion is running. */}
+            <div className="md:col-span-3 flex flex-wrap items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-zinc-300">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={useLocalExtractor} onChange={(e) => {
+                  setUseLocalExtractor(e.target.checked);
+                  setLocalExtractorEnabled(e.target.checked);
+                }} />
+                Use local Windows extractor (127.0.0.1:8787)
+              </label>
+              <span className="text-zinc-500">Requires the companion running on your PC. Turn off to use Render.</span>
             </div>
 
             {/* Microphone Live Tracking */}
