@@ -1473,6 +1473,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
   return (
     <div id="panel-chord-finder" className="max-w-6xl mx-auto space-y-6 pb-12 animate-in fade-in duration-200">
       <audio ref={audioRef} className="hidden" />
+      <input ref={fileInputRef} type="file" accept="audio/*" onChange={handleFileUpload} className="hidden" />
 
       {isSheetViewOpen && activeSong ? (
         <ChordSheetView
@@ -1523,13 +1524,6 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
               onClick={() => fileInputRef.current?.click()}
               className="frosted-card-hover rounded-3xl p-4 sm:p-5 flex flex-col items-center justify-center text-center cursor-pointer transition-all group min-h-[120px] sm:min-h-[140px]"
             >
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="audio/*"
-                onChange={handleFileUpload}
-                className="hidden"
-              />
               <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white/5 flex items-center justify-center group-hover:scale-105 transition-transform mb-2 border border-white/5">
                 <Upload className="w-4 h-4 sm:w-5 sm:h-5 text-zinc-300 group-hover:text-white" />
               </div>
