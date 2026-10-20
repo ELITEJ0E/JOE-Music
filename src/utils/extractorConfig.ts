@@ -1,21 +1,14 @@
 /**
  * Configuration and client for the external YouTube audio extraction backend.
- * Default backend URL: https://chord-extractor-2.onrender.com
+ * Default backend URL: https://chord-extractor.onrender.com
  */
 
-export const DEFAULT_EXTRACTOR_API = "/api/youtube";
+export const DEFAULT_EXTRACTOR_API = "https://chord-extractor.onrender.com";
 
 /**
  * Returns the configured extractor backend base URL without trailing slashes.
  */
 export function getExtractorApiUrl(): string {
-  // Route production browser calls through Vercel's same-origin reverse proxy.
-  // This avoids Render CORS/preflight failures and does not expose the
-  // extractor backend as a cross-origin request from the browser.
-  if (typeof window !== "undefined" && !["localhost", "127.0.0.1"].includes(window.location.hostname)) {
-    return DEFAULT_EXTRACTOR_API;
-  }
-
   const envUrl =
     (typeof import.meta !== "undefined" && import.meta.env?.VITE_EXTRACTOR_API) ||
     (typeof import.meta !== "undefined" && import.meta.env?.VITE_AUDIO_EXTRACTOR_URL) ||
@@ -23,12 +16,13 @@ export function getExtractorApiUrl(): string {
 
   if (envUrl && typeof envUrl === "string" && envUrl.trim()) {
     const trimmed = envUrl.trim().replace(/\/+$/, "");
-    if (trimmed.includes("railway.app")) {
-      return "https://chord-extractor-2.onrender.com";
+    // Automatically fallback to active Render service if an outdated/inaccessible Railway URL is set in environment variables
+    if (trimmed.includes("chord-extractor-production.up.railway.app") || trimmed.includes("railway.app")) {
+      return DEFAULT_EXTRACTOR_API;
     }
     return trimmed;
   }
-  return "https://chord-extractor-2.onrender.com";
+  return DEFAULT_EXTRACTOR_API;
 }
 
 /**
@@ -264,18 +258,6 @@ export async function extractYouTubeAudio(
     }
 
     if (!response.ok) {
-      // The Render extractor returns a structured diagnostic for failures.
-      // Show it instead of masking every backend failure as a private video.
-      if (response.status >= 500) {
-        let diagnostic = "";
-        try {
-          const payload = await response.json();
-          if (typeof payload.error === "string") diagnostic = payload.error;
-          if (typeof payload.stage === "string") diagnostic += ` (stage: ${payload.stage})`;
-          if (typeof payload.code === "string") diagnostic += ` [${payload.code}]`;
-        } catch { /* proxy may return non-JSON for upstream outages */ }
-        throw new Error(diagnostic || `Extractor backend failed (HTTP ${response.status}). Check Render service logs.`);
-      }
       if (response.status === 400) {
         throw new Error("Invalid YouTube URL provided. Please check the video link and try again.");
       }
