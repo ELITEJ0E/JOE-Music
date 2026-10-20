@@ -1101,13 +1101,24 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
               "The browser was unable to decode the downloaded audio stream. Please try another video or upload a standard audio file.";
           }
 
+          const blocked = /YOUTUBE_RATE_LIMITED|YTDLP_FAILED|HTTP 502|HTTP 503/i.test(errorMessage);
+          if (blocked) {
+            errorTitle = "YouTube Extraction Unavailable";
+            errorMessage = "YouTube is currently refusing automated requests from the audio server. You can still analyze this song by uploading an MP3, WAV or FLAC file you are authorized to use.";
+          }
           setDialog({
             isOpen: true,
             title: errorTitle,
             message: errorMessage,
-            confirmText: "OK",
+            confirmText: blocked ? "Upload Audio" : "OK",
             type: "error",
-            onConfirm: () => setDialog((prev) => ({ ...prev, isOpen: false })),
+            onConfirm: () => {
+              setDialog((prev) => ({ ...prev, isOpen: false }));
+              if (blocked) {
+                setShowUploadPanel(true);
+                fileInputRef.current?.click();
+              }
+            },
           });
         }
       } finally {
