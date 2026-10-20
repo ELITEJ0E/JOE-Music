@@ -5,10 +5,25 @@
 
 export const DEFAULT_EXTRACTOR_API = "/api/youtube";
 
+export const LOCAL_EXTRACTOR_API = "http://127.0.0.1:8787";
+export const LOCAL_EXTRACTOR_STORAGE_KEY = "joe-guitar-local-extractor";
+
+export function isLocalExtractorEnabled(): boolean {
+  try { return typeof window !== "undefined" && window.localStorage.getItem(LOCAL_EXTRACTOR_STORAGE_KEY) === "true"; }
+  catch { return false; }
+}
+
+export function setLocalExtractorEnabled(enabled: boolean): void {
+  try { window.localStorage.setItem(LOCAL_EXTRACTOR_STORAGE_KEY, enabled ? "true" : "false"); }
+  catch { /* storage can be disabled */ }
+}
+
+
 /**
  * Returns the configured extractor backend base URL without trailing slashes.
  */
 export function getExtractorApiUrl(): string {
+  if (isLocalExtractorEnabled()) return LOCAL_EXTRACTOR_API;
   // Route production browser calls through Vercel's same-origin reverse proxy.
   // This avoids Render CORS/preflight failures and does not expose the
   // extractor backend as a cross-origin request from the browser.
