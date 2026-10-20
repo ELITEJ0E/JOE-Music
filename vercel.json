@@ -7,7 +7,7 @@
   "rewrites": [
     {
       "source": "/api/youtube/:path*",
-      "destination": "https://chord-extractor-1.onrender.com/:path*"
+      "destination": "https://chord-extractor-2.onrender.com/:path*"
     },
     {
       "source": "/api/suno-audio/:clipId",
