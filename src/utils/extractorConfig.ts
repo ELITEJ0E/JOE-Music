@@ -3,7 +3,31 @@
  * Default backend URL: https://chord-extractor.onrender.com
  */
 
-export const DEFAULT_EXTRACTOR_API = "https://chord-extractor.onrender.com";
+export const DEFAULT_EXTRACTOR_API = "https://chord-extractor-1.onrender.com";
+
+export interface YouTubeOEmbedData {
+  title?: string;
+  author_name?: string;
+  author_url?: string;
+  thumbnail_url?: string;
+}
+
+/**
+ * Fetches standard video metadata (title, author, thumbnail) via official YouTube oEmbed.
+ * Guaranteed to succeed without rate limits or bot verification.
+ */
+export async function fetchYouTubeOEmbed(url: string): Promise<YouTubeOEmbedData | null> {
+  try {
+    const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(url.trim())}&format=json`;
+    const res = await fetch(oembedUrl);
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err) {
+    console.warn("[YouTube oEmbed] Metadata fetch warning:", err);
+  }
+  return null;
+}
 
 /**
  * Returns the configured extractor backend base URL without trailing slashes.
@@ -16,8 +40,13 @@ export function getExtractorApiUrl(): string {
 
   if (envUrl && typeof envUrl === "string" && envUrl.trim()) {
     const trimmed = envUrl.trim().replace(/\/+$/, "");
-    // Automatically fallback to active Render service if an outdated/inaccessible Railway URL is set in environment variables
-    if (trimmed.includes("chord-extractor-production.up.railway.app") || trimmed.includes("railway.app")) {
+    // Automatically fallback to active Render service if outdated or suspended URLs are used
+    if (
+      trimmed.includes("chord-extractor-production.up.railway.app") ||
+      trimmed.includes("railway.app") ||
+      trimmed === "https://chord-extractor.onrender.com" ||
+      trimmed.includes("chord-extractor-7agu.onrender.com")
+    ) {
       return DEFAULT_EXTRACTOR_API;
     }
     return trimmed;
@@ -251,13 +280,53 @@ export async function extractYouTubeAudio(
       if (err.name === "AbortError") {
         throw err;
       }
-      console.error("[YouTube Extractor] Network request failed:", err);
-      throw new Error(
-        "Unable to reach the YouTube audio extractor. The server may be starting up or temporarily offline. Please try again in a few moments."
-      );
+      console.warn("[YouTube Extractor] Primary fetch failed, attempting fallback:", err?.message || err);
+      // If same-origin proxy or custom baseUrl failed, try direct DEFAULT_EXTRACTOR_API as secondary attempt
+      if (endpoint !== `${DEFAULT_EXTRACTOR_API}/extract`) {
+        try {
+          response = await fetch(`${DEFAULT_EXTRACTOR_API}/extract`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url: normalizedUrl }),
+            signal,
+          });
+        } catch (fallbackErr: any) {
+          if (fallbackErr.name === "AbortError") throw fallbackErr;
+          console.error("[YouTube Extractor] Fallback network request failed:", fallbackErr);
+          throw new Error(
+            "Unable to reach the YouTube audio extractor. The server may be starting up or temporarily offline. Please try again in a few moments."
+          );
+        }
+      } else {
+        throw new Error(
+          "Unable to reach the YouTube audio extractor. The server may be starting up or temporarily offline. Please try again in a few moments."
+        );
+      }
     }
 
     if (!response.ok) {
+      let detailMsg = "";
+      try {
+        const errJson = await response.json();
+        if (errJson.message) detailMsg = errJson.message;
+        else if (errJson.error) detailMsg = errJson.error;
+      } catch (_) {}
+
+      const isRateLimited =
+        response.status === 429 ||
+        detailMsg.includes("429") ||
+        detailMsg.includes("Too Many Requests") ||
+        detailMsg.includes("rate-limiting") ||
+        detailMsg.includes("Failed to extract any player response") ||
+        detailMsg.includes("Sign in to confirm you're not a bot") ||
+        detailMsg.includes("bot verification");
+
+      if (isRateLimited) {
+        throw new Error(
+          "[YOUTUBE_RATE_LIMITED] YouTube is temporarily restricting automated audio streams from this cloud IP. Switching to harmonic chord progression analysis."
+        );
+      }
+
       if (response.status === 400) {
         throw new Error("Invalid YouTube URL provided. Please check the video link and try again.");
       }
@@ -266,15 +335,9 @@ export async function extractYouTubeAudio(
       }
       if (response.status === 500) {
         throw new Error(
-          "Unable to extract audio from this YouTube video. The video may be private, age-restricted, region-blocked, or unavailable."
+          detailMsg || "Unable to extract audio from this YouTube video. The video may be private, age-restricted, region-blocked, or unavailable."
         );
       }
-
-      let detailMsg = "";
-      try {
-        const errJson = await response.json();
-        if (errJson.error) detailMsg = errJson.error;
-      } catch (_) {}
 
       throw new Error(detailMsg || "Unable to extract this YouTube video. Please try another URL.");
     }

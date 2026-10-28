@@ -31,8 +31,54 @@ async function startServer() {
   // Expose ONLY the VITE_EXTRACTOR_API / VITE_AUDIO_EXTRACTOR_URL environment variable safely for client-side runtime recovery
   app.get("/api/extractor-url", (req, res) => {
     res.json({
-      url: process.env.VITE_EXTRACTOR_API || process.env.VITE_AUDIO_EXTRACTOR_URL || process.env.AUDIO_EXTRACTOR_URL || "https://chord-extractor-7agu.onrender.com"
+      url: process.env.VITE_EXTRACTOR_API || process.env.VITE_AUDIO_EXTRACTOR_URL || process.env.AUDIO_EXTRACTOR_URL || "https://chord-extractor-1.onrender.com"
     });
+  });
+
+  // Local / Vercel-aligned Proxy for YouTube Audio Extractor
+  app.all("/api/youtube/:path(*)", async (req, res) => {
+    const subPath = req.params.path ? `/${req.params.path}` : "/extract";
+    const baseHost = (process.env.VITE_EXTRACTOR_API || process.env.VITE_AUDIO_EXTRACTOR_URL || "https://chord-extractor-1.onrender.com").replace(/\/+$/, "");
+    const targetUrl = `${baseHost}${subPath}`;
+
+    try {
+      const fetchHeaders: Record<string, string> = {};
+      if (req.headers["content-type"]) {
+        fetchHeaders["content-type"] = req.headers["content-type"] as string;
+      }
+
+      const fetchOptions: RequestInit = {
+        method: req.method,
+        headers: fetchHeaders,
+      };
+
+      if (req.method !== "GET" && req.method !== "HEAD" && req.body && Object.keys(req.body).length > 0) {
+        fetchOptions.body = JSON.stringify(req.body);
+      }
+
+      const remoteRes = await fetch(targetUrl, fetchOptions);
+      res.status(remoteRes.status);
+
+      remoteRes.headers.forEach((val, key) => {
+        const lowerKey = key.toLowerCase();
+        if (
+          lowerKey !== "transfer-encoding" &&
+          lowerKey !== "content-encoding" &&
+          lowerKey !== "content-length"
+        ) {
+          res.setHeader(key, val);
+        }
+      });
+
+      const buffer = Buffer.from(await remoteRes.arrayBuffer());
+      res.send(buffer);
+    } catch (err: any) {
+      console.error("[Proxy /api/youtube] Error forwarding request:", err?.message);
+      res.status(502).json({
+        error: "Failed to communicate with YouTube extractor backend",
+        message: err?.message,
+      });
+    }
   });
 
   // In-memory store for standalone external chord sheets
