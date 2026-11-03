@@ -212,20 +212,29 @@ export async function fetchDecryptedAudioBlob(
 
     if (signal?.aborted) return null;
 
-    // Case 3.5: Direct CloudFront CDN stream (CORS open)
-    try {
-      const directRes = await fetch(`https://d2lwuy8qc234o3.cloudfront.net/1/clip/${clipId}.m4a`, { signal });
-      if (directRes.ok) {
-        const ct = directRes.headers.get("content-type") || "audio/mp4";
-        const buf = await directRes.arrayBuffer();
-        if (buf.byteLength > 1000) {
-          const blob = new Blob([buf], { type: ct });
-          return { blob, mimeType: ct };
+    // Case 3.5: Direct CDN streams (cdn1.suno.ai or CloudFront)
+    const directCandidates = [
+      `https://cdn1.suno.ai/${clipId}.mp4`,
+      `https://d2lwuy8qc234o3.cloudfront.net/1/clip/${clipId}.m4a`,
+      `https://cdn1.suno.ai/${clipId}.mp3`,
+      `https://cdn2.suno.ai/${clipId}.mp3`
+    ];
+
+    for (const directUrl of directCandidates) {
+      if (signal?.aborted) return null;
+      try {
+        const directRes = await fetch(directUrl, { signal });
+        if (directRes.ok) {
+          const ct = directRes.headers.get("content-type") || (directUrl.endsWith(".mp3") ? "audio/mpeg" : "audio/mp4");
+          const buf = await directRes.arrayBuffer();
+          if (buf.byteLength > 1000) {
+            const blob = new Blob([buf], { type: ct });
+            return { blob, mimeType: ct };
+          }
         }
+      } catch (cdnErr: any) {
+        if (cdnErr.name === "AbortError" || signal?.aborted) return null;
       }
-    } catch (cdnErr: any) {
-      if (cdnErr.name === "AbortError" || signal?.aborted) return null;
-      console.warn("[Suno Resolver] Direct CDN fetch fallback error:", cdnErr);
     }
   }
 

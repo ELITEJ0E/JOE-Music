@@ -12,16 +12,17 @@ interface CachedAudio {
 const audioBufferCache = new Map<string, CachedAudio>();
 const pendingDecryptions = new Map<string, Promise<CachedAudio | null>>();
 
-async function resolveAndDecryptSunoAudio(clipId: string): Promise<CachedAudio | null> {
-  if (!clipId) return null;
+async function resolveAndDecryptSunoAudio(clipId: string, directUrl?: string): Promise<CachedAudio | null> {
+  const cacheKey = clipId || directUrl || "";
+  if (!cacheKey) return null;
 
-  const cached = audioBufferCache.get(clipId);
+  const cached = audioBufferCache.get(cacheKey);
   if (cached && Date.now() - cached.timestamp < 4 * 3600 * 1000) {
     return cached;
   }
 
-  if (pendingDecryptions.has(clipId)) {
-    return pendingDecryptions.get(clipId)!;
+  if (pendingDecryptions.has(cacheKey)) {
+    return pendingDecryptions.get(cacheKey)!;
   }
 
   const decryptPromise = (async (): Promise<CachedAudio | null> => {
@@ -34,44 +35,70 @@ async function resolveAndDecryptSunoAudio(clipId: string): Promise<CachedAudio |
 
       let rightsData: { key: string; iv: string; glt: string } | null = null;
 
-      for (const host of rightsHosts) {
-        try {
-          const rightsRes = await fetch(`${host}/api/mango/rights`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-              "Origin": "https://suno.com",
-              "Referer": `https://suno.com/song/${clipId}`
-            },
-            body: JSON.stringify({
-              content_params: {
-                content_id: clipId,
-                content_type: "clip"
-              }
-            })
-          });
+      if (clipId) {
+        for (const host of rightsHosts) {
+          try {
+            const rightsRes = await fetch(`${host}/api/mango/rights`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                "Origin": "https://suno.com",
+                "Referer": `https://suno.com/song/${clipId}`
+              },
+              body: JSON.stringify({
+                content_params: {
+                  content_id: clipId,
+                  content_type: "clip"
+                }
+              })
+            });
 
-          if (rightsRes.ok) {
-            const json = await rightsRes.json();
-            if (json && json.key && json.iv && json.glt) {
-              rightsData = json;
+            if (rightsRes.ok) {
+              const json = await rightsRes.json();
+              if (json && json.key && json.iv && json.glt) {
+                rightsData = json;
+                break;
+              }
+            }
+          } catch (e: any) {}
+        }
+      }
+
+      // Download audio stream from Suno CDN or CloudFront
+      const candidateMediaUrls = [
+        directUrl,
+        clipId ? `https://cdn1.suno.ai/${clipId}.mp4` : null,
+        clipId ? `https://d2lwuy8qc234o3.cloudfront.net/1/clip/${clipId}.m4a` : null,
+        clipId ? `https://cdn1.suno.ai/${clipId}.mp3` : null,
+        clipId ? `https://cdn2.suno.ai/${clipId}.mp3` : null,
+        clipId ? `https://d2lwuy8qc234o3.cloudfront.net/1/clip/${clipId}.mp3` : null,
+        clipId ? `https://audiopipe.suno.ai/?item_id=${clipId}` : null,
+      ].filter(Boolean) as string[];
+
+      let rawEncryptedBuffer: Buffer | null = null;
+      let matchedUrl = "";
+
+      for (const mediaUrl of candidateMediaUrls) {
+        try {
+          const mediaRes = await fetch(mediaUrl, {
+            headers: {
+              "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+              "Referer": "https://suno.com/"
+            }
+          });
+          if (mediaRes.ok) {
+            const arr = await mediaRes.arrayBuffer();
+            if (arr.byteLength > 1000) {
+              rawEncryptedBuffer = Buffer.from(arr);
+              matchedUrl = mediaUrl;
               break;
             }
           }
-        } catch (e: any) {}
+        } catch (e) {}
       }
 
-      // Download audio stream from CloudFront
-      const mediaRes = await fetch(`https://d2lwuy8qc234o3.cloudfront.net/1/clip/${clipId}.m4a`, {
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-          "Referer": "https://suno.com/"
-        }
-      });
-
-      if (!mediaRes.ok) return null;
-      const rawEncryptedBuffer = Buffer.from(await mediaRes.arrayBuffer());
+      if (!rawEncryptedBuffer) return null;
 
       if (rightsData) {
         const { key: encKeyB64, iv: encIvB64, glt } = rightsData;
@@ -153,12 +180,14 @@ export default async function handler(req: any, res: any) {
   }
 
   const clipId = ((req.query?.clipId || req.query?.id || req.params?.clipId || "") as string).trim();
-  if (!clipId) {
-    return res.status(400).json({ error: "Missing clipId parameter" });
+  const directUrl = ((req.query?.url || "") as string).trim();
+
+  if (!clipId && !directUrl) {
+    return res.status(400).json({ error: "Missing clipId or url parameter" });
   }
 
   try {
-    const audioData = await resolveAndDecryptSunoAudio(clipId);
+    const audioData = await resolveAndDecryptSunoAudio(clipId, directUrl);
     if (!audioData || !audioData.buffer || audioData.buffer.length === 0) {
       return res.status(404).json({ error: "Audio track unavailable or decryption failed", clipId });
     }

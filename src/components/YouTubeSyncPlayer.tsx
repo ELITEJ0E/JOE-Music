@@ -280,9 +280,6 @@ export const YouTubeSyncPlayer: React.FC<YouTubeSyncPlayerProps> = ({
           <span className="text-[11px] font-mono font-bold text-zinc-200 tracking-wide truncate">
             YouTube Audio & Video Sync
           </span>
-          <span className="text-[9.5px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 font-semibold shrink-0">
-            JOE UI Controlled • Zero Conflicts
-          </span>
         </div>
 
         <div className="flex items-center gap-1.5 shrink-0">

@@ -824,64 +824,109 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
     const query = sName || ytUrl;
     if (!query) return;
 
-    // Detect if input is a Suno URL
-    const isSunoUrl = (val: string) =>
-      val.includes("suno.com/") ||
-      val.includes("suno.ai/") ||
-      /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i.test(val);
+    // Robust Suno input parser supporting mobile share text, short links, clean URLs, and UUIDs
+    const extractSunoInfo = (text: string) => {
+      if (!text) return { isSuno: false, clipId: null as string | null, rawUrl: null as string | null };
+      const trimmed = text.trim();
+      
+      const uuidMatch = trimmed.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
+      const clipId = uuidMatch ? uuidMatch[1] : null;
 
-    let targetSunoUrl = "";
-    if (isSunoUrl(ytUrl)) {
-      targetSunoUrl = ytUrl;
-    } else if (isSunoUrl(sName)) {
-      targetSunoUrl = sName;
-    }
+      const urlMatch = trimmed.match(/(https?:\/\/[^\s]+suno\.(?:com|ai)[^\s]*)/i) ||
+        trimmed.match(/(https?:\/\/[^\s]*suno[^\s]*)/i);
+      const rawUrl = urlMatch ? urlMatch[1] : (trimmed.startsWith("http") && trimmed.includes("suno") ? trimmed : null);
 
-    if (targetSunoUrl) {
-      const clipMatch = targetSunoUrl.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
-      const clipId = clipMatch ? clipMatch[1] : null;
+      const isSuno = Boolean(
+        clipId ||
+        rawUrl ||
+        trimmed.includes("suno.com") ||
+        trimmed.includes("suno.ai")
+      );
 
-      if (clipId) {
-        const deterministicId = `suno-${clipId}`;
+      return { isSuno, clipId, rawUrl };
+    };
+
+    const sunoCheckYt = extractSunoInfo(ytUrl);
+    const sunoCheckName = extractSunoInfo(sName);
+    const isSuno = sunoCheckYt.isSuno || sunoCheckName.isSuno;
+
+    if (isSuno) {
+      let clipId = sunoCheckYt.clipId || sunoCheckName.clipId;
+      const targetSunoUrl = sunoCheckYt.rawUrl || sunoCheckName.rawUrl || (clipId ? `https://suno.com/song/${clipId}` : ytUrl || sName);
+
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+      abortControllerRef.current = new AbortController();
+
+      try {
+        setAnalysisProgress({ message: "Connecting to Suno track...", pct: 10 });
+
         let title = "Track";
         let artist = "ELITEJOE";
-        let imageUrl = `https://cdn2.suno.ai/image_large_${clipId}.jpeg`;
-        let audioUrl = `https://d2lwuy8qc234o3.cloudfront.net/1/clip/${clipId}.m4a`;
+        let imageUrl = "";
+        let audioUrl = "";
         let lyrics = "";
         let tags: string[] = [];
+        let expectedDuration = 0;
 
-        try {
-          setAnalysisProgress({ message: "Checking song library...", pct: 5 });
-
-          // 1. Check if song was already analyzed and saved in DB
-          const existingSongs = await loadSongsFromDB();
-          const match = existingSongs.find(
-            (s) => s.id === deterministicId || (clipId && (s.id === clipId || s.sunoId === clipId))
-          );
-
-          if (match) {
-            const updated: SavedSong = {
-              ...match,
-              id: deterministicId,
-              sunoId: clipId,
-              sunoUrl: targetSunoUrl,
-              lastPlayedAt: Date.now(),
-            };
-            await saveSongToDB(updated);
-            saveLastPlayedSongId(updated.id);
-            setActiveSong(updated);
-            const freshList = await loadSongsFromDB();
-            setSavedSongs(freshList);
-            setAnalysisProgress(null);
-            setYoutubeUrl("");
-            setSongName("");
-            return;
+        // Step 1: If we don't have a UUID yet (e.g. short link suno.com/s/...), resolve it via backend
+        if (!clipId && targetSunoUrl) {
+          setAnalysisProgress({ message: "Resolving Suno share link...", pct: 15 });
+          try {
+            const resolveRes = await fetch(`/api/suno-song?url=${encodeURIComponent(targetSunoUrl)}`);
+            if (resolveRes.ok) {
+              const meta = await resolveRes.json();
+              if (meta.id) clipId = meta.id;
+              if (meta.title && meta.title !== "Suno Track" && meta.title !== "Track" && !meta.title.toLowerCase().includes("suno")) {
+                title = meta.title;
+              }
+              if (meta.artist) artist = meta.artist;
+              if (meta.imageUrl) imageUrl = meta.imageUrl;
+              if (meta.audioUrl) audioUrl = meta.audioUrl;
+              if (meta.duration) expectedDuration = meta.duration;
+              if (meta.lyrics) lyrics = meta.lyrics;
+              if (meta.tags) tags = meta.tags;
+            }
+          } catch (err) {
+            console.warn("Could not resolve Suno URL metadata:", err);
           }
+        }
 
-          // 2. Resolve metadata from catalog or remote resolver
-          abortControllerRef.current = new AbortController();
-          setAnalysisProgress({ message: "Connecting to audio stream...", pct: 15 });
+        if (!clipId) {
+          throw new Error("Could not find a valid Suno track ID from the provided link.");
+        }
 
+        const deterministicId = `suno-${clipId}`;
+
+        // Step 2: Check if already analyzed and saved in DB with audio blob
+        const existingSongs = await loadSongsFromDB();
+        const match = existingSongs.find(
+          (s) => s.id === deterministicId || s.sunoId === clipId || (clipId && s.id === clipId)
+        );
+
+        if (match && match.audioBlob) {
+          const updated: SavedSong = {
+            ...match,
+            id: deterministicId,
+            sunoId: clipId,
+            sunoUrl: targetSunoUrl,
+            youtubeUrl: undefined,
+            lastPlayedAt: Date.now(),
+          };
+          await saveSongToDB(updated);
+          saveLastPlayedSongId(updated.id);
+          setActiveSong(updated);
+          const freshList = await loadSongsFromDB();
+          setSavedSongs(freshList);
+          setAnalysisProgress(null);
+          setYoutubeUrl("");
+          setSongName("");
+          return;
+        }
+
+        // Step 3: Resolve metadata if not already filled
+        if (!audioUrl || title === "Track") {
           for (const playlist of Object.values(SUNO_CATALOG_MASTER)) {
             const t = playlist.tracks?.find((tr) => tr.id === clipId);
             if (t) {
@@ -889,153 +934,103 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
               artist = t.artist || artist;
               imageUrl = t.imageUrl || (t as any).image_url || imageUrl;
               audioUrl = t.audioUrl || (t as any).audio_url || audioUrl;
-              lyrics = t.lyrics || "";
-              tags = t.tags || [];
+              lyrics = t.lyrics || lyrics;
+              tags = t.tags || tags;
               break;
             }
           }
+        }
 
-          if (title === "Track" || title === "Suno Track" || title.toLowerCase().includes("suno")) {
-            try {
-              const metaRes = await fetch(`/api/suno-song/${clipId}`);
-              if (metaRes.ok) {
-                const meta = await metaRes.json();
-                if (meta.title && meta.title !== "Suno Track" && meta.title !== "Track" && !meta.title.toLowerCase().includes("suno")) {
-                  title = meta.title;
-                } else {
-                  title = "Extracted Song";
-                }
-                if (meta.artist) artist = meta.artist;
-                if (meta.imageUrl) imageUrl = meta.imageUrl;
-                if (meta.audioUrl) audioUrl = meta.audioUrl;
-                if (meta.lyrics) lyrics = meta.lyrics;
-                if (meta.tags) tags = meta.tags;
-              }
-            } catch (metaErr) {
-              console.warn("Could not query song metadata:", metaErr);
-            }
-          }
-
-          // 3. Download & decrypt audio
-          setAnalysisProgress({ message: "Downloading & preparing audio...", pct: 30 });
-          const file = await fetchDecryptedAudioFile(clipId, title, undefined, abortControllerRef.current?.signal);
-
-          if (!file || file.size === 0) {
-            throw new Error("Unable to retrieve or decrypt audio stream");
-          }
-
-          // 4. Run chord & harmonic analyzer
-          setAnalysisProgress({ message: "Reading audio stream & computing harmonics...", pct: 45 });
-          const result = await analyzeAudioFile(
-            file,
-            (msg, pct) => setAnalysisProgress({ message: msg, pct: 45 + pct * 0.5 }),
-            abortControllerRef.current.signal
-          );
-
-          const songWithMeta: SavedSong = {
-            ...result,
-            id: deterministicId,
-            sunoId: clipId,
-            sunoUrl: targetSunoUrl,
-            youtubeUrl: targetSunoUrl,
-            title,
-            artist,
-            imageUrl,
-            lyrics: lyrics || result.lyrics,
-            tags: tags.length ? tags : result.tags,
-            lastPlayedAt: Date.now(),
-            savedAt: Date.now(),
-          };
-
-          await saveSongToDB(songWithMeta);
-          saveLastPlayedSongId(songWithMeta.id);
-
-          const freshList = await loadSongsFromDB();
-          setSavedSongs(freshList);
-          setActiveSong(songWithMeta);
-          setCurrentTime(0);
-          setIsPlaying(false);
-          setAnalysisProgress(null);
-          abortControllerRef.current = null;
-          setYoutubeUrl("");
-          setSongName("");
-          return;
-        } catch (err: any) {
-          console.error("Failed to analyze audio track:", err);
-          if (err.name === "AbortError" || err.message === "Analysis cancelled by user.") {
-            setAnalysisProgress(null);
-            abortControllerRef.current = null;
-            return;
-          }
-
-          // Fallback: analyze using AI / text harmonic analysis if audio decoding failed
+        if (title === "Track" || title === "Suno Track" || !audioUrl) {
           try {
-            setAnalysisProgress({ message: "Analyzing harmonic progression and chords...", pct: 70 });
-            const sanitizedQuery = title && !title.toLowerCase().includes("suno") && title !== "Track" ? title : "Extracted Song";
-            const response = await fetch("/api/analyze-song", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                songQuery: sanitizedQuery,
-                artist,
-                genre: tags.join(", ") || "Original Composition",
-              }),
-            });
-
-            if (response.ok) {
-              const data = await response.json();
-              const songResult: SavedSong = {
-                id: deterministicId,
-                sunoId: clipId,
-                sunoUrl: targetSunoUrl,
-                youtubeUrl: targetSunoUrl,
-                title: sanitizedQuery !== "Extracted Song" ? sanitizedQuery : (data.title && !data.title.toLowerCase().includes("suno") ? data.title : "Audio Track"),
-                artist: artist || data.artist || "Original Artist",
-                imageUrl,
-                key: data.key || "C Maj",
-                tempo: data.tempo || 120,
-                timeSignature: data.timeSignature || "4/4",
-                suggestedCapo: data.suggestedCapo || 0,
-                difficulty: data.difficulty || "Intermediate",
-                chords: data.chords || [],
-                tuning: data.tuning || "E A D G B E (Standard)",
-                sections: data.sections || [],
-                tips: data.tips || "Audio chord progression",
-                lyrics: lyrics || data.lyrics,
-                tags: tags.length ? tags : data.tags,
-                lastPlayedAt: Date.now(),
-                savedAt: Date.now(),
-              };
-
-              await saveSongToDB(songResult);
-              saveLastPlayedSongId(songResult.id);
-              const freshList = await loadSongsFromDB();
-              setSavedSongs(freshList);
-              setActiveSong(songResult);
-              setCurrentTime(0);
-              setIsPlaying(false);
-              setAnalysisProgress(null);
-              abortControllerRef.current = null;
-              setYoutubeUrl("");
-              setSongName("");
-              return;
+            const metaRes = await fetch(`/api/suno-song/${clipId}`);
+            if (metaRes.ok) {
+              const meta = await metaRes.json();
+              if (meta.title && meta.title !== "Suno Track" && meta.title !== "Track" && !meta.title.toLowerCase().includes("suno")) {
+                title = meta.title;
+              }
+              if (meta.artist) artist = meta.artist;
+              if (meta.imageUrl) imageUrl = meta.imageUrl;
+              if (meta.audioUrl) audioUrl = meta.audioUrl;
+              if (meta.duration) expectedDuration = meta.duration;
+              if (meta.lyrics) lyrics = meta.lyrics;
+              if (meta.tags) tags = meta.tags;
             }
-          } catch (fallbackErr) {
-            console.warn("Fallback AI analysis failed:", fallbackErr);
+          } catch (metaErr) {
+            console.warn("Could not query song metadata:", metaErr);
           }
+        }
 
-          setAnalysisProgress(null);
-          abortControllerRef.current = null;
-          setDialog({
-            isOpen: true,
-            title: "Analysis Failed",
-            message: `Could not analyze audio: ${err?.message || "Unable to decode audio data"}. Please check the link or retry.`,
-            confirmText: "OK",
-            type: "error",
-            onConfirm: () => setDialog((prev) => ({ ...prev, isOpen: false })),
-          });
+        // Apply defaults
+        if (!imageUrl) imageUrl = `https://cdn2.suno.ai/image_large_${clipId}.jpeg`;
+        if (!audioUrl) audioUrl = `https://cdn1.suno.ai/${clipId}.mp4`;
+        if (title === "Track" || !title) title = "Suno Track";
+
+        // Step 4: Download & prepare audio file for real MIR harmonic analysis
+        setAnalysisProgress({ message: "Downloading audio stream & preparing harmonics...", pct: 30 });
+        const file = await fetchDecryptedAudioFile(clipId, title, audioUrl, abortControllerRef.current?.signal);
+
+        if (!file || file.size === 0) {
+          throw new Error("Unable to retrieve playable audio stream for this Suno song.");
+        }
+
+        // Step 5: Run real client-side MIR chord & harmonic analyzer on the downloaded track
+        setAnalysisProgress({ message: "Analyzing musical harmonics & chord progressions...", pct: 50 });
+        const result = await analyzeAudioFile(
+          file,
+          (msg, pct) => setAnalysisProgress({ message: msg, pct: 50 + pct * 0.45 }),
+          abortControllerRef.current.signal
+        );
+
+        const songWithMeta: SavedSong = {
+          ...result,
+          id: deterministicId,
+          sunoId: clipId,
+          sunoUrl: targetSunoUrl,
+          youtubeUrl: undefined, // Ensure YouTube player is not triggered for Suno tracks
+          title: title !== "Suno Track" ? title : (result.title || "Suno Track"),
+          artist: artist || result.artist || "ELITEJOE",
+          imageUrl,
+          audioBlob: file, // Store the playable audio file blob locally
+          audioUrl: `/api/suno-audio/${clipId}`,
+          duration: result.duration || expectedDuration || 180,
+          chordSegments: result.chordSegments,
+          lyrics: lyrics || result.lyrics,
+          tags: tags.length ? tags : result.tags,
+          lastPlayedAt: Date.now(),
+          savedAt: Date.now(),
+        };
+
+        await saveSongToDB(songWithMeta);
+        saveLastPlayedSongId(songWithMeta.id);
+
+        const freshList = await loadSongsFromDB();
+        setSavedSongs(freshList);
+        setActiveSong(songWithMeta);
+        setCurrentTime(0);
+        setIsPlaying(false);
+        setAnalysisProgress(null);
+        abortControllerRef.current = null;
+        setYoutubeUrl("");
+        setSongName("");
+        return;
+      } catch (err: any) {
+        console.error("Failed to analyze Suno audio track:", err);
+        setAnalysisProgress(null);
+        abortControllerRef.current = null;
+        if (err.name === "AbortError" || err.message === "Analysis cancelled by user.") {
           return;
         }
+
+        setDialog({
+          isOpen: true,
+          title: "Audio Stream Notice",
+          message: `Could not load audio from Suno: ${err?.message || "Audio stream could not be loaded"}. Please ensure the track is public, or upload the audio file directly.`,
+          confirmText: "OK",
+          type: "error",
+          onConfirm: () => setDialog((prev) => ({ ...prev, isOpen: false })),
+        });
+        return;
       }
     }
 
