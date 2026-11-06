@@ -1070,7 +1070,9 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
       setAnalysisProgress({ message: "Checking song library...", pct: 5 });
       try {
         const cachedSong = await getCachedYouTubeSong(targetUrl);
-        if (cachedSong) {
+        // Older iframe/AI-generated chord timelines were not derived from audio.
+        // Never trust or replay those as measured transcriptions.
+        if (cachedSong && (cachedSong as any).analysisSource === "audio" && cachedSong.chordSegments?.length) {
           const thumbUrl = cachedSong.imageUrl || (videoId ? getYouTubeThumbnailUrl(videoId) : undefined);
           const updatedSong: SavedSong = {
             ...cachedSong,
@@ -1121,45 +1123,44 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
           console.warn("oEmbed fetch notice:", oembedErr);
         }
 
-        // 2. Transcribe musical progression & chords
-        setAnalysisProgress({ message: "Transcribing musical progression & chords...", pct: 55 });
-        const response = await fetch("/api/analyze-song", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            songQuery: resolvedTitle,
-            artist: resolvedArtist,
-          }),
+        // The YouTube IFrame API provides playback position, not audio samples.
+        // An AI prompt with only a title is NOT a real transcription.
+        // Decode source audio and run the same MIR pipeline as uploaded files.
+        setAnalysisProgress({ message: "Retrieving source audio for harmonic analysis...", pct: 30 });
+        const extracted = await extractYouTubeAudio(normalizedUrl, {
+          signal: abortControllerRef.current.signal,
+          onProgress: (event) => {
+            setAnalysisProgress({ message: event.message, pct: Math.max(30, Math.min(55, event.pct || 30)) });
+          },
         });
-
-        if (!response.ok) {
-          throw new Error("Failed to analyze song progression.");
-        }
-
-        const data = await response.json();
-
-        // 3. Generate timeline chord segments spanning full track duration
-        setAnalysisProgress({ message: "Synchronizing guitar chords with YouTube player...", pct: 88 });
-        
-        const { segments: chordSegments, totalDuration } = buildFullSongChordSegments(
-          data.sections || [],
-          180, // Default full 3-minute progression until exact YouTube player duration is known
-          data.tempo || 120
+        if (!extracted.blob || !extracted.blob.size) throw new Error("No audio was returned for analysis.");
+        setAnalysisProgress({ message: "Analyzing actual audio frequencies and chord changes...", pct: 55 });
+        const data = await analyzeAudioFile(
+          extracted.blob,
+          (message, pct) => setAnalysisProgress({ message, pct: 55 + pct * 0.4 }),
+          abortControllerRef.current.signal,
+          {
+            title: extracted.title || resolvedTitle,
+            artist: extracted.artist || resolvedArtist,
+            youtubeUrl: normalizedUrl,
+            imageUrl: resolvedThumb,
+          }
         );
-
+        if (!data.chordSegments?.length) throw new Error("No reliable audio-derived chord segments were detected.");
         const songWithMeta: SavedSong = {
           ...data,
           id: deterministicId,
-          title: resolvedTitle,
-          artist: resolvedArtist,
+          title: extracted.title || resolvedTitle,
+          artist: extracted.artist || resolvedArtist,
           youtubeUrl: normalizedUrl,
           imageUrl: resolvedThumb,
-          chordSegments: chordSegments.length > 0 ? chordSegments : undefined,
-          chords: data.chords && data.chords.length > 0 ? data.chords : Array.from(new Set(chordSegments.map((s) => s.chord))),
-          duration: totalDuration,
+          audioBlob: extracted.blob,
+          chordSegments: data.chordSegments,
+          duration: data.duration,
+          analysisSource: "audio",
           lastPlayedAt: Date.now(),
           savedAt: Date.now(),
-        };
+        } as SavedSong;
 
         await saveSongToDB(songWithMeta);
         saveLastPlayedSongId(songWithMeta.id);
@@ -1184,7 +1185,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
           setDialog({
             isOpen: true,
             title: "Analysis Notice",
-            message: "Unable to transcribe song chords. Please check the YouTube link or search by song name.",
+            message: `Accurate YouTube chord extraction requires audio access. The YouTube iframe cannot provide audio for analysis. ${err?.message || "Audio extraction unavailable."} You can upload an authorized audio file instead.`,
             confirmText: "OK",
             type: "error",
             onConfirm: () => setDialog((prev) => ({ ...prev, isOpen: false })),
@@ -1822,26 +1823,12 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                         durationRef.current = dur;
                         setActiveSong((prev) => {
                           if (!prev) return null;
-                          const lastSegEnd = prev.chordSegments && prev.chordSegments.length > 0
-                            ? prev.chordSegments[prev.chordSegments.length - 1].endTime
-                            : 0;
-                          // If already accurately matching and chords span to the end of the video, keep as is
-                          if (Math.abs(prev.duration - dur) < 1.0 && lastSegEnd >= dur - 1.0) {
-                            return prev;
-                          }
-
-                          const { segments: fullSegments, totalDuration } = buildFullSongChordSegments(
-                            prev.sections || [],
-                            dur,
-                            prev.tempo || 120
-                          );
-
+                          // Video length may differ from the analyzed file, but never
+                          // stretch/repeat measured chords to fill it.
+                          if (Math.abs(prev.duration - dur) < 1.0) return prev;
                           const updated: SavedSong = {
                             ...prev,
-                            duration: totalDuration,
-                            chordSegments: fullSegments,
-                            savedAt: (prev as any).savedAt || Date.now(),
-                            lastPlayedAt: Date.now(),
+                            duration: dur,
                           };
                           saveSongToDB(updated);
                           return updated;
