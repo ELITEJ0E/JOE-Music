@@ -14,7 +14,7 @@ export interface YouTubeOEmbedData {
 
 /**
  * Fetches standard video metadata (title, author, thumbnail) via official YouTube oEmbed.
- * Guaranteed to succeed without rate limits or bot verification.
+ * Only fetches metadata; this does not expose audio samples or chords.
  */
 export async function fetchYouTubeOEmbed(url: string): Promise<YouTubeOEmbedData | null> {
   try {
@@ -33,6 +33,10 @@ export async function fetchYouTubeOEmbed(url: string): Promise<YouTubeOEmbedData
  * Returns the configured extractor backend base URL without trailing slashes.
  */
 export function getExtractorApiUrl(): string {
+  // Production calls must stay on the Vercel same-origin rewrite to avoid CORS.
+  if (typeof window !== "undefined" && !["localhost", "127.0.0.1"].includes(window.location.hostname)) {
+    return "/api/youtube";
+  }
   const envUrl =
     (typeof import.meta !== "undefined" && import.meta.env?.VITE_EXTRACTOR_API) ||
     (typeof import.meta !== "undefined" && import.meta.env?.VITE_AUDIO_EXTRACTOR_URL) ||
