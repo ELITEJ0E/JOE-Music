@@ -55,6 +55,7 @@ import {
   getLastPlayedSongId,
   getCachedYouTubeSong,
 } from "../utils/storage";
+import { fetchVerifiedYouTubeChords, publishVerifiedYouTubeChords } from "../utils/verifiedChordService";
 import { YouTubeSyncPlayer } from "./YouTubeSyncPlayer";
 
 interface ChordFinderStudioProps {
@@ -78,6 +79,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
   const abortControllerRef = useRef<AbortController | null>(null);
   const activeObjectUrlsRef = useRef<Set<string>>(new Set());
   const isExtractingRef = useRef<boolean>(false);
+  const pendingYouTubeUrlRef = useRef<string | null>(null);
 
   const createTrackedObjectURL = (blob: Blob): string => {
     const url = URL.createObjectURL(blob);
@@ -340,6 +342,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
     confirmText?: string;
     cancelText?: string;
     onConfirm: () => void;
+    onCancel?: () => void;
     type?: "confirm" | "alert" | "error" | "success";
   }>({
     isOpen: false,
@@ -760,6 +763,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
 
     const songWithMeta: SavedSong = {
       ...result,
+      id: meta.youtubeUrl && extractYouTubeVideoId(meta.youtubeUrl) ? `yt-${extractYouTubeVideoId(meta.youtubeUrl)}` : result.id,
       title: meta.title || result.title,
       artist: meta.artist || result.artist,
       youtubeUrl: meta.youtubeUrl || result.youtubeUrl,
@@ -767,6 +771,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
       sunoId: meta.sunoId || result.sunoId,
       imageUrl: meta.imageUrl || result.imageUrl || defaultThumbnail,
       audioBlob: meta.originalBlob || result.audioBlob,
+      analysisSource: "audio",
       lastPlayedAt: Date.now(),
       savedAt: Date.now(),
     };
@@ -775,6 +780,11 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
     saveLastPlayedSongId(songWithMeta.id);
     setActiveSong(songWithMeta);
     loadSongsFromDB().then(setSavedSongs);
+
+    // If this audio analysis is associated with a YouTube video, store in shared verified cache
+    if (songWithMeta.youtubeUrl && songWithMeta.chordSegments?.length) {
+      publishVerifiedYouTubeChords(songWithMeta);
+    }
 
     setCurrentTime(0);
     setIsPlaying(false);
@@ -790,16 +800,25 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
     abortControllerRef.current = new AbortController();
     setAnalysisProgress({ message: "Reading audio file...", pct: 0 });
 
+    const pendingYt = pendingYouTubeUrlRef.current;
+    pendingYouTubeUrlRef.current = null;
+    const pendingThumb = pendingYt ? getYouTubeThumbnailUrl(pendingYt) : undefined;
+
     try {
       await analyzeAndLoadAudio(
         file,
         {
           title: file.name.replace(/\.[^/.]+$/, ""),
-          artist: "Uploaded Audio",
+          artist: pendingYt ? "YouTube Artist" : "Uploaded Audio",
+          youtubeUrl: pendingYt || undefined,
+          imageUrl: pendingThumb,
           originalBlob: file,
         },
         (msg, pct) => setAnalysisProgress({ message: msg, pct })
       );
+      if (pendingYt) {
+        setShowYouTubeVideo(true);
+      }
     } catch (err: any) {
       setAnalysisProgress(null);
       abortControllerRef.current = null;
@@ -1066,7 +1085,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
       const videoId = extractYouTubeVideoId(targetUrl);
       const deterministicId = videoId ? `yt-${videoId}` : `yt-${Date.now()}`;
 
-      // 2. 24-Hour Cache Check before making network calls
+      // 2. Local 24-Hour Verified Cache Check before making network calls
       setAnalysisProgress({ message: "Checking song library...", pct: 5 });
       try {
         const cachedSong = await getCachedYouTubeSong(targetUrl);
@@ -1079,6 +1098,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
             id: deterministicId,
             youtubeUrl: normalizedUrl,
             imageUrl: thumbUrl,
+            analysisSource: "audio",
             lastPlayedAt: Date.now(),
           };
           await saveSongToDB(updatedSong);
@@ -1091,6 +1111,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
           setAnalysisProgress(null);
           setYoutubeUrl("");
           setSongName("");
+          setShowYouTubeVideo(true);
           isExtractingRef.current = false;
           return;
         }
@@ -1098,7 +1119,42 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
         console.warn("YouTube cache check notice:", cacheErr);
       }
 
-      // 3. Fast Chordify / Ultimate Guitar Style Direct YouTube Chord Analysis Flow
+      // 3. Shared Server-Side Verified Chord Cache Check (/api/verified-chords)
+      if (videoId) {
+        setAnalysisProgress({ message: "Checking verified chord library...", pct: 15 });
+        try {
+          const verified = await fetchVerifiedYouTubeChords(videoId, abortControllerRef.current?.signal);
+          if (verified && verified.chordSegments && verified.chordSegments.length > 0) {
+            const verifiedSong: SavedSong = {
+              ...verified,
+              id: deterministicId,
+              youtubeUrl: normalizedUrl,
+              imageUrl: verified.imageUrl || (videoId ? getYouTubeThumbnailUrl(videoId) : undefined),
+              analysisSource: "audio",
+              lastPlayedAt: Date.now(),
+              savedAt: Date.now(),
+            };
+            await saveSongToDB(verifiedSong);
+            saveLastPlayedSongId(verifiedSong.id);
+            setActiveSong(verifiedSong);
+            const freshList = await loadSongsFromDB();
+            setSavedSongs(freshList);
+            setCurrentTime(0);
+            setIsPlaying(false);
+            setAnalysisProgress(null);
+            setYoutubeUrl("");
+            setSongName("");
+            setShowYouTubeVideo(true);
+            isExtractingRef.current = false;
+            return;
+          }
+        } catch (verifiedErr: any) {
+          if (verifiedErr?.name === "AbortError") throw verifiedErr;
+          console.warn("Verified chord lookup notice:", verifiedErr);
+        }
+      }
+
+      // 4. Source Audio Extraction & Real MIR Harmonic Analysis Pipeline
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
@@ -1107,7 +1163,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
       try {
         setAnalysisProgress({ message: "Connecting to YouTube & fetching song details...", pct: 20 });
 
-        // 1. Resolve true video metadata using official YouTube oEmbed API (instant, never rate-limited)
+        // Resolve true video metadata using official YouTube oEmbed API (instant, never rate-limited)
         let resolvedTitle = songName || "YouTube Track";
         let resolvedArtist = "YouTube Artist";
         let resolvedThumb = videoId ? getYouTubeThumbnailUrl(videoId) : undefined;
@@ -1124,7 +1180,6 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
         }
 
         // The YouTube IFrame API provides playback position, not audio samples.
-        // An AI prompt with only a title is NOT a real transcription.
         // Decode source audio and run the same MIR pipeline as uploaded files.
         setAnalysisProgress({ message: "Retrieving source audio for harmonic analysis...", pct: 30 });
         const extracted = await extractYouTubeAudio(normalizedUrl, {
@@ -1167,6 +1222,10 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
         setActiveSong(songWithMeta);
         const freshList = await loadSongsFromDB();
         setSavedSongs(freshList);
+
+        // Publish to shared verified chord cache for all future users
+        publishVerifiedYouTubeChords(songWithMeta);
+
         setCurrentTime(0);
         setIsPlaying(false);
         setAnalysisProgress(null);
@@ -1182,13 +1241,39 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
         isExtractingRef.current = false;
         if (err.name !== "AbortError") {
           console.error("YouTube analysis error:", err);
+
+          let specificReason = err?.message || "Audio extraction unavailable.";
+          const isRateLimit =
+            err?.code === "YOUTUBE_RATE_LIMITED" ||
+            specificReason.includes("YOUTUBE_RATE_LIMITED") ||
+            specificReason.includes("HTTP Error 429") ||
+            specificReason.includes("Too Many Requests");
+
+          const isBotChallenge =
+            err?.code === "YOUTUBE_BOT_CHALLENGE" ||
+            specificReason.includes("bot verification") ||
+            specificReason.includes("Sign in to confirm you're not a bot") ||
+            specificReason.includes("Sign in to confirm you’re not a bot");
+
+          if (isRateLimit) {
+            specificReason = "YouTube is temporarily restricting automated audio streams from this cloud IP (HTTP 429 Rate Limit).";
+          } else if (isBotChallenge) {
+            specificReason = "YouTube requires bot verification on automated cloud connections.";
+          }
+
           setDialog({
             isOpen: true,
-            title: "Analysis Notice",
-            message: `Accurate YouTube chord extraction requires audio access. The YouTube iframe cannot provide audio for analysis. ${err?.message || "Audio extraction unavailable."} You can upload an authorized audio file instead.`,
-            confirmText: "OK",
-            type: "error",
-            onConfirm: () => setDialog((prev) => ({ ...prev, isOpen: false })),
+            title: "Audio Access Notice",
+            message: `Accurate YouTube chord extraction requires audio access.\n\n${specificReason}\n\nNote: The YouTube IFrame API provides synchronized playback, but does not provide raw audio samples to the browser due to cross-origin security.\n\nTo analyze chords for this song right away, upload its audio file (MP3, WAV, FLAC, M4A). The real harmonic analyzer will process it and sync with the YouTube video player.`,
+            confirmText: "Upload Audio File",
+            cancelText: "Close",
+            type: "confirm",
+            onConfirm: () => {
+              setDialog((prev) => ({ ...prev, isOpen: false }));
+              pendingYouTubeUrlRef.current = normalizedUrl;
+              fileInputRef.current?.click();
+            },
+            onCancel: () => setDialog((prev) => ({ ...prev, isOpen: false })),
           });
         }
       }
@@ -2460,7 +2545,13 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
         cancelText={dialog.cancelText}
         type={dialog.type}
         onConfirm={dialog.onConfirm}
-        onCancel={() => setDialog((prev) => ({ ...prev, isOpen: false }))}
+        onCancel={() => {
+          if (dialog.onCancel) {
+            dialog.onCancel();
+          } else {
+            setDialog((prev) => ({ ...prev, isOpen: false }));
+          }
+        }}
       />
     </div>
   );

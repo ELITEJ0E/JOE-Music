@@ -18,6 +18,10 @@
       "destination": "/api/suno-rights?clipId=:clipId"
     },
     {
+      "source": "/api/verified-chords/:videoId",
+      "destination": "/api/verified-chords?videoId=:videoId"
+    },
+    {
       "source": "/((?!api/).*)",
       "destination": "/index.html"
     }

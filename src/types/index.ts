@@ -183,6 +183,7 @@ export interface SongAnalysis {
   rawTimelinesForDebug?: any;
   confidence?: number;
   analysisVersion?: string;
+  analysisSource?: "audio" | "verified_cache" | "user_upload" | "suno" | "simulated";
   diagnostics?: any;
 }
 

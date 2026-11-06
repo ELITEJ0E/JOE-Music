@@ -219,6 +219,42 @@ export function getActiveExtractionCount(): number {
   return inFlightExtractions.size;
 }
 
+export type ExtractorErrorCode =
+  | "YOUTUBE_RATE_LIMITED"
+  | "YOUTUBE_BOT_CHALLENGE"
+  | "YOUTUBE_HTTP_403"
+  | "VIDEO_TOO_LONG"
+  | "VIDEO_UNAVAILABLE"
+  | "NETWORK_ERROR"
+  | "EXTRACTION_FAILED";
+
+export class YouTubeExtractionError extends Error {
+  code: ExtractorErrorCode;
+  stage: "connecting" | "audio_retrieval" | "conversion";
+  retryable: boolean;
+  source: "render_backend" | "vercel_proxy" | "client_network";
+  status?: number;
+
+  constructor(
+    code: ExtractorErrorCode,
+    message: string,
+    options?: {
+      stage?: "connecting" | "audio_retrieval" | "conversion";
+      retryable?: boolean;
+      source?: "render_backend" | "vercel_proxy" | "client_network";
+      status?: number;
+    }
+  ) {
+    super(message);
+    this.name = "YouTubeExtractionError";
+    this.code = code;
+    this.stage = options?.stage || "audio_retrieval";
+    this.retryable = options?.retryable ?? false;
+    this.source = options?.source || "render_backend";
+    this.status = options?.status;
+  }
+}
+
 /**
  * Calls the Render YouTube extraction backend to extract audio as MP3 Blob.
  * Implements request locking, cold-start detection, and stage progress reporting.
@@ -229,7 +265,11 @@ export async function extractYouTubeAudio(
   legacyBaseUrl?: string
 ): Promise<ExtractedYouTubeResult> {
   if (!isValidYouTubeUrl(url)) {
-    throw new Error("Invalid YouTube URL. Please enter a valid YouTube video link.");
+    throw new YouTubeExtractionError(
+      "EXTRACTION_FAILED",
+      "Invalid YouTube URL. Please enter a valid YouTube video link.",
+      { stage: "connecting" }
+    );
   }
 
   // Parse options supporting both legacy signature and options object
@@ -297,53 +337,92 @@ export async function extractYouTubeAudio(
         } catch (fallbackErr: any) {
           if (fallbackErr.name === "AbortError") throw fallbackErr;
           console.error("[YouTube Extractor] Fallback network request failed:", fallbackErr);
-          throw new Error(
-            "Unable to reach the YouTube audio extractor. The server may be starting up or temporarily offline. Please try again in a few moments."
+          throw new YouTubeExtractionError(
+            "NETWORK_ERROR",
+            "Unable to reach the YouTube audio extractor backend. The server may be waking up from cold start or temporarily offline. You can upload an authorized audio file directly.",
+            { stage: "connecting", retryable: true, source: "client_network" }
           );
         }
       } else {
-        throw new Error(
-          "Unable to reach the YouTube audio extractor. The server may be starting up or temporarily offline. Please try again in a few moments."
+        throw new YouTubeExtractionError(
+          "NETWORK_ERROR",
+          "Unable to reach the YouTube audio extractor backend. The server may be waking up from cold start or temporarily offline. You can upload an authorized audio file directly.",
+          { stage: "connecting", retryable: true, source: "client_network" }
         );
       }
     }
 
     if (!response.ok) {
       let detailMsg = "";
+      let errCode = "";
       try {
         const errJson = await response.json();
+        if (errJson.code) errCode = errJson.code;
         if (errJson.message) detailMsg = errJson.message;
         else if (errJson.error) detailMsg = errJson.error;
       } catch (_) {}
 
+      const isBotChallenge =
+        errCode === "YOUTUBE_BOT_CHALLENGE" ||
+        detailMsg.includes("Sign in to confirm you're not a bot") ||
+        detailMsg.includes("Sign in to confirm you’re not a bot") ||
+        detailMsg.includes("bot verification") ||
+        detailMsg.includes("Failed to extract any player response");
+
       const isRateLimited =
         response.status === 429 ||
+        errCode === "YOUTUBE_RATE_LIMITED" ||
         detailMsg.includes("429") ||
         detailMsg.includes("Too Many Requests") ||
-        detailMsg.includes("rate-limiting") ||
-        detailMsg.includes("Failed to extract any player response") ||
-        detailMsg.includes("Sign in to confirm you're not a bot") ||
-        detailMsg.includes("bot verification");
+        detailMsg.includes("rate-limiting");
+
+      const isForbidden = response.status === 403 || errCode === "YOUTUBE_HTTP_403";
+
+      if (isBotChallenge) {
+        throw new YouTubeExtractionError(
+          "YOUTUBE_BOT_CHALLENGE",
+          "YouTube bot verification is required for automated cloud downloads. Because the YouTube iframe player API cannot supply decoded audio samples across origins, you can upload an authorized audio file to analyze chords accurately.",
+          { stage: "audio_retrieval", retryable: false, source: "render_backend", status: response.status }
+        );
+      }
 
       if (isRateLimited) {
-        throw new Error(
-          "[YOUTUBE_RATE_LIMITED] YouTube is temporarily restricting automated audio streams from this cloud IP. Switching to harmonic chord progression analysis."
+        throw new YouTubeExtractionError(
+          "YOUTUBE_RATE_LIMITED",
+          "YouTube is temporarily restricting automated audio streams from this cloud IP (HTTP 429 Rate Limit). Because the YouTube iframe player cannot provide raw audio samples, upload the song's audio file directly for instant harmonic analysis.",
+          { stage: "audio_retrieval", retryable: false, source: "render_backend", status: 429 }
+        );
+      }
+
+      if (isForbidden) {
+        throw new YouTubeExtractionError(
+          "YOUTUBE_HTTP_403",
+          "YouTube streaming access was forbidden (HTTP 403). Uploading an authorized audio file allows instant chord analysis.",
+          { stage: "audio_retrieval", retryable: false, source: "render_backend", status: 403 }
         );
       }
 
       if (response.status === 400) {
-        throw new Error("Invalid YouTube URL provided. Please check the video link and try again.");
-      }
-      if (response.status === 413) {
-        throw new Error("This video is too long. The YouTube audio extractor has a 10-minute maximum limit.");
-      }
-      if (response.status === 500) {
-        throw new Error(
-          detailMsg || "Unable to extract audio from this YouTube video. The video may be private, age-restricted, region-blocked, or unavailable."
+        throw new YouTubeExtractionError(
+          "EXTRACTION_FAILED",
+          "Invalid YouTube URL provided. Please check the video link and try again.",
+          { stage: "audio_retrieval", retryable: false, status: 400 }
         );
       }
 
-      throw new Error(detailMsg || "Unable to extract this YouTube video. Please try another URL.");
+      if (response.status === 413) {
+        throw new YouTubeExtractionError(
+          "VIDEO_TOO_LONG",
+          "This video exceeds the 10-minute extraction limit. Please select a shorter video or upload the audio directly.",
+          { stage: "audio_retrieval", retryable: false, status: 413 }
+        );
+      }
+
+      throw new YouTubeExtractionError(
+        "EXTRACTION_FAILED",
+        detailMsg || "Unable to extract audio from this YouTube video. The video may be private, age-restricted, or region-blocked.",
+        { stage: "audio_retrieval", retryable: false, status: response.status }
+      );
     }
 
     const rawTitle = response.headers.get("X-Video-Title");
