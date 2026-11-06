@@ -1829,6 +1829,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                           const updated: SavedSong = {
                             ...prev,
                             duration: dur,
+                            savedAt: (prev as any).savedAt || Date.now(),
                           };
                           saveSongToDB(updated);
                           return updated;
