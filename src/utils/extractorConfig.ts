@@ -39,7 +39,7 @@ export function getExtractorApiUrl(): string {
     (typeof import.meta !== "undefined" && import.meta.env?.VITE_EXTRACTOR_API) ||
     (typeof import.meta !== "undefined" && import.meta.env?.VITE_AUDIO_EXTRACTOR_URL) ||
     "";
-  return typeof envUrl === "string" ? envUrl.trim().replace(/\\/+$/, "") : "";
+  return typeof envUrl === "string" ? envUrl.trim().replace(new RegExp("/+$"), "") : "";
 }
 
 /**
