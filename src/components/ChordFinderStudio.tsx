@@ -39,13 +39,10 @@ import { SunoSong } from "./SongsLibraryView";
 import { fetchDecryptedAudioFile } from "../utils/sunoAudioResolver";
 import { SUNO_CATALOG_MASTER } from "../lib/suno-catalog-data";
 import {
-  extractYouTubeAudio,
   isValidYouTubeUrl,
   extractYouTubeVideoId,
   normalizeYouTubeUrl,
-  isExtractionInFlight,
   getYouTubeThumbnailUrl,
-  fetchYouTubeOEmbed,
 } from "../utils/extractorConfig";
 import {
   saveSongToDB,
@@ -55,7 +52,7 @@ import {
   getLastPlayedSongId,
   getCachedYouTubeSong,
 } from "../utils/storage";
-import { fetchVerifiedYouTubeChords, publishVerifiedYouTubeChords } from "../utils/verifiedChordService";
+import { fetchVerifiedYouTubeChords } from "../utils/verifiedChordService";
 import { YouTubeSyncPlayer } from "./YouTubeSyncPlayer";
 
 interface ChordFinderStudioProps {
@@ -781,10 +778,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
     setActiveSong(songWithMeta);
     loadSongsFromDB().then(setSavedSongs);
 
-    // If this audio analysis is associated with a YouTube video, store in shared verified cache
-    if (songWithMeta.youtubeUrl && songWithMeta.chordSegments?.length) {
-      publishVerifiedYouTubeChords(songWithMeta);
-    }
+    // Audio-derived uploads stay local until the owner curates them into D1.
 
     setCurrentTime(0);
     setIsPlaying(false);
@@ -1063,7 +1057,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
 
     if (targetUrl) {
       // 1. Prevent duplicate extraction requests
-      if (isExtractingRef.current || isExtractionInFlight(targetUrl)) {
+      if (isExtractingRef.current) {
         return;
       }
       isExtractingRef.current = true;
@@ -1091,7 +1085,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
         const cachedSong = await getCachedYouTubeSong(targetUrl);
         // Older iframe/AI-generated chord timelines were not derived from audio.
         // Never trust or replay those as measured transcriptions.
-        if (cachedSong && (cachedSong as any).analysisSource === "audio" && cachedSong.chordSegments?.length) {
+        if (cachedSong && (cachedSong as any).analysisSource === "audio" && cachedSong.audioBlob instanceof Blob && cachedSong.audioBlob.size > 0 && cachedSong.chordSegments?.length) {
           const thumbUrl = cachedSong.imageUrl || (videoId ? getYouTubeThumbnailUrl(videoId) : undefined);
           const updatedSong: SavedSong = {
             ...cachedSong,
@@ -1154,129 +1148,25 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
         }
       }
 
-      // 4. Source Audio Extraction & Real MIR Harmonic Analysis Pipeline
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-      abortControllerRef.current = new AbortController();
-
-      try {
-        setAnalysisProgress({ message: "Connecting to YouTube & fetching song details...", pct: 20 });
-
-        // Resolve true video metadata using official YouTube oEmbed API (instant, never rate-limited)
-        let resolvedTitle = songName || "YouTube Track";
-        let resolvedArtist = "YouTube Artist";
-        let resolvedThumb = videoId ? getYouTubeThumbnailUrl(videoId) : undefined;
-
-        try {
-          const oembed = await fetchYouTubeOEmbed(normalizedUrl);
-          if (oembed) {
-            if (oembed.title) resolvedTitle = oembed.title;
-            if (oembed.author_name) resolvedArtist = oembed.author_name;
-            if (oembed.thumbnail_url) resolvedThumb = oembed.thumbnail_url;
-          }
-        } catch (oembedErr) {
-          console.warn("oEmbed fetch notice:", oembedErr);
-        }
-
-        // The YouTube IFrame API provides playback position, not audio samples.
-        // Decode source audio and run the same MIR pipeline as uploaded files.
-        setAnalysisProgress({ message: "Retrieving source audio for harmonic analysis...", pct: 30 });
-        const extracted = await extractYouTubeAudio(normalizedUrl, {
-          signal: abortControllerRef.current.signal,
-          onProgress: (event) => {
-            setAnalysisProgress({ message: event.message, pct: Math.max(30, Math.min(55, event.pct || 30)) });
-          },
-        });
-        if (!extracted.blob || !extracted.blob.size) throw new Error("No audio was returned for analysis.");
-        setAnalysisProgress({ message: "Analyzing actual audio frequencies and chord changes...", pct: 55 });
-        const data = await analyzeAudioFile(
-          extracted.blob,
-          (message, pct) => setAnalysisProgress({ message, pct: 55 + pct * 0.4 }),
-          abortControllerRef.current.signal,
-          {
-            title: extracted.title || resolvedTitle,
-            artist: extracted.artist || resolvedArtist,
-            youtubeUrl: normalizedUrl,
-            imageUrl: resolvedThumb,
-          }
-        );
-        if (!data.chordSegments?.length) throw new Error("No reliable audio-derived chord segments were detected.");
-        const songWithMeta: SavedSong = {
-          ...data,
-          id: deterministicId,
-          title: extracted.title || resolvedTitle,
-          artist: extracted.artist || resolvedArtist,
-          youtubeUrl: normalizedUrl,
-          imageUrl: resolvedThumb,
-          audioBlob: extracted.blob,
-          chordSegments: data.chordSegments,
-          duration: data.duration,
-          analysisSource: "audio",
-          lastPlayedAt: Date.now(),
-          savedAt: Date.now(),
-        } as SavedSong;
-
-        await saveSongToDB(songWithMeta);
-        saveLastPlayedSongId(songWithMeta.id);
-        setActiveSong(songWithMeta);
-        const freshList = await loadSongsFromDB();
-        setSavedSongs(freshList);
-
-        // Publish to shared verified chord cache for all future users
-        publishVerifiedYouTubeChords(songWithMeta);
-
-        setCurrentTime(0);
-        setIsPlaying(false);
-        setAnalysisProgress(null);
-        abortControllerRef.current = null;
-        setYoutubeUrl("");
-        setSongName("");
-        setShowYouTubeVideo(true);
-        isExtractingRef.current = false;
-        return;
-      } catch (err: any) {
-        setAnalysisProgress(null);
-        abortControllerRef.current = null;
-        isExtractingRef.current = false;
-        if (err.name !== "AbortError") {
-          console.error("YouTube analysis error:", err);
-
-          let specificReason = err?.message || "Audio extraction unavailable.";
-          const isRateLimit =
-            err?.code === "YOUTUBE_RATE_LIMITED" ||
-            specificReason.includes("YOUTUBE_RATE_LIMITED") ||
-            specificReason.includes("HTTP Error 429") ||
-            specificReason.includes("Too Many Requests");
-
-          const isBotChallenge =
-            err?.code === "YOUTUBE_BOT_CHALLENGE" ||
-            specificReason.includes("bot verification") ||
-            specificReason.includes("Sign in to confirm you're not a bot") ||
-            specificReason.includes("Sign in to confirm you’re not a bot");
-
-          if (isRateLimit) {
-            specificReason = "YouTube is temporarily restricting automated audio streams from this cloud IP (HTTP 429 Rate Limit).";
-          } else if (isBotChallenge) {
-            specificReason = "YouTube requires bot verification on automated cloud connections.";
-          }
-
-          setDialog({
-            isOpen: true,
-            title: "Audio Access Notice",
-            message: `Accurate YouTube chord extraction requires audio access.\n\n${specificReason}\n\nNote: The YouTube IFrame API provides synchronized playback, but does not provide raw audio samples to the browser due to cross-origin security.\n\nTo analyze chords for this song right away, upload its audio file (MP3, WAV, FLAC, M4A). The real harmonic analyzer will process it and sync with the YouTube video player.`,
-            confirmText: "Upload Audio File",
-            cancelText: "Close",
-            type: "confirm",
-            onConfirm: () => {
-              setDialog((prev) => ({ ...prev, isOpen: false }));
-              pendingYouTubeUrlRef.current = normalizedUrl;
-              fileInputRef.current?.click();
-            },
-            onCancel: () => setDialog((prev) => ({ ...prev, isOpen: false })),
-          });
-        }
-      }
+      // YouTube embeds do not expose PCM samples. There is intentionally no
+      // public automatic downloader: the old Render host is no longer active.
+      // Never substitute title-generated, seeded, or extrapolated chord guesses.
+      setAnalysisProgress(null);
+      isExtractingRef.current = false;
+      setDialog({
+        isOpen: true,
+        title: "Audio Required for New YouTube Song",
+        message: "No curated audio-derived chord timeline is available for this video yet. The YouTube player can synchronize chords but cannot expose audio to the analyzer. Upload an audio file you have permission to use (MP3, WAV, FLAC or M4A) and JOE Studio will analyze its real harmonics and synchronize the result with the video. Your analysis stays on this device until reviewed for the shared library.",
+        confirmText: "Upload Audio File",
+        cancelText: "Close",
+        type: "confirm",
+        onConfirm: () => {
+          setDialog((prev) => ({ ...prev, isOpen: false }));
+          pendingYouTubeUrlRef.current = normalizedUrl;
+          fileInputRef.current?.click();
+        },
+        onCancel: () => setDialog((prev) => ({ ...prev, isOpen: false })),
+      });
       return;
     }
 
