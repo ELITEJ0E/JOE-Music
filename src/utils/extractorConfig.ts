@@ -1,9 +1,9 @@
 /**
  * Configuration and client for the external YouTube audio extraction backend.
- * Default backend URL: https://chord-extractor.onrender.com
+ * No extractor host is configured by default. JOE Studio uses verified cache or authorized uploads.
  */
 
-export const DEFAULT_EXTRACTOR_API = "https://chord-extractor-1.onrender.com";
+export const DEFAULT_EXTRACTOR_API = "";
 
 export interface YouTubeOEmbedData {
   title?: string;
@@ -33,29 +33,13 @@ export async function fetchYouTubeOEmbed(url: string): Promise<YouTubeOEmbedData
  * Returns the configured extractor backend base URL without trailing slashes.
  */
 export function getExtractorApiUrl(): string {
-  // Production calls must stay on the Vercel same-origin rewrite to avoid CORS.
-  if (typeof window !== "undefined" && !["localhost", "127.0.0.1"].includes(window.location.hostname)) {
-    return "/api/youtube";
-  }
+  // An optional, explicitly configured authorized extractor can be enabled in
+  // the future. Never silently fall back to an expired cloud service.
   const envUrl =
     (typeof import.meta !== "undefined" && import.meta.env?.VITE_EXTRACTOR_API) ||
     (typeof import.meta !== "undefined" && import.meta.env?.VITE_AUDIO_EXTRACTOR_URL) ||
-    (typeof process !== "undefined" && (process.env?.VITE_EXTRACTOR_API || process.env?.VITE_AUDIO_EXTRACTOR_URL || process.env?.AUDIO_EXTRACTOR_URL));
-
-  if (envUrl && typeof envUrl === "string" && envUrl.trim()) {
-    const trimmed = envUrl.trim().replace(/\/+$/, "");
-    // Automatically fallback to active Render service if outdated or suspended URLs are used
-    if (
-      trimmed.includes("chord-extractor-production.up.railway.app") ||
-      trimmed.includes("railway.app") ||
-      trimmed === "https://chord-extractor.onrender.com" ||
-      trimmed.includes("chord-extractor-7agu.onrender.com")
-    ) {
-      return DEFAULT_EXTRACTOR_API;
-    }
-    return trimmed;
-  }
-  return DEFAULT_EXTRACTOR_API;
+    "";
+  return typeof envUrl === "string" ? envUrl.trim().replace(/\\/+$/, "") : "";
 }
 
 /**
@@ -127,10 +111,11 @@ export interface WarmupOptions {
 }
 
 /**
- * Pings the Render audio extractor backend root to detect cold starts and warm up the service.
+ * Pings an explicitly configured audio backend if present.
  */
 export async function pingExtractorWarmup(options?: WarmupOptions): Promise<boolean> {
   const baseUrl = (options?.baseUrl || getExtractorApiUrl()).replace(/\/+$/, "");
+  if (!baseUrl) return false;
   const signal = options?.signal;
   const onStateChange = options?.onStateChange;
   const timeoutMs = options?.timeoutMs || 45000;
@@ -256,7 +241,7 @@ export class YouTubeExtractionError extends Error {
 }
 
 /**
- * Calls the Render YouTube extraction backend to extract audio as MP3 Blob.
+ * Legacy optional extractor client; requires an explicitly configured backend.
  * Implements request locking, cold-start detection, and stage progress reporting.
  */
 export async function extractYouTubeAudio(
@@ -298,6 +283,9 @@ export async function extractYouTubeAudio(
 
   const extractionPromise = (async () => {
     const apiBase = (baseUrl || getExtractorApiUrl()).replace(/\/+$/, "");
+    if (!apiBase) {
+      throw new YouTubeExtractionError("EXTRACTION_FAILED", "No automatic YouTube audio backend is configured. Use curated chord data or an authorized audio upload.");
+    }
     const endpoint = `${apiBase}/extract`;
 
     // 1. Warm-up stage (Connecting / Cold-Start Detection)
@@ -326,7 +314,7 @@ export async function extractYouTubeAudio(
       }
       console.warn("[YouTube Extractor] Primary fetch failed, attempting fallback:", err?.message || err);
       // If same-origin proxy or custom baseUrl failed, try direct DEFAULT_EXTRACTOR_API as secondary attempt
-      if (endpoint !== `${DEFAULT_EXTRACTOR_API}/extract`) {
+      if (DEFAULT_EXTRACTOR_API && endpoint !== `${DEFAULT_EXTRACTOR_API}/extract`) {
         try {
           response = await fetch(`${DEFAULT_EXTRACTOR_API}/extract`, {
             method: "POST",
