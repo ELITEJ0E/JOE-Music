@@ -79,6 +79,10 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
   const activeObjectUrlsRef = useRef<Set<string>>(new Set());
   const isExtractingRef = useRef<boolean>(false);
   const pendingYouTubeUrlRef = useRef<string | null>(null);
+  const tabCaptureRef = useRef<{ recorder: MediaRecorder; stream: MediaStream } | null>(null);
+  const [isCapturingTab, setIsCapturingTab] = useState(false);
+  const [captureGuideUrl, setCaptureGuideUrl] = useState<string | null>(null);
+
 
   const createTrackedObjectURL = (blob: Blob): string => {
     const url = URL.createObjectURL(blob);
@@ -789,6 +793,155 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
     return songWithMeta;
   };
 
+  /**
+   * User-approved tab audio capture fallback for YouTube bot challenges.
+   * A browser cannot read iframe PCM; the user must explicitly choose a
+   * playing browser tab and enable "Share tab audio" in the system picker.
+   * Recording is local, starts at the point of playback, and is never uploaded.
+   */
+  const startTabAudioCapture = async (youtubeSource: string) => {
+    if (tabCaptureRef.current) return;
+    if (!navigator.mediaDevices?.getDisplayMedia || typeof MediaRecorder === "undefined") {
+      setDialog({
+        isOpen: true, title: "Tab Audio Capture Not Available",
+        message: "Your browser does not support tab audio sharing. Use a recent desktop Chrome or Edge browser, or upload an authorized audio file.",
+        type: "alert", confirmText: "OK",
+        onConfirm: () => setDialog(prev => ({ ...prev, isOpen: false })),
+      });
+      return;
+    }
+
+    // Call directly from the button's user gesture (before any asynchronous work).
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: true,
+      });
+    } catch (err: any) {
+      if (err?.name === "NotAllowedError" || err?.name === "AbortError") return;
+      setDialog({
+        isOpen: true, title: "Could Not Capture Tab",
+        message: err?.message || "The browser could not start audio sharing. Try desktop Chrome or Edge.",
+        type: "alert", confirmText: "OK",
+        onConfirm: () => setDialog(prev => ({ ...prev, isOpen: false })),
+      });
+      return;
+    }
+
+    if (!stream.getAudioTracks().length) {
+      stream.getTracks().forEach(track => track.stop());
+      setDialog({
+        isOpen: true, title: "No Tab Audio Shared",
+        message: 'Select the YouTube browser tab and enable "Also share tab audio" in the sharing picker. Screen sharing without audio cannot detect chords.',
+        type: "alert", confirmText: "OK",
+        onConfirm: () => setDialog(prev => ({ ...prev, isOpen: false })),
+      });
+      return;
+    }
+
+    const mime = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"]
+      .find(type => MediaRecorder.isTypeSupported(type));
+    if (!mime) {
+      stream.getTracks().forEach(track => track.stop());
+      setDialog({
+        isOpen: true, title: "Audio Recording Unsupported",
+        message: "This browser cannot record shared tab audio in a supported format. Try desktop Chrome or Edge.",
+        type: "alert", confirmText: "OK",
+        onConfirm: () => setDialog(prev => ({ ...prev, isOpen: false })),
+      });
+      return;
+    }
+
+    const chunks: Blob[] = [];
+    let recorder: MediaRecorder;
+    try {
+      recorder = new MediaRecorder(new MediaStream(stream.getAudioTracks()), {
+        mimeType: mime,
+        audioBitsPerSecond: 128000,
+      });
+    } catch (err: any) {
+      stream.getTracks().forEach(track => track.stop());
+      setDialog({
+        isOpen: true, title: "Audio Recorder Failed",
+        message: err?.message || "Unable to initialize tab audio capture.",
+        type: "alert", confirmText: "OK",
+        onConfirm: () => setDialog(prev => ({ ...prev, isOpen: false })),
+      });
+      return;
+    }
+
+    const startedAt = Date.now();
+    let captureFailed = false;
+    recorder.ondataavailable = event => {
+      if (event.data?.size) chunks.push(event.data);
+    };
+    recorder.onerror = () => { captureFailed = true; };
+    recorder.onstop = async () => {
+      stream.getTracks().forEach(track => track.stop());
+      if (tabCaptureRef.current?.recorder === recorder) tabCaptureRef.current = null;
+      setIsCapturingTab(false);
+      setCaptureGuideUrl(null);
+
+      if (captureFailed || Date.now() - startedAt < 3000 || chunks.reduce((n, b) => n + b.size, 0) < 5000) {
+        setDialog({
+          isOpen: true, title: "No Usable Audio Recorded",
+          message: "Play the song from the beginning in the shared YouTube tab for at least several seconds before stopping. Tab sharing must include audio.",
+          type: "alert", confirmText: "OK",
+          onConfirm: () => setDialog(prev => ({ ...prev, isOpen: false })),
+        });
+        return;
+      }
+
+      const blob = new Blob(chunks, { type: mime });
+      abortControllerRef.current = new AbortController();
+      setAnalysisProgress({ message: "Analyzing recorded tab audio locally...", pct: 10 });
+      try {
+        const meta = await fetchYouTubeOEmbed(youtubeSource).catch(() => null);
+        await analyzeAndLoadAudio(blob, {
+          title: meta?.title || "YouTube Tab Recording",
+          artist: meta?.author_name || "YouTube",
+          youtubeUrl: youtubeSource,
+          imageUrl: meta?.thumbnail_url || getYouTubeThumbnailUrl(youtubeSource),
+          originalBlob: blob,
+        }, (message, pct) => setAnalysisProgress({ message, pct }));
+        setShowYouTubeVideo(true);
+      } catch (err: any) {
+        setAnalysisProgress(null);
+        abortControllerRef.current = null;
+        setDialog({
+          isOpen: true, title: "Recorded Audio Analysis Failed",
+          message: (err?.message || "The recorded audio could not be decoded.") + " Try using desktop Chrome or Edge, or upload an MP3/WAV file.",
+          type: "alert", confirmText: "OK",
+          onConfirm: () => setDialog(prev => ({ ...prev, isOpen: false })),
+        });
+      }
+    };
+    stream.getTracks().forEach(track => track.addEventListener("ended", () => {
+      if (recorder.state !== "inactive") recorder.stop();
+    }, { once: true }));
+
+    try {
+      recorder.start(1000);
+      tabCaptureRef.current = { recorder, stream };
+      setCaptureGuideUrl(youtubeSource);
+      setIsCapturingTab(true);
+    } catch (err: any) {
+      stream.getTracks().forEach(track => track.stop());
+      setDialog({
+        isOpen: true, title: "Recording Could Not Start",
+        message: err?.message || "The browser rejected tab audio recording.",
+        type: "alert", confirmText: "OK",
+        onConfirm: () => setDialog(prev => ({ ...prev, isOpen: false })),
+      });
+    }
+  };
+
+  const stopTabAudioCapture = () => {
+    const capture = tabCaptureRef.current;
+    if (capture && capture.recorder.state !== "inactive") capture.recorder.stop();
+  };
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1197,14 +1350,13 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
           setDialog({
             isOpen: true,
             title: "YouTube Audio Access Notice",
-            message: `The audio extractor could not deliver analyzable audio. ${err?.message || "The request failed."} You can upload an authorized MP3, WAV, FLAC or M4A file instead. We will not substitute estimated chords for real analysis.`,
-            confirmText: "Upload Audio File",
+            message: `The cloud extractor could not retrieve audio. ${err?.message || "The request failed."} As an alternative, open the video in a separate YouTube tab, then choose Capture Tab Audio. In desktop Chrome/Edge, select that YouTube tab and enable sharing tab audio. Play the song from 0:00, then click Stop & Analyze here. Analysis is local; no guessed chords are used. You may also upload an authorized audio file instead.`,
+            confirmText: "Capture Tab Audio",
             cancelText: "Close",
             type: "confirm",
             onConfirm: () => {
               setDialog((prev) => ({ ...prev, isOpen: false }));
-              pendingYouTubeUrlRef.current = normalizedUrl;
-              fileInputRef.current?.click();
+              void startTabAudioCapture(normalizedUrl);
             },
             onCancel: () => setDialog((prev) => ({ ...prev, isOpen: false })),
           });
@@ -1694,6 +1846,31 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                 {isLiveMic ? "Listening to live guitar input..." : "Listen to live audio"}
               </p>
             </div>
+          </div>
+        </div>
+      )}
+
+      {isCapturingTab && (
+        <div className="frosted-card rounded-2xl p-4 sm:p-5 border border-amber-400/50 flex flex-col gap-3" role="status">
+          <div className="text-amber-300 font-bold text-sm flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
+            RECORDING SHARED TAB AUDIO
+          </div>
+          <p className="text-xs text-zinc-300 leading-relaxed">
+            In the YouTube tab you shared, play the song starting at 0:00. Keep it playing at normal speed.
+            Return here when finished and click Stop &amp; Analyze. Recording will be analyzed on your device.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {captureGuideUrl && (
+              <a href={captureGuideUrl} target="_blank" rel="noopener noreferrer"
+                className="min-h-[44px] px-4 py-2 rounded-xl border border-zinc-600 text-white text-xs font-bold inline-flex items-center">
+                Open YouTube Tab
+              </a>
+            )}
+            <button type="button" onClick={stopTabAudioCapture}
+              className="min-h-[44px] px-4 py-2 rounded-xl bg-amber-400 text-black font-bold text-xs">
+              Stop &amp; Analyze
+            </button>
           </div>
         </div>
       )}
