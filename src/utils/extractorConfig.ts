@@ -299,51 +299,79 @@ export async function extractYouTubeAudio(
       onProgress({ stage: "connecting", message: "Connecting to audio extractor...", pct: 10 });
     }
 
-    // 2. Download audio extraction from backend
-    if (onProgress) {
-      onProgress({ stage: "downloading", message: "Downloading audio...", pct: 25 });
+    // Free blitz.cloud instances sleep while idle. A first request may
+    // return HTTP 503 ("The app is awake now. Try again.") instead of audio.
+    // Wait for health readiness and retry only transient 503 responses.
+    const sleep = (ms: number) => new Promise<void>((resolve, reject) => {
+      if (signal?.aborted) { reject(new DOMException("Aborted", "AbortError")); return; }
+      const timeout = setTimeout(() => {
+        signal?.removeEventListener("abort", abort);
+        resolve();
+      }, ms);
+      const abort = () => {
+        clearTimeout(timeout);
+        reject(new DOMException("Aborted", "AbortError"));
+      };
+      signal?.addEventListener("abort", abort, { once: true });
+    });
+
+    if (!skipWarmup) {
+      onProgress?.({ stage: "connecting", message: "Waking audio extractor...", pct: 12 });
+      for (let ping = 0; ping < 4; ping++) {
+        if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+        const ready = await pingExtractorWarmup({
+          baseUrl: apiBase,
+          signal,
+          timeoutMs: 12000,
+          onStateChange: (_state, message) =>
+            onProgress?.({ stage: "starting", message, pct: 15 }),
+        });
+        if (ready) break;
+        if (ping < 3) await sleep(2500 + ping * 1500);
+      }
     }
 
-    let response: Response;
-    try {
-      response = await fetch(endpoint, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ url: normalizedUrl }),
-        signal,
+    let response: Response | undefined;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+      onProgress?.({
+        stage: attempt ? "starting" : "downloading",
+        message: attempt ? "Audio server is waking up; retrying connection..." : "Retrieving and preparing audio...",
+        pct: attempt ? 17 + attempt * 2 : 25,
       });
-    } catch (err: any) {
-      if (err.name === "AbortError") {
-        throw err;
-      }
-      console.warn("[YouTube Extractor] Backend request failed:", err?.message || err);
-      // If same-origin proxy or custom baseUrl failed, try direct DEFAULT_EXTRACTOR_API as secondary attempt
-      if (DEFAULT_EXTRACTOR_API && endpoint !== `${DEFAULT_EXTRACTOR_API}/extract`) {
-        try {
-          response = await fetch(`${DEFAULT_EXTRACTOR_API}/extract`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ url: normalizedUrl }),
-            signal,
-          });
-        } catch (fallbackErr: any) {
-          if (fallbackErr.name === "AbortError") throw fallbackErr;
-          console.error("[YouTube Extractor] Fallback network request failed:", fallbackErr);
+
+      try {
+        response = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: normalizedUrl }),
+          signal,
+        });
+      } catch (err: any) {
+        if (err?.name === "AbortError") throw err;
+        console.warn("[YouTube Extractor] Backend network request failed:", err?.message || err);
+        if (attempt === 3) {
           throw new YouTubeExtractionError(
             "NETWORK_ERROR",
-            "Unable to reach the YouTube audio extractor backend. The server may be waking up from cold start or temporarily offline. You can upload an authorized audio file directly.",
+            "Cannot reach the audio extractor. The free backend may be sleeping or unavailable.",
             { stage: "connecting", retryable: true, source: "client_network" }
           );
         }
-      } else {
-        throw new YouTubeExtractionError(
-          "NETWORK_ERROR",
-          "Unable to reach the YouTube audio extractor backend. The server may be waking up from cold start or temporarily offline. You can upload an authorized audio file directly.",
-          { stage: "connecting", retryable: true, source: "client_network" }
-        );
+        await sleep(2000 + attempt * 2000);
+        continue;
       }
+
+      if (response.status !== 503) break;
+      // 503 is emitted by blitz.cloud before the sleeping app becomes ready.
+      // Do not retry YouTube 403/429/bot challenges; those are separate errors.
+      if (attempt < 3) {
+        await sleep(2500 + attempt * 2500);
+      }
+    }
+    if (!response) {
+      throw new YouTubeExtractionError("NETWORK_ERROR", "The audio extractor did not respond.", {
+        stage: "connecting", retryable: true, source: "client_network"
+      });
     }
 
     if (!response.ok) {
@@ -355,6 +383,10 @@ export async function extractYouTubeAudio(
         if (errJson.message) detailMsg = errJson.message;
         else if (errJson.error) detailMsg = errJson.error;
       } catch (_) {}
+
+      if (response.status === 503) {
+        throw new YouTubeExtractionError("NETWORK_ERROR", "The free audio server is still starting or temporarily unavailable. Please try again shortly.", { stage: "connecting", retryable: true, source: "vercel_proxy", status: 503 });
+      }
 
       const isBotChallenge =
         errCode === "YOUTUBE_BOT_CHALLENGE" ||
