@@ -455,19 +455,38 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
     }
   }, [isPlaying, activeYouTubeId]);
 
+  const syncOffsetSeconds = activeSong?.youtubeUrl
+    ? Math.max(-10, Math.min(10, Number((activeSong as SavedSong)?.syncOffsetSeconds) || 0))
+    : 0;
+
+  const updateSyncOffset = (offset: number) => {
+    if (!activeSong?.youtubeUrl) return;
+    const rounded = Math.round(Math.max(-10, Math.min(10, offset)) * 20) / 20;
+    const updated = { ...activeSong, syncOffsetSeconds: rounded, savedAt: Date.now() } as SavedSong;
+    setActiveSong(updated);
+    setSavedSongs(prev => prev.map(song => song.id === updated.id ? updated : song));
+    void saveSongToDB(updated).catch(err => console.warn("Could not save chord timing offset:", err));
+  };
+
   const segments = React.useMemo(() => {
     if (!activeSong) return [];
     if (activeSong.chordSegments && activeSong.chordSegments.length > 0) {
-      if ((activeSong as any).isUserEdited) {
-        return activeSong.chordSegments;
-      }
-      const stabilized = stabilizeChordSegments(activeSong.chordSegments, {
-        beats: activeSong.beats,
-        tempo: activeSong.tempo,
-        keyContext: activeSong.key,
-        duration: activeSong.duration,
-      });
-      return stabilized.segments;
+      const measured = (activeSong as any).isUserEdited
+        ? activeSong.chordSegments
+        : stabilizeChordSegments(activeSong.chordSegments, {
+            beats: activeSong.beats,
+            tempo: activeSong.tempo,
+            keyContext: activeSong.key,
+            duration: activeSong.duration,
+          }).segments;
+      // A recording can begin before/after playback starts. Apply an optional,
+      // user-calibrated alignment shift to both chord display and timeline.
+      // Keep the original measured segments unchanged for future re-alignment.
+      return syncOffsetSeconds === 0 ? measured : measured.map((seg: ChordSegment) => ({
+        ...seg,
+        startTime: seg.startTime + syncOffsetSeconds,
+        endTime: seg.endTime + syncOffsetSeconds,
+      }));
     }
     // Generate simulated segments for visualization if missing
     let t = 0;
@@ -494,7 +513,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
         };
       });
     });
-  }, [activeSong]);
+  }, [activeSong, syncOffsetSeconds]);
 
   const duration = activeSong?.duration || (segments.length > 0 ? segments[segments.length - 1].endTime : 1);
 
@@ -886,7 +905,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
       if (captureFailed || Date.now() - startedAt < 3000 || chunks.reduce((n, b) => n + b.size, 0) < 5000) {
         setDialog({
           isOpen: true, title: "No Usable Audio Recorded",
-          message: "Play the song from the beginning in the shared YouTube tab for at least several seconds before stopping. Tab sharing must include audio.",
+          message: "Play at least 20–30 seconds from the beginning of the shared YouTube tab before stopping. The resulting chords only cover the portion you recorded. Tab sharing must include audio.",
           type: "alert", confirmText: "OK",
           onConfirm: () => setDialog(prev => ({ ...prev, isOpen: false })),
         });
@@ -1350,7 +1369,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
           setDialog({
             isOpen: true,
             title: "YouTube Audio Access Notice",
-            message: `The cloud extractor could not retrieve audio. ${err?.message || "The request failed."} As an alternative, open the video in a separate YouTube tab, then choose Capture Tab Audio. In desktop Chrome/Edge, select that YouTube tab and enable sharing tab audio. Play the song from 0:00, then click Stop & Analyze here. Analysis is local; no guessed chords are used. You may also upload an authorized audio file instead.`,
+            message: `The cloud extractor could not retrieve audio. ${err?.message || "The request failed."} As an alternative, open the video in a separate YouTube tab, then choose Capture Tab Audio. In desktop Chrome/Edge, select that YouTube tab and enable sharing tab audio. Play from 0:00, then click Stop & Analyze here. You can record only 30–60 seconds to analyze that section faster, but the rest of the song will not have measured chords. Analysis is local; no guessed chords are used. You may also upload an authorized audio file instead.`,
             confirmText: "Capture Tab Audio",
             cancelText: "Close",
             type: "confirm",
@@ -1874,8 +1893,7 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
             RECORDING SHARED TAB AUDIO
           </div>
           <p className="text-xs text-zinc-300 leading-relaxed">
-            In the YouTube tab you shared, play the song starting at 0:00. Keep it playing at normal speed.
-            Return here when finished and click Stop &amp; Analyze. Recording will be analyzed on your device.
+            In the shared YouTube tab, start the music at 0:00 and play at normal speed. You can stop after 30–60 seconds for a quicker partial analysis, or play the entire song to detect its full chord timeline. Return here and select Stop &amp; Analyze. Recording stays on your device.
           </p>
           <div className="flex flex-wrap gap-2">
             {captureGuideUrl && (
@@ -2267,6 +2285,35 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                     {formatTime(displayTime)} / {formatTime(duration)}
                   </span>
                 </div>
+
+                {activeYouTubeId && !!activeSong?.chordSegments?.length && (
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 mb-2">
+                    <div className="min-w-0">
+                      <div className="text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-200">Chord timing sync</div>
+                      <div className="text-[10px] text-zinc-400">Move chords earlier/later if tab recording began off-beat</div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <button type="button" onClick={() => updateSyncOffset(syncOffsetSeconds - 0.25)}
+                        aria-label="Shift chord changes 0.25 seconds earlier"
+                        className="min-h-[36px] px-2 rounded-lg bg-white/10 hover:bg-white/20 text-xs text-white font-bold">
+                        −0.25s
+                      </button>
+                      <span className="min-w-[58px] text-center text-xs font-mono tabular-nums text-[#a3ff12]">
+                        {syncOffsetSeconds >= 0 ? "+" : ""}{syncOffsetSeconds.toFixed(2)}s
+                      </span>
+                      <button type="button" onClick={() => updateSyncOffset(syncOffsetSeconds + 0.25)}
+                        aria-label="Shift chord changes 0.25 seconds later"
+                        className="min-h-[36px] px-2 rounded-lg bg-white/10 hover:bg-white/20 text-xs text-white font-bold">
+                        +0.25s
+                      </button>
+                      <button type="button" onClick={() => updateSyncOffset(0)}
+                        disabled={syncOffsetSeconds === 0}
+                        className="min-h-[36px] px-2 rounded-lg border border-white/20 disabled:opacity-40 text-xs text-zinc-300">
+                        Reset
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {/* High-Performance Ultra-Smooth Timeline Scrubber combining Previous UI with Hardware Zero-Lag Logic */}
                 <TimelineScrubber
