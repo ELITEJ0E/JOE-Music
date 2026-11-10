@@ -1,9 +1,9 @@
 /**
  * Configuration and client for the external YouTube audio extraction backend.
- * No extractor host is configured by default. JOE Studio uses verified cache or authorized uploads.
+ * Live extractor: blitz.cloud via Vercel same-origin rewrite in production.
  */
 
-export const DEFAULT_EXTRACTOR_API = "";
+export const DEFAULT_EXTRACTOR_API = "https://chord-extractor.joel-tan.prod.page";
 
 export interface YouTubeOEmbedData {
   title?: string;
@@ -33,13 +33,19 @@ export async function fetchYouTubeOEmbed(url: string): Promise<YouTubeOEmbedData
  * Returns the configured extractor backend base URL without trailing slashes.
  */
 export function getExtractorApiUrl(): string {
-  // An optional, explicitly configured authorized extractor can be enabled in
-  // the future. Never silently fall back to an expired cloud service.
+  // Production browser requests use Vercel's rewrite to avoid cross-origin
+  // restrictions and preserve the same /extract API contract.
+  if (typeof window !== "undefined" &&
+      !["localhost", "127.0.0.1"].includes(window.location.hostname)) {
+    return "/api/youtube";
+  }
   const envUrl =
     (typeof import.meta !== "undefined" && import.meta.env?.VITE_EXTRACTOR_API) ||
     (typeof import.meta !== "undefined" && import.meta.env?.VITE_AUDIO_EXTRACTOR_URL) ||
     "";
-  return typeof envUrl === "string" ? envUrl.trim().replace(new RegExp("/+$"), "") : "";
+  return typeof envUrl === "string" && envUrl.trim()
+    ? envUrl.trim().replace(/\\/+$/, "")
+    : DEFAULT_EXTRACTOR_API;
 }
 
 /**
@@ -111,7 +117,7 @@ export interface WarmupOptions {
 }
 
 /**
- * Pings an explicitly configured audio backend if present.
+ * Pings the configured YouTube audio backend.
  */
 export async function pingExtractorWarmup(options?: WarmupOptions): Promise<boolean> {
   const baseUrl = (options?.baseUrl || getExtractorApiUrl()).replace(/\/+$/, "");
@@ -123,7 +129,7 @@ export async function pingExtractorWarmup(options?: WarmupOptions): Promise<bool
   onStateChange?.("connecting", "Connecting to audio extractor...");
 
   let warmupTimer: any = null;
-  // If connection takes more than 2.5 seconds, Render is likely undergoing a cold start
+  // Free-tier hosts may need additional time after inactivity.
   if (onStateChange) {
     warmupTimer = setTimeout(() => {
       onStateChange("starting", "Starting extractor server (first load may take a moment)...");
@@ -241,7 +247,7 @@ export class YouTubeExtractionError extends Error {
 }
 
 /**
- * Legacy optional extractor client; requires an explicitly configured backend.
+ * Extracts audio from the configured backend for actual harmonic analysis.
  * Implements request locking, cold-start detection, and stage progress reporting.
  */
 export async function extractYouTubeAudio(
@@ -312,7 +318,7 @@ export async function extractYouTubeAudio(
       if (err.name === "AbortError") {
         throw err;
       }
-      console.warn("[YouTube Extractor] Primary fetch failed, attempting fallback:", err?.message || err);
+      console.warn("[YouTube Extractor] Backend request failed:", err?.message || err);
       // If same-origin proxy or custom baseUrl failed, try direct DEFAULT_EXTRACTOR_API as secondary attempt
       if (DEFAULT_EXTRACTOR_API && endpoint !== `${DEFAULT_EXTRACTOR_API}/extract`) {
         try {
@@ -370,7 +376,7 @@ export async function extractYouTubeAudio(
         throw new YouTubeExtractionError(
           "YOUTUBE_BOT_CHALLENGE",
           "YouTube bot verification is required for automated cloud downloads. Because the YouTube iframe player API cannot supply decoded audio samples across origins, you can upload an authorized audio file to analyze chords accurately.",
-          { stage: "audio_retrieval", retryable: false, source: "render_backend", status: response.status }
+          { stage: "audio_retrieval", retryable: false, source: "vercel_proxy", status: response.status }
         );
       }
 
@@ -378,7 +384,7 @@ export async function extractYouTubeAudio(
         throw new YouTubeExtractionError(
           "YOUTUBE_RATE_LIMITED",
           "YouTube is temporarily restricting automated audio streams from this cloud IP (HTTP 429 Rate Limit). Because the YouTube iframe player cannot provide raw audio samples, upload the song's audio file directly for instant harmonic analysis.",
-          { stage: "audio_retrieval", retryable: false, source: "render_backend", status: 429 }
+          { stage: "audio_retrieval", retryable: false, source: "vercel_proxy", status: 429 }
         );
       }
 
@@ -386,7 +392,7 @@ export async function extractYouTubeAudio(
         throw new YouTubeExtractionError(
           "YOUTUBE_HTTP_403",
           "YouTube streaming access was forbidden (HTTP 403). Uploading an authorized audio file allows instant chord analysis.",
-          { stage: "audio_retrieval", retryable: false, source: "render_backend", status: 403 }
+          { stage: "audio_retrieval", retryable: false, source: "vercel_proxy", status: 403 }
         );
       }
 
