@@ -1816,6 +1816,23 @@ export const ChordFinderStudio: React.FC<ChordFinderStudioProps> = ({ initialSon
                     {analysisProgress ? "..." : "SEARCH"}
                   </button>
                 </div>
+                {(isValidYouTubeUrl(youtubeUrl) || isValidYouTubeUrl(songName)) && (
+                  <div className="flex flex-wrap gap-2 items-center pt-1">
+                    <a
+                      href={normalizeYouTubeUrl(isValidYouTubeUrl(youtubeUrl) ? youtubeUrl : songName)}
+                      target="_blank" rel="noopener noreferrer"
+                      className="rounded-lg px-3 py-2 text-[11px] font-bold border border-zinc-600 text-zinc-200 hover:bg-white/10"
+                    >
+                      1. Open YouTube Tab
+                    </a>
+                    <button type="button" disabled={isCapturingTab || !!analysisProgress}
+                      onClick={() => void startTabAudioCapture(normalizeYouTubeUrl(isValidYouTubeUrl(youtubeUrl) ? youtubeUrl : songName))}
+                      className="rounded-lg px-3 py-2 text-[11px] font-bold border border-amber-400/40 text-amber-300 hover:bg-amber-400/10 disabled:opacity-50"
+                    >
+                      2. Capture Tab Audio
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 
