@@ -239,6 +239,8 @@ export interface SavedSong extends SongAnalysis {
   savedAt: number;
   lastPlayedAt?: number;
   isUserEdited?: boolean;
+  /** Seconds to shift measured chords against YouTube playback (+ later, - earlier). */
+  syncOffsetSeconds?: number;
   transcriptionConfidence?: number;
   rawHarmonicData?: any;
 }
