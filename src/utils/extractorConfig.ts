@@ -144,17 +144,21 @@ export async function pingExtractorWarmup(options?: WarmupOptions): Promise<bool
     : abortCtrl.signal;
 
   try {
-    const res = await fetch(`${baseUrl}/`, {
+    const res = await fetch(`${baseUrl}/health`, {
       method: "GET",
       signal: combinedSignal,
     });
     clearTimeout(timer);
     if (warmupTimer) clearTimeout(warmupTimer);
 
-    if (res.ok || res.status === 404 || res.status === 200) {
-      onStateChange?.("ready", "Extractor server ready.");
-      return true;
+    if (res.ok) {
+      const health = await res.json().catch(() => null);
+      if (health?.status === "ok" && health?.service === "chord-extractor-backend") {
+        onStateChange?.("ready", "Extractor server ready.");
+        return true;
+      }
     }
+    onStateChange?.("starting", `Waiting for extractor health check (HTTP ${res.status})...`);
     return false;
   } catch (err: any) {
     clearTimeout(timer);
