@@ -6,16 +6,16 @@
   },
   "rewrites": [
     {
+      "source": "/api/youtube/:path*",
+      "destination": "https://chord-extractor.joel-tan.prod.page/:path*"
+    },
+    {
       "source": "/api/suno-audio/:clipId",
       "destination": "/api/suno-audio?clipId=:clipId"
     },
     {
       "source": "/api/suno-rights/:clipId",
       "destination": "/api/suno-rights?clipId=:clipId"
-    },
-    {
-      "source": "/api/verified-chords/:videoId",
-      "destination": "/api/verified-chords?videoId=:videoId"
     },
     {
       "source": "/((?!api/).*)",
