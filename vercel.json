@@ -6,6 +6,18 @@
   },
   "rewrites": [
     {
+      "source": "/api/youtube/",
+      "destination": "https://chord-extractor.joel-tan.prod.page/"
+    },
+    {
+      "source": "/api/youtube",
+      "destination": "https://chord-extractor.joel-tan.prod.page/"
+    },
+    {
+      "source": "/api/youtube/health",
+      "destination": "https://chord-extractor.joel-tan.prod.page/health"
+    },
+    {
       "source": "/api/youtube/:path*",
       "destination": "https://chord-extractor.joel-tan.prod.page/:path*"
     },
